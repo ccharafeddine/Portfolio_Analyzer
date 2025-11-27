@@ -1,0 +1,51 @@
+{
+  "tickers": [
+    "BTC-USD",
+    "MARA",
+    "SPYG",
+    "XLK",
+    "AAPL",
+    "UNH",
+    "XLP",
+    "SCHD",
+    "XYLD",
+    "SHY",
+    "IAU"
+  ],
+  "benchmark": "^GSPC",
+  "start": "2020-01-02",
+  "end": null,
+  "interval": "1d",
+  "use_dividends_in_total_return": false,
+  "risk_free_rate": 0.04,
+  "max_allocation_bounds": [0.0, 1.0],
+  "short_sales": false,
+  "frontier_points": 50,
+
+  "active_portfolio": {
+    "capital": 1000000,
+    "start_date": "2020-01-02",
+    "weights": {
+      "BTC-USD": 0.08,
+      "MARA": 0.02,
+      "SPYG": 0.20,
+      "XLK": 0.15,
+      "AAPL": 0.10,
+      "UNH": 0.05,
+      "XLP": 0.10,
+      "SCHD": 0.10,
+      "XYLD": 0.10,
+      "SHY": 0.07,
+      "IAU": 0.03
+    }
+  },
+
+  "passive_portfolio": {
+    "capital": 1000000,
+    "start_date": "2020-01-02"
+  },
+
+  "complete_portfolio": {
+    "y": 0.8
+  }
+}
