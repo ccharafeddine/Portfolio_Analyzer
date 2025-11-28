@@ -19,7 +19,7 @@ This tool is designed so any user can plug in their own tickers, weights, and da
 ---
 
 ## Project Structure
-
+'''
 PORTFOLIO_ANALYZER/
 ├── pycache/
 ├── .venv/ # virtual environment (ignored by git)
@@ -51,7 +51,7 @@ PORTFOLIO_ANALYZER/
 ├── simulate_forecasts.py
 ├── style_analysis.py
 └── valuation.py
-
+'''
 
 
 You typically only modify:  
@@ -162,6 +162,7 @@ Below is a descriptive example of `config.json` and what each field controls.
     "y": 0.80
   }
 }
+'''
 What you modify:
 Change tickers → "tickers": [...]
 
@@ -183,7 +184,7 @@ Everything else updates automatically.
 ---------------------------------------------------------------------------
 
 What Each Script Does:
-
+'''
 main.py — The Workflow Controller
 Coordinates everything:
 
@@ -202,8 +203,8 @@ Generates plots
 Builds final report
 
 Run this file to run the full analysis.
-
-
+'''
+'''
 data_io.py
 Handles:
 
@@ -216,22 +217,22 @@ clean_prices.csv
 holdings tables
 
 portfolio value series
-
-
+'''
+'''
 build_active_portfolio_series.py
 Calculates share counts based on weights
 
 Builds active_portfolio_value.csv
 
 Builds holdings_table.csv
-
-
+'''
+'''
 build_passive_portfolio_series.py
 Buys benchmark at start_date
 
 Builds passive_portfolio_value.csv
-
-
+'''
+'''
 compute_active_stats.py
 Calculates:
 
@@ -254,16 +255,16 @@ orp_value_realized.csv
 correlation_matrix.png
 
 complete_portfolio_pie.png
-
-
+'''
+'''
 analytics.py
 CAPM regression
 
 Excess returns
 
 Math/stat helper functions
-
-
+'''
+'''
 make_performance_plots.py
 Creates performance plots comparing:
 
@@ -274,30 +275,30 @@ passive
 ORP
 
 complete portfolio
-
-
+'''
+'''
 make_additional_plots.py
 Efficient frontier plots
 
 Additional visuals not covered in the performance file
-
-
+'''
+'''
 style_analysis.py
 Multi-factor “style” regression
 
 You may update the tickers used here to run a different factor analysis
-
-
+'''
+'''
 simulate_forecasts.py
 Monte Carlo–style forward simulations using historical vol & drift
 
 Produces charts like forward_scenarios.png
-
-
+'''
+'''
 plotting.py
 Shared utilities for consistent plot formatting
-
-
+'''
+'''
 generate_report.py
 Reads all CSVs & plots
 
@@ -336,9 +337,10 @@ report.md
 report.pdf (optional)
 
 These files collectively describe the entire portfolio analysis.
+''
 
+Running with a New Portfolio (Quick Guide)
 
-🔁 Running with a New Portfolio (Quick Guide)
 Open config.json
 
 Update:
