@@ -18,7 +18,7 @@ This tool is designed so any user can plug in their own tickers, weights, and da
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 PORTFOLIO_ANALYZER/
 ├── pycache/
@@ -59,7 +59,7 @@ You typically only modify:
 
 ---
 
-## 🛠️ Requirements
+## Requirements
 
 - **Python 3.10+** (project tested on Python 3.12)
 - Internet connection (for Yahoo Finance)
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 How to Run the Project
+## How to Run the Project
 
 ### **1. Clone and open**
 
@@ -111,7 +111,7 @@ All outputs appear in the `outputs/` directory.
 
 ---
 
-## 🧩 Editing `config.json` (The ONLY file needed for new analyses)
+## Editing `config.json` (The ONLY file needed for new analyses)
 
 Below is a descriptive example of `config.json` and what each field controls.
 
@@ -179,6 +179,8 @@ Update style tickers (inside style_analysis.py if desired)
 
 That’s it.
 Everything else updates automatically.
+
+---------------------------------------------------------------------------
 
 What Each Script Does:
 
