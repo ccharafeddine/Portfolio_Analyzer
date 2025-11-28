@@ -57,8 +57,9 @@ You usually only modify:
 
 ✔ config.json (portfolio, weights, dates, risk-free rate, etc.)
 
+
+Requirements:
 ```
-Requirements
 Python 3.10+ (tested on Python 3.12)
 
 Internet connection (for Yahoo Finance)
@@ -73,23 +74,26 @@ pip install -r requirements.txt
 How to Run the Project
 
 1. Clone and open
-
+```python
 git clone https://github.com/ccharafeddine/Portfolio_Analyzer.git
-cd Portfolio_Analyzer
 
+cd Portfolio_Analyzer
+```
 
 2. Create a virtual environment
 
 macOS / Linux:
-
+```python
 python3 -m venv .venv
+
 source .venv/bin/activate
-
+```
 Windows (PowerShell):
-
+```python
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 
+.\.venv\Scripts\Activate.ps1
+```
 
 3. Install dependencies
 ```python
@@ -101,10 +105,11 @@ python main.py --config config.json
 ```
 All outputs appear in the outputs/ directory.
 
-Editing config.json (The ONLY file needed for new analyses)
+##Editing config.json (The ONLY file needed for new analyses)
+
 Below is a clear, fully valid example.
 
-
+```json
 {
   "tickers": [
     "BTC-USD", "MARA", "SPYG", "XLK", "AAPL",
@@ -151,7 +156,7 @@ Below is a clear, fully valid example.
     "y": 0.80
   }
 }
-
+```
 
 What you modify:
 ```
@@ -173,9 +178,9 @@ Complete portfolio mix → "complete_portfolio.y"
 Everything else updates automatically.
 
 
-What Each Script Does
+##What Each Script Does
 
-main.py — Workflow Controller
+**<u>main.py — Workflow Controller</u>**
 ```
 Coordinates everything:
 
@@ -197,7 +202,7 @@ Writes the final report
 
 Run this file to perform the full analysis.
 ```
-data_io.py
+**<u>data_io.py</u>**
 ```
 Handles downloading and saving:
 
@@ -209,7 +214,7 @@ holdings_table.csv
 
 portfolio value series
 ```
-build_active_portfolio_series.py
+**<u>build_active_portfolio_series.py</u>**
 ```
 Computes share counts from weights.
 Generates:
@@ -218,14 +223,14 @@ active_portfolio_value.csv
 
 holdings_table.csv
 ```
-build_passive_portfolio_series.py
+**<u>build_passive_portfolio_series.py</u>**
 ```
 Buys benchmark at start.
 Generates:
 
 passive_portfolio_value.csv
 ```
-compute_active_stats.py
+**<u>compute_active_stats.py</u>**
 ```
 Computes:
 
@@ -251,7 +256,7 @@ correlation_matrix.png
 
 complete_portfolio_pie.png
 ```
-analytics.py
+**<u>analytics.py</u>**
 ```
 CAPM regression
 
@@ -259,7 +264,7 @@ Excess returns
 
 Math/stat helpers
 ```
-make_performance_plots.py
+**<u>make_performance_plots.py</u>**
 ```
 Creates charts comparing:
 
@@ -271,15 +276,15 @@ ORP
 
 Complete
 ```
-make_additional_plots.py
+**<u>make_additional_plots.py</u>**
 ```
 Efficient frontier and additional visuals.
 ```
-style_analysis.py
+**<u>style_analysis.py</u>**
 ```
 Multi-factor regression (can customize tickers)
 ```
-simulate_forecasts.py
+**<u>simulate_forecasts.py</u>**
 ```
 Monte Carlo-style forward simulations.
 
@@ -287,11 +292,11 @@ Creates:
 
 forward_scenarios.png
 ```
-plotting.py
+**<u>plotting.py</u>**
 ```
 Shared utilities for consistent plotting.
 ```
-generate_report.py
+**<u>generate_report.py</u>**
 ```
 Builds:
 
@@ -299,7 +304,7 @@ report.md (always works)
 
 report.pdf (may fail if FPDF hits Unicode or space limits)
 ```
-Outputs Generated
+**<u>Outputs Generated</u>**
 
 Inside outputs/:
 ```
@@ -328,10 +333,11 @@ report.md
 report.pdf (optional)
 ```
 
-Running With a New Portfolio (Quick Guide)
-Open config.json
+**<u>Running With a New Portfolio (Quick Guide)</u>**
 
-Update:
+**Open config.json**
+
+**Update:**
 
 tickers
 
@@ -347,16 +353,16 @@ capital
 
 complete portfolio fraction
 
-Save
+**Save**
 
-Run:
+**Run:**
 
 ```python
 python main.py --config config.json
 ```
 All outputs regenerate automatically.
 
-Notes & Limitations
+**<u>Notes & Limitations</u>**
 ```
 Yahoo Finance occasionally drops data — rerun if something seems missing.
 
@@ -365,7 +371,7 @@ PDF export may fail due to Unicode or layout constraints (markdown always succee
 Optimization is based on historical returns; not predictive.
 ```
 
-Intended Use
+**<u>Intended Use</u>**
 ```
 This tool helps:
 
