@@ -55,7 +55,7 @@ PORTFOLIO_ANALYZER/
 ```
 You usually only modify:
 
-✔ config.json (portfolio, weights, dates, risk-free rate, etc.)
+`config.json` (portfolio, weights, dates, risk-free rate, etc.)
 
 
 Requirements:
@@ -105,7 +105,7 @@ python main.py --config config.json
 ```
 All outputs appear in the outputs/ directory.
 
-##Editing config.json (The ONLY file needed for new analyses)
+**<u>Editing config.json (The ONLY file needed for new analyses)</u>**
 
 Below is a clear, fully valid example.
 
@@ -172,13 +172,13 @@ Active weights → inside "weights"
 
 Portfolio size → "capital"
 
-Complete portfolio mix → "complete_portfolio.y"
+Complete portfolio mix → "y": 0.80
 ```
 
 Everything else updates automatically.
 
 
-##What Each Script Does
+**<u>What Each Script Does</u>**
 
 **<u>main.py — Workflow Controller</u>**
 ```
