@@ -12,37 +12,38 @@ Outputs include:
 - Efficient frontier / ORP summary  
 - Forward return scenarios  
 - A full Markdown report (`outputs/report.md`)  
-- Attempted PDF report (`outputs/report.pdf`, optional)
+- Optional PDF report (`outputs/report.pdf`)
 
-This tool is designed so any user can plug in their own tickers, weights, and dates using `config.json` and reproduce the analysis easily.
+Any user can plug in their own tickers, weights, and dates using `config.json` to reproduce the analysis.
 
 ---
 
 ## Project Structure
-'''
+
+```text
 PORTFOLIO_ANALYZER/
 ├── pycache/
-├── .venv/ # virtual environment (ignored by git)
-├── outputs/ # all generated outputs go here
-│ ├── active_portfolio_value.csv
-│ ├── passive_portfolio_value.csv
-│ ├── complete_portfolio_value.csv
-│ ├── orp_value_realized.csv
-│ ├── clean_prices.csv
-│ ├── holdings_table.csv
-│ ├── correlation_matrix.png
-│ ├── complete_portfolio_pie.png
-│ ├── performance_vs_benchmark.png
-│ ├── forward_scenarios.png
-│ └── report.md
+├── .venv/                   # virtual environment (ignored by git)
+├── outputs/                 # all generated outputs go here
+│   ├── active_portfolio_value.csv
+│   ├── passive_portfolio_value.csv
+│   ├── complete_portfolio_value.csv
+│   ├── orp_value_realized.csv
+│   ├── clean_prices.csv
+│   ├── holdings_table.csv
+│   ├── correlation_matrix.png
+│   ├── complete_portfolio_pie.png
+│   ├── performance_vs_benchmark.png
+│   ├── forward_scenarios.png
+│   └── report.md
 ├── analytics.py
 ├── build_active_portfolio_series.py
 ├── build_passive_portfolio_series.py
 ├── compute_active_stats.py
-├── config.json # MAIN CONFIG — EDIT THIS TO RUN NEW ANALYSIS
+├── config.json              # MAIN CONFIG — EDIT THIS TO RUN NEW ANALYSIS
 ├── data_io.py
 ├── generate_report.py
-├── main.py # ENTRY POINT — run the analysis
+├── main.py                  # ENTRY POINT — run the analysis
 ├── make_additional_plots.py
 ├── make_performance_plots.py
 ├── plotting.py
@@ -51,71 +52,59 @@ PORTFOLIO_ANALYZER/
 ├── simulate_forecasts.py
 ├── style_analysis.py
 └── valuation.py
-'''
+```
+You usually only modify:
 
+✔ config.json (portfolio, weights, dates, risk-free rate, etc.)
 
-You typically only modify:  
-**`config.json`** (portfolio, dates, risk-free rate, etc.)
+```
+Requirements
+Python 3.10+ (tested on Python 3.12)
 
----
+Internet connection (for Yahoo Finance)
 
-## Requirements
-
-- **Python 3.10+** (project tested on Python 3.12)
-- Internet connection (for Yahoo Finance)
-- Git (optional)
-
+Git (optional)
+```
 
 Install Python packages:
-
+```python
 pip install -r requirements.txt
+```
+How to Run the Project
 
+1. Clone and open
 
----
-
-## How to Run the Project
-
-### **1. Clone and open**
-
-git clone [<your-repo-url>](https://github.com/ccharafeddine/Portfolio_Analyzer).git
+git clone https://github.com/ccharafeddine/Portfolio_Analyzer.git
 cd Portfolio_Analyzer
 
 
-
-### **2. Create a virtual environment**
+2. Create a virtual environment
 
 macOS / Linux:
 
 python3 -m venv .venv
 source .venv/bin/activate
 
-
 Windows (PowerShell):
 
 python -m venv .venv
-..venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 
 
-
-### **3. Install dependencies**
-
+3. Install dependencies
+```python
 pip install -r requirements.txt
-
-
-### **4. Run the analysis**
-
+```
+4. Run the analysis
+```python
 python main.py --config config.json
+```
+All outputs appear in the outputs/ directory.
+
+Editing config.json (The ONLY file needed for new analyses)
+Below is a clear, fully valid example.
 
 
-All outputs appear in the `outputs/` directory.
-
----
-
-## Editing `config.json` (The ONLY file needed for new analyses)
-
-Below is a descriptive example of `config.json` and what each field controls.
-
-```json
 {
   "tickers": [
     "BTC-USD", "MARA", "SPYG", "XLK", "AAPL",
@@ -162,83 +151,89 @@ Below is a descriptive example of `config.json` and what each field controls.
     "y": 0.80
   }
 }
-'''
+
+
 What you modify:
+```
 Change tickers → "tickers": [...]
 
-Change benchmark → "benchmark": "^GSPC"
+Benchmark ticker → "benchmark": "^GSPC"
 
-Change analysis window → "start" and "end"
+Start/end dates → "start" / "end"
 
-Change risk-free rate → "risk_free_rate": 0.04
+Risk-free rate → "risk_free_rate": 0.04
 
-Change active portfolio weights → inside "weights"
+Active weights → inside "weights"
 
-Update capital / portfolio size
+Portfolio size → "capital"
 
-Update style tickers (inside style_analysis.py if desired)
+Complete portfolio mix → "complete_portfolio.y"
+```
 
-That’s it.
 Everything else updates automatically.
 
----------------------------------------------------------------------------
 
-What Each Script Does:
-'''
-main.py — The Workflow Controller
+What Each Script Does
+
+main.py — Workflow Controller
+```
 Coordinates everything:
 
 Loads config
 
-Pulls price data
+Downloads data
 
-Builds active & passive portfolios
+Builds portfolios
 
-Computes stats, Sharpe, correlations, ORP
+Computes statistics
 
-Runs regressions & simulations
+Runs CAPM regression
+
+Simulations
 
 Generates plots
 
-Builds final report
+Writes the final report
 
-Run this file to run the full analysis.
-'''
-'''
+Run this file to perform the full analysis.
+```
 data_io.py
-Handles:
+```
+Handles downloading and saving:
 
-Downloading price data (yfinance)
-
-Saving/loading:
+Price data (Yahoo Finance)
 
 clean_prices.csv
 
-holdings tables
+holdings_table.csv
 
 portfolio value series
-'''
-'''
+```
 build_active_portfolio_series.py
-Calculates share counts based on weights
+```
+Computes share counts from weights.
+Generates:
 
-Builds active_portfolio_value.csv
+active_portfolio_value.csv
 
-Builds holdings_table.csv
-'''
-'''
+holdings_table.csv
+```
 build_passive_portfolio_series.py
-Buys benchmark at start_date
+```
+Buys benchmark at start.
+Generates:
 
-Builds passive_portfolio_value.csv
-'''
-'''
+passive_portfolio_value.csv
+```
 compute_active_stats.py
-Calculates:
+```
+Computes:
 
-Annual return & volatility
+Annual returns
 
-Sharpe ratio
+Volatility
+
+Sharpe
 
 Correlation matrix
 
@@ -255,63 +250,59 @@ orp_value_realized.csv
 correlation_matrix.png
 
 complete_portfolio_pie.png
-'''
-'''
+```
 analytics.py
+```
 CAPM regression
 
 Excess returns
 
-Math/stat helper functions
-'''
-'''
+Math/stat helpers
+```
 make_performance_plots.py
-Creates performance plots comparing:
+```
+Creates charts comparing:
 
-active
+Active
 
-passive
+Passive
 
 ORP
 
-complete portfolio
-'''
-'''
+Complete
+```
 make_additional_plots.py
-Efficient frontier plots
-
-Additional visuals not covered in the performance file
-'''
-'''
+```
+Efficient frontier and additional visuals.
+```
 style_analysis.py
-Multi-factor “style” regression
-
-You may update the tickers used here to run a different factor analysis
-'''
-'''
+```
+Multi-factor regression (can customize tickers)
+```
 simulate_forecasts.py
-Monte Carlo–style forward simulations using historical vol & drift
+```
+Monte Carlo-style forward simulations.
 
-Produces charts like forward_scenarios.png
-'''
-'''
+Creates:
+
+forward_scenarios.png
+```
 plotting.py
-Shared utilities for consistent plot formatting
-'''
-'''
+```
+Shared utilities for consistent plotting.
+```
 generate_report.py
-Reads all CSVs & plots
+```
+Builds:
 
-Builds a complete report saved as:
+report.md (always works)
 
-outputs/report.md
+report.pdf (may fail if FPDF hits Unicode or space limits)
+```
+Outputs Generated
 
-outputs/report.pdf (optional; may fail if FPDF hits formatting limits)
-
-
-Outputs Produced:
-Inside the outputs/ folder you will find:
-
+Inside outputs/:
+```
 active_portfolio_value.csv
 
 passive_portfolio_value.csv
@@ -335,12 +326,9 @@ forward_scenarios.png
 report.md
 
 report.pdf (optional)
+```
 
-These files collectively describe the entire portfolio analysis.
-''
-
-Running with a New Portfolio (Quick Guide)
-
+Running With a New Portfolio (Quick Guide)
 Open config.json
 
 Update:
@@ -349,45 +337,43 @@ tickers
 
 weights
 
-benchmark
-
 start/end dates
+
+benchmark
 
 risk-free rate
 
 capital
 
-complete_portfolio.y
-
+complete portfolio fraction
 
 Save
 
-
 Run:
 
+```python
 python main.py --config config.json
+```
+All outputs regenerate automatically.
 
+Notes & Limitations
+```
+Yahoo Finance occasionally drops data — rerun if something seems missing.
 
-You now have a fully regenerated analysis in outputs/.
+PDF export may fail due to Unicode or layout constraints (markdown always succeeds).
 
-
-
-Notes & Limitations:
-
-Yahoo Finance occasionally fails silently; re-run if price data is missing.
-
-PDF generation may fail due to Unicode/font limitations. Markdown report always works.
-
-Optimization relies on historical returns; results should not be interpreted as forecasts.
-
+Optimization is based on historical returns; not predictive.
+```
 
 Intended Use
-This tool was built to allow students, analysts, and researchers to:
+```
+This tool helps:
 
-Understand portfolio construction
+Students learning portfolio theory
 
-Compare active management vs benchmarks
+Analysts comparing active vs passive strategies
 
-Explore optimization & risk decomposition
+Researchers exploring optimization
 
-Produce clean reports for academic or professional purposes
+Anyone building structured finance reports
+```
