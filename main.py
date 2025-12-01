@@ -44,19 +44,38 @@ def main(config_path: str) -> None:
     benchmark = cfg.get("benchmark", "^GSPC")
     use_tickers = tickers + ([benchmark] if benchmark not in tickers else [])
 
+    # Normalize start/end/interval so older configs still work
+    start = (
+        cfg.get("start")
+        or cfg.get("start_date")
+        or cfg.get("active_portfolio", {}).get("start_date")
+    )
+    end = (
+        cfg.get("end")
+        or cfg.get("end_date")
+        or cfg.get("active_portfolio", {}).get("end_date")
+    )
+    interval = cfg.get("interval", "1d")
+
+    if start is None or end is None:
+        raise ValueError(
+            "Config must define either 'start'/'end' at the top level "
+            "or 'active_portfolio.start_date'/'active_portfolio.end_date'."
+        )
+
     # -------- 1) Download data --------
     prices = download_prices(
         use_tickers,
-        start=cfg["start"],
-        end=cfg["end"],
-        interval=cfg["interval"],
+        start=start,
+        end=end,
+        interval=interval,
     )
     prices.to_csv(os.path.join(outdir, "clean_prices.csv"))
 
     dividends = download_dividends(
         use_tickers,
-        start=cfg["start"],
-        end=cfg["end"],
+        start=start,
+        end=end,
     )
     dividends.to_csv(os.path.join(outdir, "dividends.csv"))
 
@@ -81,6 +100,10 @@ def main(config_path: str) -> None:
     rf = cfg.get("risk_free_rate", 0.02)  # annual risk-free
     rf_m = (1 + rf) ** (1 / 12) - 1
 
+    short_sales_flag = bool(cfg.get("short_sales", False))
+    frontier_points = int(cfg.get("frontier_points", 50))
+    y_cp = cfg.get("complete_portfolio", {}).get("y", 1.0)
+
     # -------- 3) Max Sharpe / ORP / Frontier / CAL --------
     mu_a = (1 + asset_rets.mean()) ** 12 - 1  # annualized means
 
@@ -89,7 +112,7 @@ def main(config_path: str) -> None:
         cov_m.values,
         rf=rf,
         bounds=tuple(cfg["max_allocation_bounds"]),
-        short_sales=cfg["short_sales"],
+        short_sales=short_sales_flag,
     )
 
     weights = pd.Series(res.x, index=asset_rets.columns, name="weight").round(6)
@@ -103,9 +126,9 @@ def main(config_path: str) -> None:
     W, R, V = efficient_frontier(
         mu_a.values,
         cov_m.values,
-        cfg["frontier_points"],
+        frontier_points,
         tuple(cfg["max_allocation_bounds"]),
-        cfg["short_sales"],
+        short_sales_flag,
     )
     plot_efficient_frontier(R, V, os.path.join(outdir, "efficient_frontier.png"))
     plot_cal(port_vol, port_mean, rf, os.path.join(outdir, "CAL.png"))
@@ -126,6 +149,10 @@ def main(config_path: str) -> None:
             r["beta"],
             os.path.join(outdir, f"capm_{t}.png"),
         )
+    
+    # Save CAPM regression results as a table
+    capm_df = pd.DataFrame(capm_results).T
+    capm_df.to_csv(os.path.join(outdir, "capm_results.csv"))
 
     # -------- 5) Build Active & Passive portfolios --------
     active_cfg = cfg["active_portfolio"]
@@ -139,6 +166,9 @@ def main(config_path: str) -> None:
 
     print("\n=== Active Portfolio Holdings (Initial Allocation) ===")
     print(holdings_df.to_string(index=False))
+
+    # Save holdings table for the app
+    holdings_df.to_csv(os.path.join(outdir, "holdings_table.csv"), index=False)
 
     passive_cfg = cfg["passive_portfolio"]
     build_passive_portfolio(
@@ -159,6 +189,7 @@ def main(config_path: str) -> None:
             "sharpe_ratio": port_sharpe,
         },
         "capm": capm_results,
+        "y_cp": y_cp,
     }
 
     with open(os.path.join(outdir, "summary.json"), "w") as f:
