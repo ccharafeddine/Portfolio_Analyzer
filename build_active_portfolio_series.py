@@ -48,16 +48,37 @@ def build_active_portfolio(
     if not tickers:
         raise ValueError("None of the active-portfolio tickers are in clean_prices.csv")
 
-    prices = prices[tickers]
-
-    # ---- Find purchase date ----
+    # Only keep rows on/after the desired start date
     start_date = pd.Timestamp(start_date)
-    valid = prices.loc[prices.index >= start_date].dropna(how="any")
+    prices = prices.loc[prices.index >= start_date, tickers]
+
+    # Drop any tickers that have *no* valid prices after the start date
+    has_data = prices.notna().any(axis=0)
+    good_tickers = list(has_data[has_data].index)
+
+    if not good_tickers:
+        raise ValueError("No tickers have any price data after start_date.")
+
+    if len(good_tickers) < len(tickers):
+        missing = [t for t in tickers if t not in good_tickers]
+        print(
+            "Warning: the following tickers have no usable data after start_date "
+            f"and will be skipped: {missing}"
+        )
+
+    prices = prices[good_tickers]
+
+    # ---- Find purchase date (first date with prices for all remaining tickers) ----
+    valid = prices.dropna(how="any")
     if valid.empty:
-        raise ValueError("No common date with all prices available after start_date.")
+        raise ValueError(
+            "No common date with all remaining tickers after start_date. "
+            "Try moving the start date later or removing problematic tickers."
+        )
 
     purchase_date = valid.index[0]
     purchase_prices = valid.loc[purchase_date]
+
 
     print(f"Purchase date: {purchase_date.date()}")
     print("Purchase prices:")
