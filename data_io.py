@@ -21,6 +21,26 @@ CRYPTO_TICKER_MAP: Dict[str, str] = {
 
 
 # -------------------------
+# Date normalization helper
+# -------------------------
+
+def _normalize_date_str(s: Optional[str]) -> Optional[str]:
+    """
+    Normalize a date-like string (e.g. '2024/01/01', '2024-01-01') to
+    'YYYY-MM-DD' which both FMP and CoinGecko expect.
+
+    Returns None if input is None or empty.
+    """
+    if s is None:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    # Let pandas handle all the weird formats, then standardize
+    return pd.to_datetime(s).strftime("%Y-%m-%d")
+
+
+# -------------------------
 # Helper: Get FMP API key
 # -------------------------
 
@@ -53,7 +73,7 @@ def _get_fmp_api_key() -> str:
 # -------------------------
 
 def _fetch_fmp_prices_for_ticker(
-    ticker: str, start: str, end: Optional[str]
+    ticker: str, start: Optional[str], end: Optional[str]
 ) -> pd.Series:
     """
     Fetch historical adjusted close prices for a single ticker from FMP.
@@ -103,7 +123,7 @@ def _fetch_fmp_prices_for_ticker(
 
 
 def _fetch_fmp_dividends_for_ticker(
-    ticker: str, start: str, end: Optional[str]
+    ticker: str, start: Optional[str], end: Optional[str]
 ) -> pd.Series:
     """
     Fetch historical cash dividends for a single stock/ETF from FMP.
@@ -154,7 +174,7 @@ def _fetch_fmp_dividends_for_ticker(
 # -------------------------
 
 def _fetch_crypto_prices_from_coingecko(
-    ticker: str, start: str, end: Optional[str]
+    ticker: str, start: Optional[str], end: Optional[str]
 ) -> pd.Series:
     """
     Fetch daily close prices in USD for a crypto ticker using CoinGecko.
@@ -170,10 +190,18 @@ def _fetch_crypto_prices_from_coingecko(
 
     cg_id = CRYPTO_TICKER_MAP[ticker_upper]
 
-    # Parse dates and compute range in days
-    start_dt = datetime.fromisoformat(str(start)).date()
-    if end is not None:
-        end_dt = datetime.fromisoformat(str(end)).date()
+    # Normalize and parse dates
+    start_norm = _normalize_date_str(start)
+    end_norm = _normalize_date_str(end)
+
+    if start_norm is None:
+        # Fallback: 1 year ago if no start provided
+        start_dt = datetime.utcnow().date().replace(year=datetime.utcnow().year - 1)
+    else:
+        start_dt = pd.to_datetime(start_norm).date()
+
+    if end_norm is not None:
+        end_dt = pd.to_datetime(end_norm).date()
     else:
         end_dt = datetime.utcnow().date()
 
@@ -181,7 +209,7 @@ def _fetch_crypto_prices_from_coingecko(
     if days_span < 1:
         days_span = 1
 
-    # CoinGecko only allows integer 'days' up to some max; we'll request a bit more
+    # CoinGecko only allows integer 'days'; request a bit more than needed
     days_param = days_span + 5
 
     url = (
@@ -217,7 +245,7 @@ def _fetch_crypto_prices_from_coingecko(
     daily = daily.loc[mask]
 
     s = daily.astype(float)
-    s.name = ticker
+    s.name = ticker_upper
     s.index.name = "Date"
     return s
 
@@ -236,6 +264,10 @@ def download_prices(
     - For all others, use FMP.
     - Symbols that cannot be fetched are skipped with a warning.
     """
+    # Normalize dates once
+    norm_start = _normalize_date_str(start)
+    norm_end = _normalize_date_str(end)
+
     series_list = []
 
     for t in tickers:
@@ -243,17 +275,23 @@ def download_prices(
 
         # Crypto via CoinGecko
         if t_upper in CRYPTO_TICKER_MAP:
-            s = _fetch_crypto_prices_from_coingecko(t_upper, start, end)
+            s = _fetch_crypto_prices_from_coingecko(t_upper, norm_start, norm_end)
             if s.empty:
-                print(f"Warning: no CoinGecko price data for {t_upper} in the requested period.")
+                print(
+                    f"Warning: no CoinGecko price data for {t_upper} "
+                    "in the requested period."
+                )
             else:
                 series_list.append(s)
             continue
 
         # Everything else via FMP
-        s = _fetch_fmp_prices_for_ticker(t_upper, start, end)
+        s = _fetch_fmp_prices_for_ticker(t_upper, norm_start, norm_end)
         if s.empty:
-            print(f"Warning: no FMP price data for {t_upper} in the requested period.")
+            print(
+                f"Warning: no FMP price data for {t_upper} "
+                "in the requested period."
+            )
         else:
             series_list.append(s)
 
@@ -277,6 +315,9 @@ def download_dividends(
     - Crypto tickers (e.g. BTC-USD) are assumed to have no dividends.
     - Stocks/ETFs use FMP's stock_dividend endpoint.
     """
+    norm_start = _normalize_date_str(start)
+    norm_end = _normalize_date_str(end)
+
     divs: Dict[str, pd.Series] = {}
 
     for t in tickers:
@@ -286,7 +327,7 @@ def download_dividends(
         if t_upper in CRYPTO_TICKER_MAP:
             continue
 
-        s = _fetch_fmp_dividends_for_ticker(t_upper, start, end)
+        s = _fetch_fmp_dividends_for_ticker(t_upper, norm_start, norm_end)
         if s.empty:
             continue
         divs[t_upper] = s
