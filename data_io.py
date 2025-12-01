@@ -269,6 +269,8 @@ def download_prices(
 
     - For crypto tickers in CRYPTO_TICKER_MAP (e.g. BTC-USD), use Alpha Vantage.
     - For all others, use FMP.
+    - Special case: '^GSPC' is proxied by 'SPY' from FMP but the column
+      is still named '^GSPC' so the rest of the code can treat it as S&P 500.
     - Symbols that cannot be fetched are skipped with a warning.
     """
     norm_start = _normalize_date_str(start)
@@ -291,14 +293,20 @@ def download_prices(
                 series_list.append(s)
             continue
 
-        # Everything else via FMP
-        s = _fetch_fmp_prices_for_ticker(t_upper, norm_start, norm_end)
+        # Special case: map '^GSPC' to SPY on FMP, but keep column name '^GSPC'
+        if t_upper == "^GSPC":
+            fmp_symbol = "SPY"
+        else:
+            fmp_symbol = t_upper
+
+        s = _fetch_fmp_prices_for_ticker(fmp_symbol, norm_start, norm_end)
         if s.empty:
             print(
                 f"Warning: no FMP price data for {t_upper} "
-                "in the requested period."
+                f"(requested as '{fmp_symbol}') in the requested period."
             )
         else:
+            s.name = t_upper  # ensure the column is exactly the requested ticker
             series_list.append(s)
 
     if not series_list:
