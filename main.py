@@ -137,6 +137,13 @@ def main(config_path: str) -> None:
     capm_results = {}
     for t in asset_rets.columns:
         df = pd.concat([asset_rets[t], bench_rets], axis=1, keys=[t, "mkt"]).dropna()
+
+        # If this asset has no overlapping monthly data with the benchmark,
+        # skip CAPM regression for it (e.g. due to download failure or very short history).
+        if df.empty:
+            print(f"Skipping CAPM regression for {t}: no overlapping monthly returns.")
+            continue
+
         r = capm_regression(df[t], df["mkt"], rf_m)
         capm_results[t] = r
 
@@ -149,6 +156,11 @@ def main(config_path: str) -> None:
             r["beta"],
             os.path.join(outdir, f"capm_{t}.png"),
         )
+
+    # Save CAPM regression results as a table for the app
+    if capm_results:
+        capm_df = pd.DataFrame(capm_results).T
+        capm_df.to_csv(os.path.join(outdir, "capm_results.csv"))
     
     # Save CAPM regression results as a table
     capm_df = pd.DataFrame(capm_results).T
