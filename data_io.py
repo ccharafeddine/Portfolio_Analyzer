@@ -12,11 +12,11 @@ from datetime import datetime
 
 FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
 
-# Mapping from crypto tickers used in your app to CoinGecko IDs
-CRYPTO_TICKER_MAP: Dict[str, str] = {
-    "BTC-USD": "bitcoin",
-    # add more here if you ever need them, e.g.:
-    # "ETH-USD": "ethereum",
+# Mapping from crypto tickers used in your app to Alpha Vantage symbol/market
+CRYPTO_TICKER_MAP: Dict[str, Dict[str, str]] = {
+    "BTC-USD": {"symbol": "BTC", "market": "USD"},
+    # add more here if needed, e.g.:
+    # "ETH-USD": {"symbol": "ETH", "market": "USD"},
 }
 
 
@@ -27,33 +27,25 @@ CRYPTO_TICKER_MAP: Dict[str, str] = {
 def _normalize_date_str(s: Optional[str]) -> Optional[str]:
     """
     Normalize a date-like string (e.g. '2024/01/01', '2024-01-01') to
-    'YYYY-MM-DD' which both FMP and CoinGecko expect.
-
-    Returns None if input is None or empty.
+    'YYYY-MM-DD', which both FMP and Alpha Vantage can work with.
     """
     if s is None:
         return None
     s = str(s).strip()
     if not s:
         return None
-    # Let pandas handle all the weird formats, then standardize
     return pd.to_datetime(s).strftime("%Y-%m-%d")
 
 
 # -------------------------
-# Helper: Get FMP API key
+# Helper: Get API keys
 # -------------------------
 
 def _get_fmp_api_key() -> str:
-    """
-    Get the FMP API key from either environment variables or (if running
-    under Streamlit) from st.secrets["FMP_API_KEY"].
-    """
     key = os.getenv("FMP_API_KEY")
     if key:
         return key
 
-    # Try Streamlit secrets (for Streamlit Cloud deployments)
     try:
         import streamlit as st  # type: ignore
 
@@ -68,6 +60,25 @@ def _get_fmp_api_key() -> str:
     )
 
 
+def _get_alpha_vantage_key() -> str:
+    key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if key:
+        return key
+
+    try:
+        import streamlit as st  # type: ignore
+
+        if "ALPHAVANTAGE_API_KEY" in st.secrets:
+            return st.secrets["ALPHAVANTAGE_API_KEY"]
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "ALPHAVANTAGE_API_KEY not found. Set it as an environment variable or "
+        "in Streamlit secrets."
+    )
+
+
 # -------------------------
 # FMP price + dividend helpers
 # -------------------------
@@ -77,10 +88,7 @@ def _fetch_fmp_prices_for_ticker(
 ) -> pd.Series:
     """
     Fetch historical adjusted close prices for a single ticker from FMP.
-
     Returns a Series indexed by Date with the column name = ticker.
-    If FMP returns 403/429, we log a warning and return an empty Series
-    so the caller can skip this ticker.
     """
     api_key = _get_fmp_api_key()
     params: Dict[str, str] = {"apikey": api_key}
@@ -111,7 +119,6 @@ def _fetch_fmp_prices_for_ticker(
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
 
-    # Prefer adjClose if available, else close
     if "adjClose" in df.columns:
         s = df["adjClose"].astype(float)
     else:
@@ -127,9 +134,7 @@ def _fetch_fmp_dividends_for_ticker(
 ) -> pd.Series:
     """
     Fetch historical cash dividends for a single stock/ETF from FMP.
-
     Returns a Series indexed by Date with dividend amounts.
-    If no dividend data is available (or not supported), returns empty Series.
     """
     api_key = _get_fmp_api_key()
     params: Dict[str, str] = {"apikey": api_key}
@@ -149,7 +154,6 @@ def _fetch_fmp_dividends_for_ticker(
         return pd.Series(dtype="float64", name=ticker)
 
     if resp.status_code == 404:
-        # No dividend endpoint for this symbol
         return pd.Series(dtype="float64", name=ticker)
 
     resp.raise_for_status()
@@ -170,83 +174,86 @@ def _fetch_fmp_dividends_for_ticker(
 
 
 # -------------------------
-# CoinGecko helper for BTC-USD (and other crypto)
+# Alpha Vantage helper for BTC-USD (and other crypto)
 # -------------------------
 
-def _fetch_crypto_prices_from_coingecko(
+def _fetch_crypto_prices_from_alpha_vantage(
     ticker: str, start: Optional[str], end: Optional[str]
 ) -> pd.Series:
     """
-    Fetch daily close prices in USD for a crypto ticker using CoinGecko.
+    Fetch daily close prices in USD for a crypto ticker using Alpha Vantage.
 
-    Currently supports mapping in CRYPTO_TICKER_MAP (e.g. BTC-USD -> bitcoin).
-
-    We use the 'market_chart' endpoint and convert timestamps to daily closes.
+    Uses the DIGITAL_CURRENCY_DAILY endpoint and returns a Series of closes in
+    the requested fiat market (e.g. BTC-USD).
     """
-    ticker_upper = ticker.upper()
-    if ticker_upper not in CRYPTO_TICKER_MAP:
-        # Not a known crypto ticker for this helper
-        return pd.Series(dtype="float64", name=ticker)
+    t_upper = ticker.upper()
+    if t_upper not in CRYPTO_TICKER_MAP:
+        return pd.Series(dtype="float64", name=t_upper)
 
-    cg_id = CRYPTO_TICKER_MAP[ticker_upper]
-
-    # Normalize and parse dates
-    start_norm = _normalize_date_str(start)
-    end_norm = _normalize_date_str(end)
-
-    if start_norm is None:
-        # Fallback: 1 year ago if no start provided
-        start_dt = datetime.utcnow().date().replace(year=datetime.utcnow().year - 1)
-    else:
-        start_dt = pd.to_datetime(start_norm).date()
-
-    if end_norm is not None:
-        end_dt = pd.to_datetime(end_norm).date()
-    else:
-        end_dt = datetime.utcnow().date()
-
-    days_span = (end_dt - start_dt).days
-    if days_span < 1:
-        days_span = 1
-
-    # CoinGecko only allows integer 'days'; request a bit more than needed
-    days_param = days_span + 5
+    symbol = CRYPTO_TICKER_MAP[t_upper]["symbol"]
+    market = CRYPTO_TICKER_MAP[t_upper]["market"]
+    api_key = _get_alpha_vantage_key()
 
     url = (
-        f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart"
-        f"?vs_currency=usd&days={days_param}"
+        "https://www.alphavantage.co/query"
+        f"?function=DIGITAL_CURRENCY_DAILY&symbol={symbol}"
+        f"&market={market}&apikey={api_key}"
     )
 
     resp = requests.get(url, timeout=20)
-    if resp.status_code in (403, 429):
+    if resp.status_code != 200:
         print(
-            f"Warning: CoinGecko returned {resp.status_code} for {ticker}. "
-            "Crypto data may be temporarily rate-limited."
+            f"Warning: Alpha Vantage returned status {resp.status_code} "
+            f"for {t_upper}. Skipping this crypto ticker."
         )
-        return pd.Series(dtype="float64", name=ticker)
+        return pd.Series(dtype="float64", name=t_upper)
 
-    resp.raise_for_status()
     data = resp.json()
+    ts_key = "Time Series (Digital Currency Daily)"
+    if ts_key not in data:
+        # Sometimes Alpha Vantage returns an "Error Message" or "Note"
+        print(
+            f"Warning: Alpha Vantage did not return time series data for {t_upper}. "
+            "You may have hit the rate limit (5 calls/min, 500/day) or the API key "
+            "is invalid. Skipping this crypto ticker."
+        )
+        return pd.Series(dtype="float64", name=t_upper)
 
-    # data["prices"] is list of [timestamp_ms, price]
-    prices_list = data.get("prices", [])
-    if not prices_list:
-        return pd.Series(dtype="float64", name=ticker)
+    ts = data[ts_key]
+    df = pd.DataFrame.from_dict(ts, orient="index")
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
 
-    df = pd.DataFrame(prices_list, columns=["ts", "price"])
-    df["Date"] = pd.to_datetime(df["ts"], unit="ms").dt.date
-    # Take last price per day as daily close
-    daily = df.groupby("Date")["price"].last()
-    daily.index = pd.to_datetime(daily.index)
-    daily = daily.sort_index()
+    # Look for the USD close column (e.g. '4b. close (USD)')
+    close_col = None
+    for col in df.columns:
+        if "close" in col.lower() and "(usd)" in col.lower():
+            close_col = col
+            break
+    if close_col is None:
+        # Fallback: any column that contains 'close'
+        for col in df.columns:
+            if "close" in col.lower():
+                close_col = col
+                break
 
-    # Filter to requested range
-    mask = (daily.index.date >= start_dt) & (daily.index.date <= end_dt)
-    daily = daily.loc[mask]
+    if close_col is None:
+        print(
+            f"Warning: could not find a close column for {t_upper} in "
+            "Alpha Vantage data. Skipping."
+        )
+        return pd.Series(dtype="float64", name=t_upper)
 
-    s = daily.astype(float)
-    s.name = ticker_upper
+    s = df[close_col].astype(float)
+    s.name = t_upper
     s.index.name = "Date"
+
+    # Filter to requested date range
+    if start:
+        s = s[s.index >= pd.to_datetime(start)]
+    if end:
+        s = s[s.index <= pd.to_datetime(end)]
+
     return s
 
 
@@ -260,11 +267,10 @@ def download_prices(
     """
     Download adjusted close prices for a list of tickers.
 
-    - For known crypto tickers (e.g. BTC-USD), use CoinGecko.
+    - For crypto tickers in CRYPTO_TICKER_MAP (e.g. BTC-USD), use Alpha Vantage.
     - For all others, use FMP.
     - Symbols that cannot be fetched are skipped with a warning.
     """
-    # Normalize dates once
     norm_start = _normalize_date_str(start)
     norm_end = _normalize_date_str(end)
 
@@ -273,12 +279,12 @@ def download_prices(
     for t in tickers:
         t_upper = t.upper()
 
-        # Crypto via CoinGecko
+        # Crypto via Alpha Vantage
         if t_upper in CRYPTO_TICKER_MAP:
-            s = _fetch_crypto_prices_from_coingecko(t_upper, norm_start, norm_end)
+            s = _fetch_crypto_prices_from_alpha_vantage(t_upper, norm_start, norm_end)
             if s.empty:
                 print(
-                    f"Warning: no CoinGecko price data for {t_upper} "
+                    f"Warning: no Alpha Vantage crypto price data for {t_upper} "
                     "in the requested period."
                 )
             else:
@@ -297,8 +303,8 @@ def download_prices(
 
     if not series_list:
         raise ValueError(
-            "No price data returned from FMP/CoinGecko for any ticker. "
-            "Check your tickers, dates, API key, or network connectivity."
+            "No price data returned from FMP/Alpha Vantage for any ticker. "
+            "Check your tickers, dates, API keys, or network connectivity."
         )
 
     prices = pd.concat(series_list, axis=1)
