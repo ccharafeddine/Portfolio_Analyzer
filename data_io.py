@@ -264,15 +264,6 @@ def _fetch_crypto_prices_from_alpha_vantage(
 def download_prices(
     tickers: List[str], start: str, end: Optional[str], interval: str = "1d"
 ) -> pd.DataFrame:
-    """
-    Download adjusted close prices for a list of tickers.
-
-    - For crypto tickers in CRYPTO_TICKER_MAP (e.g. BTC-USD), use Alpha Vantage.
-    - For all others, use FMP.
-    - Special case: '^GSPC' is proxied by 'SPY' from FMP but the column
-      is still named '^GSPC' so the rest of the code can treat it as S&P 500.
-    - Symbols that cannot be fetched are skipped with a warning.
-    """
     norm_start = _normalize_date_str(start)
     norm_end = _normalize_date_str(end)
 
@@ -306,7 +297,7 @@ def download_prices(
                 f"(requested as '{fmp_symbol}') in the requested period."
             )
         else:
-            s.name = t_upper  # ensure the column is exactly the requested ticker
+            s.name = t_upper  # important: column named '^GSPC', not 'SPY'
             series_list.append(s)
 
     if not series_list:
@@ -318,6 +309,7 @@ def download_prices(
     prices = pd.concat(series_list, axis=1)
     prices.index.name = "Date"
     return prices.sort_index()
+
 
 
 def download_dividends(

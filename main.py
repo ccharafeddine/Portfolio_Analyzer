@@ -86,13 +86,21 @@ def main(config_path: str) -> None:
     bench_col = benchmark
 
     if bench_col not in rets_m.columns:
-        raise ValueError(
-            f"Benchmark '{bench_col}' not found in downloaded return series. "
-            f"Available columns: {list(rets_m.columns)}. "
-            "This usually means the data source could not provide that symbol "
-            "(e.g., FMP does not have it). Try using 'SPY' or another ETF "
-            "as the benchmark in the app settings."
+        available = list(rets_m.columns)
+        if not available:
+            raise ValueError(
+                "No return series available after computing monthly returns. "
+                "Check that your tickers are valid and that data was downloaded correctly."
+            )
+
+        # Fallback: use the first available column as benchmark
+        fallback = available[0]
+        print(
+            f"Warning: benchmark '{bench_col}' not found in downloaded return series. "
+            f"Available columns: {available}. "
+            f"Falling back to '{fallback}' as the benchmark."
         )
+        bench_col = fallback
 
     bench_rets = rets_m[bench_col].dropna()
     asset_rets = rets_m.drop(columns=[bench_col], errors="ignore").dropna(how="all")
