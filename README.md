@@ -368,80 +368,71 @@ report.pdf (may fail if FPDF hits Unicode or space limits)
 ```
 **<u>Outputs Generated</u>**
 
-Inside outputs/:
+Outputs (Ordered Automaticaly in Web App):
 ```
-active_portfolio_value.csv
+Download all outputs (ZIP)
 
-passive_portfolio_value.csv
+Report files (md, pdf)
 
-complete_portfolio_value.csv
+Holdings table
 
-orp_value_realized.csv
+CAPM summary table
 
-holdings_table.csv
+Efficient frontier
 
-clean_prices.csv
+ORP weights table (new!)
 
-correlation_matrix.png
+CAL plot
 
-complete_portfolio_pie.png
+ORP vs expected chart
 
-performance_vs_benchmark.png
+Complete portfolio pie
 
-forward_scenarios.png
+Growth chart
 
-report.md
+Forward scenario simulations
 
-report.pdf (optional)
+Additional charts
+
+CSV file downloads
+
+CAPM scatter plots (end)
 ```
 
-**<u>Running With a New Portfolio (Quick Guide)</u>**
+**<u>Example Portfolio To Try</u>**
 
-**Open config.json**
-
-**Update:**
-
-tickers
-
-weights
-
-start/end dates
-
-benchmark
-
-risk-free rate
-
-capital
-
-complete portfolio fraction
-
-**Save**
-
-**Run:**
-
-```python
-python main.py --config config.json
 ```
-All outputs regenerate automatically.
+AAPL
+MSFT
+NVDA
+GLD
+TLT
+XLF
+XLK
+BTC-USD
+```
+
 
 **<u>Notes & Limitations</u>**
 ```
-Yahoo Finance occasionally drops data — rerun if something seems missing.
+FMP free tier limits historical data depth
 
-PDF export may fail due to Unicode or layout constraints (markdown always succeeds).
+Alpha Vantage handles BTC safely
 
-Optimization is based on historical returns; not predictive.
+PDF generation may fail if Unicode-heavy
+
+Optimization uses historical returns—not predictive
 ```
 
 **<u>Intended Use</u>**
 ```
-This tool helps:
+Finance students (Sharpe, CAPM, frontier)
 
-Students learning portfolio theory
+Wealth management trainees
 
-Analysts comparing active vs passive strategies
+Analysts comparing active vs passive
 
-Researchers exploring optimization
+Quants testing workflow automation
 
-Anyone building structured finance reports
+Anyone wanting fast multi-asset portfolio analytics
 ```
