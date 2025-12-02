@@ -104,6 +104,18 @@ def main(config_path: str) -> None:
 
     bench_rets = rets_m[bench_col].dropna()
     asset_rets = rets_m.drop(columns=[bench_col], errors="ignore").dropna(how="all")
+    
+    # If no asset columns remain (e.g., only benchmark had data),
+    # we cannot construct an Optimal Risky Portfolio.
+    if asset_rets.shape[1] == 0:
+        raise ValueError(
+            "No non-benchmark asset return series are available. "
+            "This usually means that the data source could not provide price "
+            "history for your chosen tickers and dates, except for the benchmark. "
+            "Check for typos (e.g., 'SPVG' vs 'SPYG') and make sure all tickers "
+            "exist on FMP for the selected date range."
+        )
+
 
     # align assets and benchmark on the same dates
     aligned = asset_rets.join(bench_rets, how="inner")
