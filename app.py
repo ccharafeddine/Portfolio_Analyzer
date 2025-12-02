@@ -293,7 +293,7 @@ if os.path.exists(OUTPUT_DIR):
         zip_buffer.seek(0)
 
         st.download_button(
-            label="⬇️ Download all outputs as ZIP",
+            label="⬇️ Download all outputs as ZIP ⬇️",
             data=zip_buffer,
             file_name="outputs.zip",
             mime="application/zip",
