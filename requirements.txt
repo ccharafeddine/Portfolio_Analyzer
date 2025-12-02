@@ -14,3 +14,4 @@ reportlab==4.2.5
 fpdf2==2.8.1
 streamlit>=1.40.0
 requests>=2.31.0
+imageio==2.34.0

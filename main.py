@@ -29,6 +29,7 @@ from build_passive_portfolio_series import build_passive_portfolio
 from make_performance_plots import run_performance_plots
 from make_additional_plots import run_additional_plots
 from style_analysis import run_style_regression
+from rolling_metrics import run_rolling_metrics
 
 
 def load_config(path: str) -> dict:
@@ -104,7 +105,7 @@ def main(config_path: str) -> None:
 
     bench_rets = rets_m[bench_col].dropna()
     asset_rets = rets_m.drop(columns=[bench_col], errors="ignore").dropna(how="all")
-    
+
     # If no asset columns remain (e.g., only benchmark had data),
     # we cannot construct an Optimal Risky Portfolio.
     if asset_rets.shape[1] == 0:
@@ -249,10 +250,16 @@ def main(config_path: str) -> None:
     # -------- 8) Style regression --------
     run_style_regression(outdir=outdir)
 
-    # -------- 9) Forward-looking scenario analysis (historical vs martingale) --------
+    # -------- 9) Rolling risk analytics (new v2 metric, non-breaking) --------
+    try:
+        run_rolling_metrics(outdir=outdir, window_months=12)
+    except Exception as e:
+        print(f"[main] rolling risk analytics failed: {e}")
+
+    # -------- 10) Forward-looking scenario analysis (historical vs martingale) --------
     run_martingale_forecasts(outdir=outdir, horizon_days=252 * 3, n_paths=500)
 
-    # -------- 10) Generate Markdown report summarizing all results ---------
+    # -------- 11) Generate Markdown report summarizing all results ---------
     generate_report(outdir=outdir, config_path="config.json")
 
 
