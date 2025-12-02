@@ -2,7 +2,7 @@
 
 A complete Python + Streamlit toolkit for portfolio optimization, risk analysis, simulations, and automated report generation.
 
-Overview
+**Overview**
 
 The Portfolio Analyzer is a full-featured system for analyzing:
 ```
@@ -38,6 +38,8 @@ Automatically sorts outputs into a clean, professional order
 **Web App**
 
 The app.py provides a complete Streamlit user interface.
+
+Can run from ccportfolioanalyzer.streamlit.app
 
 Features:
 ```
