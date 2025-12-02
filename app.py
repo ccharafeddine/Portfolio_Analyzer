@@ -460,13 +460,35 @@ if os.path.exists(OUTPUT_DIR):
         for f, full_path in gif_files:
             st.image(full_path, caption=f)
 
-    # ---------- 6) CAPM PNGs (now before CSVs) ----------
+    # ---------- 6) Multi-factor regression tables ----------
+    mf_files = {
+        "Fama-French 3-Factor (FF3)": "factor_regression_ff3.csv",
+        "Carhart 4-Factor (Carhart4)": "factor_regression_carhart4.csv",
+        "Fama-French 5-Factor (FF5)": "factor_regression_ff5.csv",
+        "Quality & Low-Volatility": "factor_regression_quality_lowvol.csv",
+    }
+
+    first_mf = True
+    for title, fname in mf_files.items():
+        fpath = os.path.join(OUTPUT_DIR, fname)
+        if os.path.exists(fpath):
+            if first_mf:
+                st.write("### Multi-Factor Regression Results")
+                first_mf = False
+            st.write(f"#### {title}")
+            try:
+                df_mf = pd.read_csv(fpath)
+                st.dataframe(df_mf)
+            except Exception as e:
+                st.write(f"*(Could not load {fname}: {e})*")
+
+    # ---------- 7) CAPM PNGs (before CSVs) ----------
     if capm_pngs:
         st.write("### CAPM Scatter Plots")
         for f, full_path in capm_pngs:
             st.image(full_path, caption=f)
 
-    # ---------- 7) CSV downloads (last) ----------
+    # ---------- 8) CSV downloads (last) ----------
     if csv_files:
         st.write("### CSV Data Files")
         for f, full_path in csv_files:
