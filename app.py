@@ -192,8 +192,16 @@ cfg["start"] = str(start_date)
 cfg["end"] = str(end_date)
 
 cfg["risk_free_rate"] = float(cfg.get("risk_free_rate", 0.04))
-cfg["max_allocation_bounds"] = cfg.get("max_allocation_bounds", [0.0, 1.0])
+
+# Shorting + bounds logic
 cfg["short_sales"] = bool(allow_shorts)
+if allow_shorts:
+    # Allow up to 150% long or short per asset (net exposure still 100% via sum(w)=1)
+    cfg["max_allocation_bounds"] = [-1.5, 1.5]
+else:
+    # Long-only case; per-asset cap at 150% but sum(w)=1 keeps net 100% long
+    cfg["max_allocation_bounds"] = [0.0, 1.5]
+
 cfg["frontier_points"] = int(cfg.get("frontier_points", 50))
 
 cfg["include_orp"] = include_orp
