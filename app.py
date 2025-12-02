@@ -251,13 +251,15 @@ if run_clicked:
 
     python_exec = sys.executable
 
-    result = subprocess.run(
-        [python_exec, "main.py", "--config", "config.json"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        cwd=".",
-    )
+    # 🔄 Show spinner while analysis runs
+    with st.spinner("Running portfolio analysis... this may take a moment ⏳"):
+        result = subprocess.run(
+            [python_exec, "main.py", "--config", "config.json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=".",
+        )
 
     if result.returncode != 0:
         st.session_state["run_status"] = "error"
@@ -293,7 +295,7 @@ if os.path.exists(OUTPUT_DIR):
         zip_buffer.seek(0)
 
         st.download_button(
-            label="⬇️ Download all outputs as ZIP",
+            label="⬇️ Download all outputs as ZIP ⬇️",
             data=zip_buffer,
             file_name="outputs.zip",
             mime="application/zip",
@@ -302,13 +304,17 @@ if os.path.exists(OUTPUT_DIR):
 
     # ---------- Categorize files ----------
     reports = []         # report.pdf, report.md, etc.
-    priority_pngs = {}   # specific PNGs, by name (lowercased)
+    priority_pngs = {}   # specific PNGs, by name
     capm_pngs = []       # capm_*.png
     other_pngs = []      # any other pngs
-    gif_files = []       # all gifs
     csv_files = []       # all csvs
     other_files = []     # anything else (non-report pdf/md/etc.)
-    rolling_metrics_path = None  # special case
+    gif_files = []       # all gifs
+
+    # Special rolling-risk outputs
+    rolling_metrics_path = None
+    rolling_corr_name = None
+    rolling_corr_path = None
 
     priority_order = [
         "correlation_matrix.png",
@@ -331,6 +337,7 @@ if os.path.exists(OUTPUT_DIR):
             if lower in priority_order:
                 priority_pngs[lower] = full_path
             elif lower == "rolling_metrics.png":
+                # reserve for Rolling Risk Analytics section
                 rolling_metrics_path = full_path
             elif lower.startswith("capm_"):
                 capm_pngs.append((f, full_path))
@@ -347,6 +354,22 @@ if os.path.exists(OUTPUT_DIR):
                 other_files.append((f, full_path))
         else:
             other_files.append((f, full_path))
+
+    # Helper to pull & remove a specific GIF by name
+    def pop_gif_by_name(target_name: str):
+        target_name = target_name.lower()
+        for idx, (gf, gpath) in enumerate(gif_files):
+            if gf.lower() == target_name:
+                gif_files.pop(idx)
+                return gf, gpath
+        return None, None
+
+    # Reserve rolling correlation GIF for Rolling Risk section
+    for candidate in ["rolling_corr_heatmap.gif", "rolling_cor_heatmap.gif"]:
+        gf, gpath = pop_gif_by_name(candidate)
+        if gpath:
+            rolling_corr_name, rolling_corr_path = gf, gpath
+            break
 
     # ---------- 1) Reports right after ZIP ----------
     if reports:
@@ -404,57 +427,46 @@ if os.path.exists(OUTPUT_DIR):
         except Exception:
             orp_df = None
 
-    # ---------- helper to pull & optionally remove a GIF by name ----------
-    def pop_gif_by_name(target_name: str):
-        """Find a GIF with this lowercased name and remove it from gif_files."""
-        target_name = target_name.lower()
-        for idx, (gf, gpath) in enumerate(gif_files):
-            if gf.lower() == target_name:
-                gif_files.pop(idx)
-                return gf, gpath
-        return None, None
-
-    # Reserve rolling correlation GIF for the Rolling Risk section
-    rolling_corr_name = None
-    rolling_corr_path = None
-    for candidate in ["rolling_corr_heatmap.gif", "rolling_cor_heatmap.gif"]:
-        gf, gpath = pop_gif_by_name(candidate)
-        if gpath:
-            rolling_corr_name, rolling_corr_path = gf, gpath
-            break
-
-    # ---------- 3) Priority PNGs in desired order ----------
+    # ---------- 3) Key Charts in desired order ----------
     st.write("### Key Charts")
     for name in priority_order:
         if name in priority_pngs:
             st.image(priority_pngs[name], caption=name)
-
             # Insert ORP table right after efficient_frontier.png
             if name == "efficient_frontier.png" and orp_df is not None:
                 st.write("### ORP (Optimal Risky Portfolio) Weights")
                 st.dataframe(orp_df)
 
-    # ---------- 4) Any other non-CAPM PNGs ----------
+    # ---------- 4) Rolling Risk Analytics (right after Key Charts) ----------
+    if rolling_corr_path is not None or rolling_metrics_path is not None:
+        st.write("### Rolling Risk Analytics")
+        if rolling_corr_path is not None:
+            st.image(
+                rolling_corr_path,
+                caption=rolling_corr_name or "rolling_corr_heatmap.gif",
+            )
+        if rolling_metrics_path is not None:
+            st.image(rolling_metrics_path, caption="rolling_metrics.png")
+
+    # ---------- 5) Any other non-CAPM PNGs ----------
     if other_pngs:
         st.write("### Additional Charts")
         for f, full_path in other_pngs:
             st.image(full_path, caption=f)
 
-    # ---------- 5) Any remaining GIFs (inline, except rolling corr which we popped) ----------
+    # (Optional) any remaining GIFs (if you ever add more animations)
     if gif_files:
         st.write("### Animated Charts")
         for f, full_path in gif_files:
             st.image(full_path, caption=f)
 
-    # ---------- 6) Rolling risk analytics (GIF + rolling metrics) ----------
-    if rolling_corr_path is not None or rolling_metrics_path is not None:
-        st.write("### Rolling Risk Analytics")
-        if rolling_corr_path is not None:
-            st.image(rolling_corr_path, caption=rolling_corr_name or "rolling_corr_heatmap.gif")
-        if rolling_metrics_path is not None:
-            st.image(rolling_metrics_path, caption="rolling_metrics.png")
+    # ---------- 6) CAPM PNGs (now before CSVs) ----------
+    if capm_pngs:
+        st.write("### CAPM Scatter Plots")
+        for f, full_path in capm_pngs:
+            st.image(full_path, caption=f)
 
-    # ---------- 7) CSV downloads ----------
+    # ---------- 7) CSV downloads (last) ----------
     if csv_files:
         st.write("### CSV Data Files")
         for f, full_path in csv_files:
@@ -468,9 +480,3 @@ if os.path.exists(OUTPUT_DIR):
                 mime="text/csv",
                 key=f"download_csv_{f}",
             )
-
-    # ---------- 8) CAPM PNGs last ----------
-    if capm_pngs:
-        st.write("### CAPM Scatter Plots")
-        for f, full_path in capm_pngs:
-            st.image(full_path, caption=f)

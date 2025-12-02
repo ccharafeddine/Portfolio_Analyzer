@@ -1,7 +1,7 @@
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import os  # to infer asset name from filename
 
 def plot_efficient_frontier(R: np.ndarray, V: np.ndarray, fname: str):
     plt.figure()
@@ -31,15 +31,44 @@ def plot_cal(sigma_rp: float, mu_rp: float, rf: float, fname: str):
     plt.savefig(fname, dpi=160)
     plt.close()
 
-def plot_capm_scatter(asset_ex: pd.Series, market_ex: pd.Series, alpha: float, beta: float, fname: str):
+
+def plot_capm_scatter(
+    asset_ex: pd.Series,
+    market_ex: pd.Series,
+    alpha: float,
+    beta: float,
+    fname: str,
+):
     plt.figure()
-    plt.scatter(market_ex, asset_ex, s=18, alpha=0.7, label="Monthly Excess Returns")
+    plt.scatter(
+        market_ex,
+        asset_ex,
+        s=18,
+        alpha=0.7,
+        label="Monthly Excess Returns",
+    )
+
     x = np.linspace(market_ex.min(), market_ex.max(), 100)
     y = alpha + beta * x
     plt.plot(x, y, label=f"CAPM Fit (alpha={alpha:.4f}, beta={beta:.2f})")
+
     plt.xlabel("Market Excess Return (Monthly)")
     plt.ylabel("Asset Excess Return (Monthly)")
-    plt.title("CAPM Regression")
+
+    # infer ticker from output filename like 'capm_AAPL.png'
+    asset_label = None
+    try:
+        base = os.path.basename(fname)
+        if base.lower().startswith("capm_") and base.lower().endswith(".png"):
+            asset_label = base[5:-4]  # strip 'capm_' and '.png'
+    except Exception:
+        asset_label = None
+
+    if asset_label:
+        plt.title(f"{asset_label} — CAPM Regression")
+    else:
+        plt.title("CAPM Regression")
+
     plt.legend()
     plt.grid(True)
     plt.tight_layout()

@@ -91,8 +91,9 @@ def _fetch_fmp_prices_for_ticker(
     Fetch historical adjusted close prices for a single ticker from FMP.
 
     Returns a Series indexed by Date with the column name = ticker.
-    If FMP returns 403/429 or an error payload, we log a warning and return
-    an empty Series so the caller can fall back to another source.
+    If FMP returns 403/429, a bad payload, or a network error (timeout, etc.),
+    we log a warning and return an empty Series so the caller can fall back
+    to another source (Yahoo Finance).
     """
     api_key = _get_fmp_api_key()
     params: Dict[str, str] = {"apikey": api_key}
@@ -102,26 +103,32 @@ def _fetch_fmp_prices_for_ticker(
         params["to"] = end
 
     url = f"{FMP_BASE_URL}/historical-price-full/{ticker}"
-    resp = requests.get(url, params=params, timeout=15)
+
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except requests.exceptions.RequestException as e:
+        print(
+            f"Warning: FMP request failed for {ticker} with network error: {e}. "
+            "Will fall back to Yahoo Finance."
+        )
+        return pd.Series(dtype="float64", name=ticker)
 
     if resp.status_code in (403, 429):
         print(
             f"Warning: FMP returned {resp.status_code} for {ticker}. "
-            "This usually means the symbol is not available on your plan "
-            "or you hit a temporary limit. Will fall back to Yahoo Finance."
+            "This usually means your FMP plan does not include this symbol "
+            "or you are rate-limited. Will fall back to Yahoo Finance."
         )
         return pd.Series(dtype="float64", name=ticker)
 
     if resp.status_code != 200:
         print(
-            f"Warning: FMP returned status {resp.status_code} for {ticker}. "
-            "Will fall back to Yahoo Finance."
+            f"Warning: FMP price request for {ticker} returned status "
+            f"{resp.status_code}. Will fall back to Yahoo Finance."
         )
         return pd.Series(dtype="float64", name=ticker)
 
     data = resp.json()
-
-    # If FMP sends an error payload, there may be no 'historical' key.
     if isinstance(data, dict) and any(
         k.lower().startswith("error") or k.lower().startswith("note")
         for k in data.keys()
@@ -154,6 +161,7 @@ def _fetch_fmp_prices_for_ticker(
     return s
 
 
+
 def _fetch_fmp_dividends_for_ticker(
     ticker: str, start: Optional[str], end: Optional[str]
 ) -> pd.Series:
@@ -161,7 +169,7 @@ def _fetch_fmp_dividends_for_ticker(
     Fetch historical cash dividends for a single stock/ETF from FMP.
 
     Returns a Series indexed by Date with dividend amounts.
-    If FMP cannot provide dividends, returns empty Series.
+    If FMP cannot provide dividends or there is a network error, returns empty.
     """
     api_key = _get_fmp_api_key()
     params: Dict[str, str] = {"apikey": api_key}
@@ -171,9 +179,17 @@ def _fetch_fmp_dividends_for_ticker(
         params["to"] = end
 
     url = f"{FMP_BASE_URL}/historical-price-full/stock_dividend/{ticker}"
-    resp = requests.get(url, params=params, timeout=15)
 
-    if resp.status_code in (403, 429, 404):
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+    except requests.exceptions.RequestException as e:
+        print(
+            f"Warning: FMP dividend request failed for {ticker} with network "
+            f"error: {e}. Skipping dividends for this ticker."
+        )
+        return pd.Series(dtype="float64", name=ticker)
+
+    if resp.status_code in (403, 429):
         print(
             f"Warning: FMP returned {resp.status_code} for dividends of {ticker}. "
             "Skipping dividends for this ticker."
@@ -206,11 +222,16 @@ def _fetch_fmp_dividends_for_ticker(
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
 
-    col = "adjDividend" if "adjDividend" in df.columns else "dividend"
-    s = df[col].astype(float)
+    if "dividend" in df.columns:
+        s = df["dividend"].astype(float)
+    else:
+        # Some payloads might use a different dividend field; default to 0
+        s = pd.Series(0.0, index=df.index)
+
     s.name = ticker
     s.index.name = "Date"
     return s
+
 
 
 # -------------------------
