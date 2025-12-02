@@ -74,7 +74,7 @@ end_date = st.sidebar.date_input(
 
 benchmark = st.sidebar.text_input(
     "Benchmark Ticker",
-    value=cfg.get("benchmark") or cfg.get("passive_benchmark", "^GSPC"),
+    value=cfg.get("benchmark") or cfg.get("passive_benchmark", "SPY"),
 )
 
 include_orp = st.sidebar.checkbox(
@@ -88,7 +88,7 @@ include_complete = st.sidebar.checkbox(
 )
 
 y_cp = st.sidebar.slider(
-    "Complete Portfolio: % allocated to ORP",
+    "Complete Portfolio: ORP % (Rest goes to Treasuries)",
     min_value=0.0,
     max_value=1.0,
     value=float(cfg.get("complete_portfolio", {}).get("y", cfg.get("y_cp", 0.8))),
@@ -221,7 +221,7 @@ if st.button("💾 Save Config"):
 # =========================
 # Run Analysis
 # =========================
-st.subheader("🚀 Step 4 – Run Analysis")
+st.subheader("🚀 Run Analysis")
 
 run_clicked = st.button("Run Portfolio Analysis")
 
