@@ -238,7 +238,7 @@ if run_clicked:
     st.session_state["run_status"] = "running"
     st.session_state["run_error"] = None
 
-    # NEW: clear outputs so each run is clean (no leftover CAPM plots, etc.)
+    # Clear outputs so each run is clean (no leftover CAPM plots, etc.)
     clear_output_dir()
 
     python_exec = sys.executable
@@ -268,17 +268,17 @@ elif status == "error":
     st.error(f"Error running analyzer:\n\n{error_msg}")
 
 # =========================
-# Outputs & Stats
+# Outputs & Stats (ordered)
 # =========================
 if os.path.exists(OUTPUT_DIR):
-    files = sorted(os.listdir(OUTPUT_DIR))
+    all_files = sorted(os.listdir(OUTPUT_DIR))
     st.write("### Output Files")
 
-    # One-click ZIP download of everything in outputs/
-    if files:
+    # ---------- ZIP of everything ----------
+    if all_files:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for f in files:
+            for f in all_files:
                 full_path = os.path.join(OUTPUT_DIR, f)
                 if os.path.isfile(full_path):
                     zf.write(full_path, arcname=f)
@@ -292,35 +292,71 @@ if os.path.exists(OUTPUT_DIR):
             key="download_all_zip",
         )
 
-    # Individual files: show PNGs inline, others as downloads
-    for f in files:
-        full_path = os.path.join(OUTPUT_DIR, f)
+    # ---------- Categorize files ----------
+    reports = []         # report.pdf, report.md, etc.
+    priority_pngs = {}   # specific PNGs, by name
+    capm_pngs = []       # capm_*.png
+    other_pngs = []      # any other pngs
+    csv_files = []       # all csvs
+    other_files = []     # anything else (non-report pdf/md/etc.)
 
-        if f.lower().endswith(".png"):
-            st.image(full_path, caption=f)
+    priority_order = [
+        "correlation_matrix.png",
+        "efficient_frontier.png",
+        "cal.png",
+        "orp_real_vs_expected.png",
+        "complete_portfolio_pie.png",
+        "growth_all_portfolios.png",
+        "forward_scenarios.png",
+    ]
+
+    for f in all_files:
+        full_path = os.path.join(OUTPUT_DIR, f)
+        if not os.path.isfile(full_path):
             continue
 
-        if f.lower().endswith(".pdf"):
-            mime = "application/pdf"
-        elif f.lower().endswith(".md"):
-            mime = "text/markdown"
-        elif f.lower().endswith(".csv"):
-            mime = "text/csv"
+        lower = f.lower()
+
+        if lower.endswith(".png"):
+            if lower in priority_order:
+                priority_pngs[lower] = full_path
+            elif lower.startswith("capm_"):
+                capm_pngs.append((f, full_path))
+            else:
+                other_pngs.append((f, full_path))
+        elif lower.endswith(".csv"):
+            csv_files.append((f, full_path))
+        elif lower.endswith(".pdf") or lower.endswith(".md"):
+            if "report" in lower:
+                reports.append((f, full_path))
+            else:
+                other_files.append((f, full_path))
         else:
-            mime = "application/octet-stream"
+            other_files.append((f, full_path))
 
-        with open(full_path, "rb") as fh:
-            data = fh.read()
+    # ---------- 1) Reports right after ZIP ----------
+    if reports:
+        st.write("### Report Files")
+        for f, full_path in reports:
+            if f.lower().endswith(".pdf"):
+                mime = "application/pdf"
+            elif f.lower().endswith(".md"):
+                mime = "text/markdown"
+            else:
+                mime = "application/octet-stream"
 
-        st.download_button(
-            label=f"Download {f}",
-            data=data,
-            file_name=f,
-            mime=mime,
-            key=f"download_{f}",
-        )
+            with open(full_path, "rb") as fh:
+                data = fh.read()
 
-    # Optional stats tables
+            st.download_button(
+                label=f"Download {f}",
+                data=data,
+                file_name=f,
+                mime=mime,
+                key=f"download_report_{f}",
+            )
+
+    # ---------- 2) Holdings + CAPM tables ----------
     holdings_path = os.path.join(OUTPUT_DIR, "holdings_table.csv")
     capm_path = os.path.join(OUTPUT_DIR, "capm_results.csv")
 
@@ -333,3 +369,36 @@ if os.path.exists(OUTPUT_DIR):
         st.write("### CAPM Regression Results")
         df_capm = pd.read_csv(capm_path, index_col=0)
         st.dataframe(df_capm)
+
+    # ---------- 3) Priority PNGs in desired order ----------
+    st.write("### Key Charts")
+    for name in priority_order:
+        if name in priority_pngs:
+            st.image(priority_pngs[name], caption=name)
+
+    # ---------- 4) Any other non-CAPM PNGs ----------
+    if other_pngs:
+        st.write("### Additional Charts")
+        for f, full_path in other_pngs:
+            st.image(full_path, caption=f)
+
+    # ---------- 5) CSV downloads ----------
+    if csv_files:
+        st.write("### CSV Data Files")
+        for f, full_path in csv_files:
+            with open(full_path, "rb") as fh:
+                data = fh.read()
+
+            st.download_button(
+                label=f"Download {f}",
+                data=data,
+                file_name=f,
+                mime="text/csv",
+                key=f"download_csv_{f}",
+            )
+
+    # ---------- 6) CAPM PNGs last ----------
+    if capm_pngs:
+        st.write("### CAPM Scatter Plots")
+        for f, full_path in capm_pngs:
+            st.image(full_path, caption=f)
