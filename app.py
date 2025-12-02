@@ -199,6 +199,7 @@ ap["capital"] = float(initial_capital)
 ap["start_date"] = str(start_date)
 ap["end_date"] = str(end_date)
 cfg["active_portfolio"] = ap
+cfg["tickers"] = tickers
 
 cfg["passive_portfolio"] = {
     "capital": float(initial_capital),
