@@ -25,6 +25,14 @@ def save_config(cfg):
     return True
 
 
+def clear_output_dir():
+    if os.path.exists(OUTPUT_DIR):
+        for fname in os.listdir(OUTPUT_DIR):
+            fpath = os.path.join(OUTPUT_DIR, fname)
+            if os.path.isfile(fpath):
+                os.remove(fpath)
+
+
 st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
 st.title("📊 Portfolio Analyzer App")
 
@@ -199,7 +207,7 @@ ap["capital"] = float(initial_capital)
 ap["start_date"] = str(start_date)
 ap["end_date"] = str(end_date)
 cfg["active_portfolio"] = ap
-cfg["tickers"] = tickers
+cfg["tickers"] = tickers  # keep top-level tickers in sync
 
 cfg["passive_portfolio"] = {
     "capital": float(initial_capital),
@@ -229,6 +237,9 @@ run_clicked = st.button("Run Portfolio Analysis")
 if run_clicked:
     st.session_state["run_status"] = "running"
     st.session_state["run_error"] = None
+
+    # NEW: clear outputs so each run is clean (no leftover CAPM plots, etc.)
+    clear_output_dir()
 
     python_exec = sys.executable
 
@@ -309,7 +320,7 @@ if os.path.exists(OUTPUT_DIR):
             key=f"download_{f}",
         )
 
-    # Optional stats tables (once we save them from main.py)
+    # Optional stats tables
     holdings_path = os.path.join(OUTPUT_DIR, "holdings_table.csv")
     capm_path = os.path.join(OUTPUT_DIR, "capm_results.csv")
 
