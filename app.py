@@ -285,7 +285,7 @@ if os.path.exists(OUTPUT_DIR):
         zip_buffer.seek(0)
 
         st.download_button(
-            label="⬇️ Download all outputs as ZIP ⬇️",
+            label="⬇️ Download all outputs as ZIP",
             data=zip_buffer,
             file_name="outputs.zip",
             mime="application/zip",
@@ -370,11 +370,35 @@ if os.path.exists(OUTPUT_DIR):
         df_capm = pd.read_csv(capm_path, index_col=0)
         st.dataframe(df_capm)
 
+    # ---------- ORP weights from summary.json ----------
+    orp_df = None
+    summary_path = os.path.join(OUTPUT_DIR, "summary.json")
+    if os.path.exists(summary_path):
+        try:
+            with open(summary_path, "r") as f:
+                summary = json.load(f)
+            w_dict = summary.get("max_sharpe_weights", {})
+            if isinstance(w_dict, dict) and w_dict:
+                orp_df = (
+                    pd.Series(w_dict, name="weight")
+                    .to_frame()
+                    .assign(weight_pct=lambda df: df["weight"] * 100)
+                    .sort_values("weight", ascending=False)
+                )
+                orp_df["weight"] = orp_df["weight"].round(4)
+                orp_df["weight_pct"] = orp_df["weight_pct"].round(2)
+        except Exception:
+            orp_df = None
+
     # ---------- 3) Priority PNGs in desired order ----------
     st.write("### Key Charts")
     for name in priority_order:
         if name in priority_pngs:
             st.image(priority_pngs[name], caption=name)
+            # Insert ORP table right after efficient_frontier.png
+            if name == "efficient_frontier.png" and orp_df is not None:
+                st.write("### ORP (Optimal Risky Portfolio) Weights")
+                st.dataframe(orp_df)
 
     # ---------- 4) Any other non-CAPM PNGs ----------
     if other_pngs:
