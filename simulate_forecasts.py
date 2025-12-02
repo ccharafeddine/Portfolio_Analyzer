@@ -117,7 +117,7 @@ def _simulate_paths(
     """
     dt = 1.0
     # increments: (mu - 0.5 sigma^2) dt + sigma sqrt(dt) Z
-    drift = (mu - 0.5 * sigma ** 2) * dt
+    drift = (mu - 0.5 * sigma**2) * dt
     shock_scale = sigma * np.sqrt(dt)
 
     shocks = drift + shock_scale * np.random.randn(horizon_days, n_paths)
@@ -143,9 +143,7 @@ def run_martingale_forecasts(
     portfolios = _load_current_series(outdir)
 
     last_date = max(s.index[-1] for s in portfolios.values())
-    future_index = pd.date_range(
-        start=last_date, periods=horizon_days + 1, freq="B"
-    )
+    future_index = pd.date_range(start=last_date, periods=horizon_days + 1, freq="B")
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
     axes = axes.flatten()
@@ -203,14 +201,28 @@ def run_martingale_forecasts(
             mtick.FuncFormatter(lambda x, pos: f"${x/1e6:.1f}M")
         )
 
+    # Label x-axis as Date on the bottom row
+    for ax in axes[2:]:
+        ax.set_xlabel("Date")
+
     fig.suptitle(
         "Forward Scenarios (3 Years): Historical vs Martingale Models",
         fontsize=14,
     )
+
+    # Global legend moved to the bottom so it doesn't overlap the title
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=4)
+    fig.legend(
+        handles,
+        labels,
+        loc="lower center",
+        ncol=4,
+        bbox_to_anchor=(0.5, 0.01),
+    )
+
+    # Format date ticks nicely and leave space for title + legend
     fig.autofmt_xdate()
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=[0.02, 0.06, 0.98, 0.94])
 
     out_path = os.path.join(outdir, "forward_scenarios.png")
     plt.savefig(out_path, dpi=300)
