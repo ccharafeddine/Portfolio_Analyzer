@@ -177,7 +177,7 @@ else:
         weights_list.append(float(w))
 
     if tickers and abs(sum(weights_list) - 1.0) > 1e-6:
-        st.error("❌ Weights must sum to 1.0 unless equal-weights is selected.")
+        st.error("❌ Weights must sum to 1.0 unless equal-weights is selected. ❌")
         st.stop()
 
 weights_dict = {t: w for t, w in zip(tickers, weights_list)}
@@ -223,7 +223,7 @@ cfg["start_date"] = str(start_date)
 cfg["end_date"] = str(end_date)
 cfg["y_cp"] = float(y_cp)
 
-if st.button("💾 Save Config"):
+if st.button("💾 Save Config 💾"):
     save_config(cfg)
     st.success("Config saved!")
 
@@ -232,7 +232,7 @@ if st.button("💾 Save Config"):
 # =========================
 st.subheader("🚀 Run Analysis")
 
-run_clicked = st.button("Run Portfolio Analysis")
+run_clicked = st.button("🏃‍♀️ Run Portfolio Analysis 🏃‍♀️")
 
 if run_clicked:
     st.session_state["run_status"] = "running"
