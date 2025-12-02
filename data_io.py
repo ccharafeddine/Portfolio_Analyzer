@@ -4,6 +4,7 @@ from typing import List, Optional, Dict
 import requests
 import pandas as pd
 from datetime import datetime
+import yfinance as yf
 
 
 # -------------------------
@@ -15,7 +16,7 @@ FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
 # Mapping from crypto tickers used in your app to Alpha Vantage symbol/market
 CRYPTO_TICKER_MAP: Dict[str, Dict[str, str]] = {
     "BTC-USD": {"symbol": "BTC", "market": "USD"},
-    # add more here if needed, e.g.:
+    # Add more here if needed, e.g.:
     # "ETH-USD": {"symbol": "ETH", "market": "USD"},
 }
 
@@ -27,7 +28,7 @@ CRYPTO_TICKER_MAP: Dict[str, Dict[str, str]] = {
 def _normalize_date_str(s: Optional[str]) -> Optional[str]:
     """
     Normalize a date-like string (e.g. '2024/01/01', '2024-01-01') to
-    'YYYY-MM-DD', which both FMP and Alpha Vantage can work with.
+    'YYYY-MM-DD', which both FMP and Alpha Vantage / yfinance can work with.
     """
     if s is None:
         return None
@@ -88,7 +89,10 @@ def _fetch_fmp_prices_for_ticker(
 ) -> pd.Series:
     """
     Fetch historical adjusted close prices for a single ticker from FMP.
+
     Returns a Series indexed by Date with the column name = ticker.
+    If FMP returns 403/429 or an error payload, we log a warning and return
+    an empty Series so the caller can fall back to another source.
     """
     api_key = _get_fmp_api_key()
     params: Dict[str, str] = {"apikey": api_key}
@@ -104,15 +108,36 @@ def _fetch_fmp_prices_for_ticker(
         print(
             f"Warning: FMP returned {resp.status_code} for {ticker}. "
             "This usually means the symbol is not available on your plan "
-            "or you hit a temporary limit. Skipping this ticker."
+            "or you hit a temporary limit. Will fall back to Yahoo Finance."
         )
         return pd.Series(dtype="float64", name=ticker)
 
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        print(
+            f"Warning: FMP returned status {resp.status_code} for {ticker}. "
+            "Will fall back to Yahoo Finance."
+        )
+        return pd.Series(dtype="float64", name=ticker)
+
     data = resp.json()
 
-    hist = data.get("historical", [])
+    # If FMP sends an error payload, there may be no 'historical' key.
+    if isinstance(data, dict) and any(
+        k.lower().startswith("error") or k.lower().startswith("note")
+        for k in data.keys()
+    ):
+        print(
+            f"Warning: FMP error payload for {ticker}: {data}. "
+            "Will fall back to Yahoo Finance."
+        )
+        return pd.Series(dtype="float64", name=ticker)
+
+    hist = data.get("historical", []) if isinstance(data, dict) else []
     if not hist:
+        print(
+            f"Warning: FMP returned no 'historical' data for {ticker}. "
+            "Will fall back to Yahoo Finance."
+        )
         return pd.Series(dtype="float64", name=ticker)
 
     df = pd.DataFrame(hist)
@@ -134,7 +159,9 @@ def _fetch_fmp_dividends_for_ticker(
 ) -> pd.Series:
     """
     Fetch historical cash dividends for a single stock/ETF from FMP.
+
     Returns a Series indexed by Date with dividend amounts.
+    If FMP cannot provide dividends, returns empty Series.
     """
     api_key = _get_fmp_api_key()
     params: Dict[str, str] = {"apikey": api_key}
@@ -146,19 +173,32 @@ def _fetch_fmp_dividends_for_ticker(
     url = f"{FMP_BASE_URL}/historical-price-full/stock_dividend/{ticker}"
     resp = requests.get(url, params=params, timeout=15)
 
-    if resp.status_code in (403, 429):
+    if resp.status_code in (403, 429, 404):
         print(
             f"Warning: FMP returned {resp.status_code} for dividends of {ticker}. "
             "Skipping dividends for this ticker."
         )
         return pd.Series(dtype="float64", name=ticker)
 
-    if resp.status_code == 404:
+    if resp.status_code != 200:
+        print(
+            f"Warning: FMP dividend request for {ticker} returned status "
+            f"{resp.status_code}. Skipping dividends for this ticker."
+        )
         return pd.Series(dtype="float64", name=ticker)
 
-    resp.raise_for_status()
     data = resp.json()
-    hist = data.get("historical", [])
+    if isinstance(data, dict) and any(
+        k.lower().startswith("error") or k.lower().startswith("note")
+        for k in data.keys()
+    ):
+        print(
+            f"Warning: FMP dividend error payload for {ticker}: {data}. "
+            "Skipping dividends for this ticker."
+        )
+        return pd.Series(dtype="float64", name=ticker)
+
+    hist = data.get("historical", []) if isinstance(data, dict) else []
     if not hist:
         return pd.Series(dtype="float64", name=ticker)
 
@@ -168,6 +208,46 @@ def _fetch_fmp_dividends_for_ticker(
 
     col = "adjDividend" if "adjDividend" in df.columns else "dividend"
     s = df[col].astype(float)
+    s.name = ticker
+    s.index.name = "Date"
+    return s
+
+
+# -------------------------
+# yfinance fallback helper
+# -------------------------
+
+def _fetch_yf_prices_for_ticker(
+    ticker: str, start: Optional[str], end: Optional[str], interval: str = "1d"
+) -> pd.Series:
+    """
+    Fetch historical adjusted close prices for a single ticker from Yahoo Finance.
+
+    Used as a fallback when FMP fails or returns no data.
+    """
+    try:
+        data = yf.download(
+            ticker,
+            start=start,
+            end=end,
+            interval=interval,
+            progress=False,
+            auto_adjust=True,
+        )
+    except Exception as e:
+        print(f"Warning: yfinance raised an exception for {ticker}: {e}")
+        return pd.Series(dtype="float64", name=ticker)
+
+    if data.empty:
+        print(f"Warning: yfinance returned no data for {ticker}.")
+        return pd.Series(dtype="float64", name=ticker)
+
+    # Use 'Adj Close' if available, otherwise 'Close'
+    if "Adj Close" in data.columns:
+        s = data["Adj Close"].astype(float)
+    else:
+        s = data["Close"].astype(float)
+
     s.name = ticker
     s.index.name = "Date"
     return s
@@ -211,7 +291,6 @@ def _fetch_crypto_prices_from_alpha_vantage(
     data = resp.json()
     ts_key = "Time Series (Digital Currency Daily)"
     if ts_key not in data:
-        # Sometimes Alpha Vantage returns an "Error Message" or "Note"
         print(
             f"Warning: Alpha Vantage did not return time series data for {t_upper}. "
             "You may have hit the rate limit (5 calls/min, 500/day) or the API key "
@@ -231,7 +310,6 @@ def _fetch_crypto_prices_from_alpha_vantage(
             close_col = col
             break
     if close_col is None:
-        # Fallback: any column that contains 'close'
         for col in df.columns:
             if "close" in col.lower():
                 close_col = col
@@ -264,6 +342,14 @@ def _fetch_crypto_prices_from_alpha_vantage(
 def download_prices(
     tickers: List[str], start: str, end: Optional[str], interval: str = "1d"
 ) -> pd.DataFrame:
+    """
+    Download adjusted close prices for a list of tickers.
+
+    - For crypto tickers in CRYPTO_TICKER_MAP (e.g. BTC-USD), use Alpha Vantage.
+    - For all others, try FMP first; if FMP fails or returns no data, fall back
+      to Yahoo Finance.
+    - Symbols that cannot be fetched from any source are skipped with a warning.
+    """
     norm_start = _normalize_date_str(start)
     norm_end = _normalize_date_str(end)
 
@@ -284,32 +370,34 @@ def download_prices(
                 series_list.append(s)
             continue
 
-        # Special case: map '^GSPC' to SPY on FMP, but keep column name '^GSPC'
-        if t_upper == "^GSPC":
-            fmp_symbol = "SPY"
-        else:
-            fmp_symbol = t_upper
+        # ----- Equities / ETFs: try FMP first -----
+        # (special-case mapping can go here if needed; for now SPY is SPY)
+        fmp_symbol = t_upper
 
         s = _fetch_fmp_prices_for_ticker(fmp_symbol, norm_start, norm_end)
+
+        # If FMP returned nothing, fall back to yfinance
+        if s.empty:
+            s = _fetch_yf_prices_for_ticker(t_upper, norm_start, norm_end, interval)
+
         if s.empty:
             print(
-                f"Warning: no FMP price data for {t_upper} "
-                f"(requested as '{fmp_symbol}') in the requested period."
+                f"Warning: no price data for {t_upper} from FMP or Yahoo Finance "
+                "in the requested period."
             )
         else:
-            s.name = t_upper  # important: column named '^GSPC', not 'SPY'
+            s.name = t_upper
             series_list.append(s)
 
     if not series_list:
         raise ValueError(
-            "No price data returned from FMP/Alpha Vantage for any ticker. "
-            "Check your tickers, dates, API keys, or network connectivity."
+            "No price data returned from FMP/Alpha Vantage/Yahoo Finance for any "
+            "ticker. Check your tickers, dates, API keys, or network connectivity."
         )
 
     prices = pd.concat(series_list, axis=1)
     prices.index.name = "Date"
     return prices.sort_index()
-
 
 
 def download_dividends(
@@ -319,7 +407,8 @@ def download_dividends(
     Download dividend cash flows for tickers.
 
     - Crypto tickers (e.g. BTC-USD) are assumed to have no dividends.
-    - Stocks/ETFs use FMP's stock_dividend endpoint.
+    - Stocks/ETFs use FMP's stock_dividend endpoint. If FMP cannot provide
+      dividends, we simply omit them.
     """
     norm_start = _normalize_date_str(start)
     norm_end = _normalize_date_str(end)
