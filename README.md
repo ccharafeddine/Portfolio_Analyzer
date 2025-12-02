@@ -1,20 +1,118 @@
 # Portfolio Analyzer
 
-A Python-based toolkit for analyzing an **active multi-asset portfolio** versus a **passive benchmark**.  
-This project downloads historical price data, constructs portfolios, computes risk/return statistics, runs regressions and simulations, and generates a complete performance report.
+A complete Python + Streamlit toolkit for portfolio optimization, risk analysis, simulations, and automated report generation.
 
-Outputs include:
+Overview
 
-- Active, passive, ORP, and complete portfolio value series  
-- Risk/return statistics  
-- CAPM regression results  
-- Correlation matrix  
-- Efficient frontier / ORP summary  
-- Forward return scenarios  
-- A full Markdown report (`outputs/report.md`)  
-- Optional PDF report (`outputs/report.pdf`)
+The Portfolio Analyzer is a full-featured system for analyzing:
+```
+Active portfolios (your chosen tickers + weights)
 
-Any user can plug in their own tickers, weights, and dates using `config.json` to reproduce the analysis.
+Passive benchmark portfolios (e.g., SPY, ^GSPC, etc.)
+
+Optimal Risky Portfolio (ORP) via Max-Sharpe optimization
+
+Complete portfolio blending ORP with risk-free assets
+
+Portfolio factor exposures (CAPM + style regressions)
+
+Forward-looking Monte Carlo forecasts
+
+Efficient frontier visualization
+
+Automated full report generation (Markdown + optional PDF)
+```
+
+You can now run all analyses through a Streamlit app that:
+```
+Lets you input tickers, weights, bounds, and settings
+
+Runs the full pipeline with one button
+
+Shows all outputs directly in the browser
+
+Offers instant ZIP download of all plots + CSVs
+
+Automatically sorts outputs into a clean, professional order
+```
+**Web App**
+
+The app.py provides a complete Streamlit user interface.
+
+Features:
+```
+Text box for tickers (one per line)
+
+Per-ticker weight inputs or equal-weight toggle
+
+Dividend toggle
+
+Shorting toggle
+
+If ON: per-asset bounds = [-1.5, +1.5]
+
+If OFF: per-asset bounds = [0, +1.5]
+
+Start/end date selectors
+
+Benchmark selector
+
+Complete portfolio risk-free mix slider
+
+“Run Analysis” button triggers main.py
+
+Automatic clearing of old outputs between runs
+
+Ordered output display:
+
+ZIP download
+
+Reports
+
+Holdings + CAPM tables
+
+Key charts (efficient frontier, CAL, ORP pie, etc.)
+
+Forward simulation
+
+CSVs
+
+CAPM scatter plots
+```
+**Deployment**
+
+You can deploy the entire app on Streamlit Cloud, using:
+```
+FMP API key via st.secrets["FMP_API_KEY"]
+
+Alpha Vantage key via st.secrets["ALPHA_VANTAGE_API_KEY"]
+```
+Both are supported in data_io.py.
+
+**API Keys (FMP + Alpha Vantage)**
+
+Place your keys in your environment:
+
+Local (Windows PowerShell)
+```powershell
+setx FMP_API_KEY "YOUR_KEY"
+setx ALPA_VANTAGE_API_KEY "YOUR_KEY"
+```
+Streamlit Cloud (Add to Secrets)
+```powershell
+FMP_API_KEY = "YOUR_KEY"
+ALPHA_VANTAGE_API_KEY = "YOUR_KEY"
+```
+
+**Running the Analysis**
+Option 1 - Use the Streamlit app
+```bash
+streamlit run app.py
+```
+Option 2 - Direct Python
+```bash
+python main.py --config config.json
+```
 
 ---
 
@@ -111,71 +209,33 @@ Below is a clear, fully valid example.
 
 ```json
 {
-  "tickers": [
-    "BTC-USD", "MARA", "SPYG", "XLK", "AAPL",
-    "UNH", "XLP", "SCHD", "XYLD", "SHY", "IAU"
-  ],
-
-  "benchmark": "^GSPC",
-
+  "tickers": ["AAPL", "MSFT", "GLD"],
+  "benchmark": "SPY",
   "start": "2020-01-01",
-  "end": null,
-  "interval": "1d",
+  "end": "2025-12-31",
 
-  "use_dividends_in_total_return": false,
-  "risk_free_rate": 0.04,
-
-  "max_allocation_bounds": [0.0, 1.0],
   "short_sales": false,
+  "max_allocation_bounds": [0, 1.5],
+  "risk_free_rate": 0.04,
   "frontier_points": 50,
 
   "active_portfolio": {
     "capital": 1000000,
-    "start_date": "2020-01-02",
-    "weights": {
-      "BTC-USD": 0.08,
-      "MARA":    0.02,
-      "SPYG":    0.20,
-      "XLK":     0.15,
-      "AAPL":    0.10,
-      "UNH":     0.05,
-      "XLP":     0.10,
-      "SCHD":    0.10,
-      "XYLD":    0.10,
-      "SHY":     0.07,
-      "IAU":     0.03
-    }
+    "tickers": ["AAPL", "MSFT", "GLD"],
+    "weights": {"AAPL":0.34,"MSFT":0.33,"GLD":0.33},
+    "start_date": "2020-01-01",
+    "end_date": "2025-12-31"
   },
 
   "passive_portfolio": {
     "capital": 1000000,
-    "start_date": "2020-01-02"
+    "start_date": "2020-01-01"
   },
 
-  "complete_portfolio": {
-    "y": 0.80
-  }
+  "complete_portfolio": {"y": 0.80}
 }
 ```
-
-What you modify:
-```
-Change tickers → "tickers": [...]
-
-Benchmark ticker → "benchmark": "^GSPC"
-
-Start/end dates → "start" / "end"
-
-Risk-free rate → "risk_free_rate": 0.04
-
-Active weights → inside "weights"
-
-Portfolio size → "capital"
-
-Complete portfolio mix → "y": 0.80
-```
-
-Everything else updates automatically.
+The UI writes this, no need to edit it manually
 
 
 **<u>What Each Script Does</u>**
