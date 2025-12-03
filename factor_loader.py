@@ -15,6 +15,35 @@ FF5_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Resea
 
 
 # -------------------------------------------------------------
+# Robust HTTP helper (real-time, with timeout & headers)
+# -------------------------------------------------------------
+COMMON_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0 Safari/537.36"
+    )
+}
+
+
+def _safe_get(url: str, timeout: int = 30) -> bytes:
+    """
+    Download a URL with a browser-like User-Agent and a reasonable timeout.
+    Raises RuntimeError with a clear message on failure.
+    """
+    try:
+        resp = requests.get(url, headers=COMMON_HEADERS, timeout=timeout)
+        resp.raise_for_status()
+        return resp.content
+    except requests.exceptions.Timeout as e:
+        raise RuntimeError(f"Timeout when fetching {url}") from e
+    except requests.exceptions.HTTPError as e:
+        raise RuntimeError(f"HTTP error from {url}: {e}") from e
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Network error when fetching {url}: {e}") from e
+
+
+# -------------------------------------------------------------
 # Generic FF3 / FF5 parser
 # -------------------------------------------------------------
 def _extract_monthly_table_from_text(text: str) -> pd.DataFrame:
@@ -81,10 +110,8 @@ def _load_ff_zip(url: str) -> pd.DataFrame:
     Download and parse a Kenneth French FF3/FF5 ZIP into a clean
     monthly factor DataFrame.
     """
-    resp = requests.get(url)
-    resp.raise_for_status()
-
-    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    content = _safe_get(url)
+    zf = zipfile.ZipFile(io.BytesIO(content))
     csv_name = [name for name in zf.namelist() if name.endswith(".csv")][0]
 
     with zf.open(csv_name) as fh:
@@ -109,10 +136,8 @@ def _load_momentum_zip(url: str) -> pd.DataFrame:
 
     Only lines that look like 'YYYYMM,<value>' are kept.
     """
-    resp = requests.get(url)
-    resp.raise_for_status()
-
-    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    content = _safe_get(url)
+    zf = zipfile.ZipFile(io.BytesIO(content))
     csv_name = [name for name in zf.namelist() if name.endswith(".csv")][0]
 
     with zf.open(csv_name) as fh:

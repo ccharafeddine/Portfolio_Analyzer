@@ -1,585 +1,1170 @@
-"""
-generate_report.py
+# ------------------------------------------------------------
+# generate_report.py
+# Full module with:
+# - Smart file loading
+# - Embedded charts
+# - Summary table
+# - Risk bucket classification
+# - Interpretations
+# - Ordered to match Streamlit Outputs flow
+# - Universal support for any portfolio
+# ------------------------------------------------------------
 
-Builds a markdown and PDF report summarizing the portfolio analysis
-results saved in the outputs/ folder.
-
-This version is simplified and robust:
-- Uses safe DatetimeIndex intersections instead of "&"
-- Uses "ME" (month end) for resampling
-- Cleans text before sending to FPDF so no unsupported Unicode crashes
-- Always uses explicit positive widths in FPDF cells/multi_cells
-"""
-
-from __future__ import annotations
-
-import json
 import os
-from math import sqrt
-from typing import Dict, Optional
+import json
+from datetime import datetime
+import math
 
-import numpy as np
 import pandas as pd
-from fpdf import FPDF
+
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Image,
+    Table,
+    TableStyle,
+)
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.units import inch
 
 
-# ------------------ Helpers to load data ------------------ #
+OUTPUT_DIR = "outputs"
 
+# ============================================================
+# Helper Smart Loaders
+# ============================================================
 
-def _read_value_series(csv_path: str, preferred_cols: list[str]) -> pd.Series:
+def _find_matching_file(outdir, prefix, exts=(".csv", ".json", "")):
     """
-    Read a value series from a CSV.
-
-    The CSV is expected to have a Date column and one or more numeric columns.
-    We try a list of preferred column names first; if none are present, we
-    fall back to:
-      * the only numeric column, if there is exactly one
-      * otherwise the first column.
+    Finds a file in outdir whose name starts with prefix.
+    Supports:
+        - exact matches
+        - prefix matches
+        - extensionless files
+    Returns full path or None.
     """
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(csv_path)
+    # 1. Exact expected priority
+    for ext in exts:
+        candidate = os.path.join(outdir, prefix + ext)
+        if os.path.exists(candidate):
+            return candidate
 
-    df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
+    # 2. Fuzzy match: any file starting with prefix
+    for fname in os.listdir(outdir):
+        if fname.startswith(prefix):
+            return os.path.join(outdir, fname)
 
-    # Try preferred columns in order
-    for col in preferred_cols:
-        if col in df.columns:
-            s = df[col].astype(float)
-            return s.sort_index()
-
-    # Fall back to a single numeric column, if there is one
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    if len(numeric_cols) == 1:
-        s = df[numeric_cols[0]].astype(float)
-        return s.sort_index()
-
-    # Otherwise just use the first column
-    if len(df.columns) == 0:
-        raise ValueError(f"No columns found in {csv_path}")
-    s = df[df.columns[0]].astype(float)
-    return s.sort_index()
+    return None
 
 
-def _load_series(outdir: str) -> Dict[str, pd.Series]:
+def load_json_smart(outdir, prefix):
     """
-    Load realized value series for Active, Passive, ORP, and Complete.
-
-    Any series whose CSV is missing will simply be skipped; at least one of
-    Active/Passive should exist for the report to be useful.
+    Loads json even if extension is missing or different.
     """
-    mapping = {
-        "Active": ("active_portfolio_value.csv", ["Value", "ActiveValue"]),
-        "Passive": ("passive_portfolio_value.csv", ["Value", "PassiveValue"]),
-        "ORP": ("orp_value_realized.csv", ["ORP_Value", "Value"]),
-        "Complete": ("complete_portfolio_value.csv", ["Complete_Value", "Value"]),
+    path = _find_matching_file(outdir, prefix, exts=(".json", ""))
+    if path is None:
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def load_csv_smart(outdir, prefix):
+    """
+    Loads CSV even if extension is missing or has variations.
+    """
+    path = _find_matching_file(outdir, prefix, exts=(".csv", ""))
+    if path is None:
+        return None
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return None
+
+
+# ============================================================
+# Markdown helper
+# ============================================================
+
+def write_md_section(md_lines, title, body):
+    md_lines.append(f"## {title}\n")
+    md_lines.append(body.strip() + "\n\n")
+
+
+# ============================================================
+# Formatting helpers
+# ============================================================
+
+def fmt_pct_or_num(x, force_pct=False):
+    if x is None:
+        return "N/A"
+    try:
+        val = float(x)
+    except Exception:
+        return str(x)
+
+    # Treat NaN / inf as missing
+    if not math.isfinite(val):
+        return "N/A"
+
+    if force_pct or abs(val) < 2.0:
+        return f"{val * 100:.2f}%"
+    return f"{val:.2f}"
+
+
+# ------------------------------------------------------------
+# Interpretation Engine + Risk Buckets + Conclusions
+# ------------------------------------------------------------
+
+def interpret_performance(summary_json):
+    if not summary_json:
+        return "Performance data was not available."
+
+    rp = summary_json.get("portfolio_return")
+    rb = summary_json.get("benchmark_return")
+
+    try:
+        rp = float(rp)
+        rb = float(rb)
+    except Exception:
+        return "Return data was not available."
+
+    if not (math.isfinite(rp) and math.isfinite(rb)):
+        return "Return data was not available."
+
+    diff = rp - rb
+
+    if diff > 0:
+        return (
+            "The portfolio outperformed the benchmark over the analysis period. "
+            "This means the chosen holdings and weightings delivered stronger results "
+            "than a passive exposure to the benchmark. The excess performance reflects either "
+            "effective stock selection, meaningful growth exposure, or advantageous positioning "
+            "during favorable market trends."
+        )
+    elif diff < 0:
+        return (
+            "The portfolio underperformed relative to the benchmark. This suggests the holdings "
+            "or weightings lagged the broader market. The results may reflect exposure to slower-moving "
+            "sectors, underperformance among key positions, or defensive allocation choices."
+        )
+    else:
+        return (
+            "The portfolio delivered performance closely aligned with the benchmark—neither significantly "
+            "outperforming nor lagging. This suggests a broadly market-consistent return pattern."
+        )
+
+
+def interpret_risk(summary_json):
+    if not summary_json:
+        return "Risk measures were not available."
+
+    sharpe = summary_json.get("portfolio_sharpe")
+
+    if sharpe is None:
+        return "Risk statistics were not available."
+
+    if sharpe > 1.0:
+        return (
+            "The portfolio achieved strong risk-adjusted returns. A Sharpe ratio above 1 indicates "
+            "that the portfolio was well compensated for the volatility taken on."
+        )
+    elif sharpe > 0.5:
+        return (
+            "The portfolio delivered reasonable risk-adjusted results. The relationship between volatility "
+            "and return was acceptable and broadly efficient for the strategy employed."
+        )
+    else:
+        return (
+            "Risk-adjusted returns were modest. The volatility taken on did not translate into proportionally "
+            "strong returns. This may indicate concentration risk, elevated market volatility, or positions "
+            "that did not behave as expected."
+        )
+
+
+def interpret_drawdown(dd_df):
+    if dd_df is None or dd_df.empty:
+        return "Drawdown statistics were not available."
+
+    col = None
+    for candidate in ["MaxDrawdown", "max_drawdown"]:
+        if candidate in dd_df.columns:
+            col = candidate
+            break
+
+    if col is None:
+        return "Drawdown statistics were not available."
+
+    try:
+        max_dd = float(dd_df[col].iloc[0])
+    except Exception:
+        return "Drawdown statistics were not available."
+
+    if not math.isfinite(max_dd):
+        return "Drawdown statistics were not available."
+
+    if max_dd < -0.25:
+        return (
+            "The portfolio experienced a deep peak-to-trough decline, typical of high-volatility or growth-tilted "
+            "strategies. This level of drawdown often reflects periods of market stress or concentrated exposures."
+        )
+    elif max_dd < -0.15:
+        return (
+            "The portfolio experienced a moderate drawdown. This is normal for portfolios with a tilt toward "
+            "growth assets or higher-return strategies and remained within a range most long-term investors could tolerate."
+        )
+    else:
+        return (
+            "Drawdowns remained relatively limited, suggesting that the portfolio maintained stability even during "
+            "periods of broader market volatility."
+        )
+
+
+def interpret_attribution(df):
+    if df is None or df.empty or "Total" not in df.columns:
+        return "Attribution results were not available."
+
+    totals = df["Total"]
+    idx_top = totals.idxmax()
+    idx_bottom = totals.idxmin()
+
+    # Prefer a label column if present
+    label_col = None
+    for c in ["Bucket", "Asset", "Name"]:
+        if c in df.columns:
+            label_col = c
+            break
+
+    if label_col is not None:
+        top_label = df.loc[idx_top, label_col]
+        bottom_label = df.loc[idx_bottom, label_col]
+    else:
+        top_label = str(idx_top)
+        bottom_label = str(idx_bottom)
+
+    if totals.loc[idx_top] > 0:
+        return (
+            f"The portfolio’s relative performance was driven primarily by **{top_label}**, "
+            "which provided the strongest positive contribution to active return. This reflects either "
+            "successful overweighting or strong selection insight. "
+            f"By contrast, **{bottom_label}** was the weakest contributor."
+        )
+
+    return (
+        "Attribution results indicate that no single position provided a dominant positive contribution, "
+        "and relative performance was spread broadly across holdings."
+    )
+
+
+def interpret_sector_attribution(df):
+    if df is None or df.empty or "Total" not in df.columns:
+        return "Sector-level attribution was not available."
+
+    totals = df["Total"]
+    idx_top = totals.idxmax()
+    idx_bottom = totals.idxmin()
+
+    sector_col = "Sector" if "Sector" in df.columns else None
+
+    if sector_col is not None:
+        top_label = df.loc[idx_top, sector_col]
+        bottom_label = df.loc[idx_bottom, sector_col]
+    else:
+        top_label = str(idx_top)
+        bottom_label = str(idx_bottom)
+
+    explanation = (
+        f"Sector attribution shows that **{top_label}** contributed most positively to active return. "
+        "This typically reflects strong performance combined with meaningful exposure to that sector. "
+    )
+
+    if totals.loc[idx_bottom] < 0:
+        explanation += (
+            f"Meanwhile, **{bottom_label}** detracted from performance relative to the benchmark, "
+            "likely due to weak returns or overweighting."
+        )
+    else:
+        explanation += (
+            "Other sectors exhibited neutral or modest contributions without materially detracting."
+        )
+
+    return explanation
+
+
+def interpret_factors(df):
+    """
+    Explain multi-factor regression results in plain language.
+    If the summary table is missing, fall back to explaining the charts.
+    """
+    if df is None or df.empty:
+        return (
+            "Multi-factor regressions were run to measure how the holdings load onto common style factors "
+            "such as market, size, value, momentum, quality, and low-volatility. "
+            "The regressions help distinguish broad style tilts from idiosyncratic (stock-specific) effects."
+        )
+
+    cols = df.columns
+    beta_cols = [c for c in cols if c.endswith("_coef") and c.lower() != "const_coef"]
+
+    lines = []
+
+    for b in beta_cols:
+        try:
+            val = float(df[b].abs().mean())
+        except Exception:
+            continue
+
+        factor = b.replace("_coef", "").upper()
+        if val > 0.3:
+            lines.append(
+                f"- The portfolio shows a **meaningful tilt** toward the **{factor}** factor on average."
+            )
+
+    if not lines:
+        return (
+            "Factor analysis indicates that returns were driven primarily by stock-specific behavior "
+            "rather than strong systematic factor tilts. The estimated factor loadings are generally modest."
+        )
+
+    intro = (
+        "Multi-factor regressions help decompose returns into systematic style exposures. "
+        "Based on the estimated factor loadings across holdings:"
+    )
+    return intro + "\n" + "\n".join(lines)
+
+
+# ============================================================
+# Risk Bucket Classification
+# ============================================================
+
+def compute_risk_bucket(summary_json, dd_df):
+    """
+    Assigns a risk bucket even if some metrics are missing.
+    Fully defensive against None values.
+    """
+    # --- Volatility ---
+    vol = None
+    if summary_json:
+        vol = summary_json.get("portfolio_volatility")
+
+    try:
+        vol = float(vol)
+    except Exception:
+        vol = 0.0
+    if not math.isfinite(vol):
+        vol = 0.0
+
+    # --- Max Drawdown ---
+    max_dd = 0.0
+    if dd_df is not None and not dd_df.empty:
+        col = None
+        for candidate in ["MaxDrawdown", "max_drawdown"]:
+            if candidate in dd_df.columns:
+                col = candidate
+                break
+        if col is not None:
+            try:
+                max_dd = float(dd_df[col].iloc[0])
+            except Exception:
+                max_dd = 0.0
+
+    # --- Risk Bucket Logic ---
+    if vol < 0.10 and max_dd > -0.15:
+        bucket = "Conservative"
+        expl = (
+            "The portfolio fits a **Conservative** risk bucket, prioritizing stability "
+            "and limited drawdowns."
+        )
+    elif vol < 0.15 and max_dd > -0.25:
+        bucket = "Moderate"
+        expl = (
+            "The portfolio fits a **Moderate** risk bucket, balancing growth potential "
+            "with measured risk-taking."
+        )
+    elif vol < 0.25 and max_dd > -0.35:
+        bucket = "Growth"
+        expl = (
+            "The portfolio aligns with a **Growth** profile, taking moderate volatility "
+            "to target higher long-term returns."
+        )
+    elif vol < 0.35:
+        bucket = "Aggressive"
+        expl = (
+            "The portfolio fits an **Aggressive** profile, accepting meaningful volatility "
+            "in exchange for higher return potential."
+        )
+    else:
+        bucket = "Very Aggressive"
+        expl = (
+            "The portfolio is **Very Aggressive**, with high sensitivity to market movement "
+            "and deep drawdown potential."
+        )
+
+    return bucket, expl
+
+
+# ============================================================
+# Conclusions & Recommendations
+# ============================================================
+
+def interpret_conclusions(summary_json, dd_df, asset_attr, sector_attr, factor_df):
+    performance_text = interpret_performance(summary_json)
+    risk_text = interpret_risk(summary_json)
+    bucket_label, _ = compute_risk_bucket(summary_json, dd_df)
+
+    extras = []
+
+    # Outperformance vs benchmark
+    if summary_json:
+        rp = summary_json.get("portfolio_return")
+        rb = summary_json.get("benchmark_return")
+        try:
+            rp_f = float(rp)
+            rb_f = float(rb)
+        except Exception:
+            rp_f = rb_f = None
+
+        if rp_f is not None and rb_f is not None:
+            if rp_f - rb_f > 0:
+                extras.append(
+                    "Recent outperformance suggests that the current structure is adding value, "
+                    "though ongoing monitoring is important to avoid over-concentration."
+                )
+            elif rp_f - rb_f < 0:
+                extras.append(
+                    "Underperformance relative to the benchmark indicates it may be worthwhile "
+                    "to reassess position sizing or sector exposures."
+                )
+
+    # Attribution insights
+    if asset_attr is not None and not asset_attr.empty and "Total" in asset_attr.columns:
+        totals = asset_attr["Total"]
+        idx_top = totals.idxmax()
+
+        label = None
+        for c in ["Bucket", "Asset", "Name"]:
+            if c in asset_attr.columns:
+                label = asset_attr.loc[idx_top, c]
+                break
+        name = label if label is not None else str(idx_top)
+
+        extras.append(
+            f"Attribution identifies **{name}** as a major driver of results. "
+            "Its weighting and role within the portfolio should be reviewed periodically."
+        )
+
+    if factor_df is not None and not factor_df.empty:
+        extras.append(
+            "Factor analysis helps clarify whether returns are sourced from broad market style exposures "
+            "or unique security-specific drivers."
+        )
+
+    extras_text = " ".join(extras) if extras else ""
+
+    return (
+        f"The portfolio currently aligns with a **{bucket_label}** risk profile. "
+        f"{performance_text} {risk_text} {extras_text} "
+        "Future allocation decisions should reflect the investor’s long-term objectives and risk tolerance."
+    )
+
+
+# ============================================================
+# Summary Table Builder
+# ============================================================
+
+def build_summary_rows(summary, dd_df, asset_attr, sector_attr, risk_bucket_label, benchmark_ticker=None):
+    rows = []
+
+    # -- Benchmark label --
+    if benchmark_ticker:
+        rows.append(["Benchmark", str(benchmark_ticker)])
+
+    # -- Portfolio & Benchmark Returns --
+    if summary:
+        pr = summary.get("portfolio_return")
+        br = summary.get("benchmark_return")
+        alpha = summary.get("alpha")
+
+        rows.append(["Portfolio return", fmt_pct_or_num(pr, True)])
+        rows.append(["Benchmark return", fmt_pct_or_num(br, True)])
+
+        if alpha is not None:
+            rows.append(["Alpha (annualized)", fmt_pct_or_num(alpha, True)])
+
+        vol = summary.get("portfolio_volatility")
+        sharpe = summary.get("portfolio_sharpe")
+        beta = summary.get("beta")
+
+        rows.append(["Volatility (annualized)", fmt_pct_or_num(vol, True)])
+        if sharpe is not None:
+            rows.append(["Sharpe ratio", f"{sharpe:.2f}"])
+        if beta is not None:
+            rows.append(["Beta", f"{beta:.2f}"])
+
+    # -- Drawdowns & Tail Risk --
+    if dd_df is not None and not dd_df.empty:
+        dd_col = None
+        for candidate in ["MaxDrawdown", "max_drawdown"]:
+            if candidate in dd_df.columns:
+                dd_col = candidate
+                break
+
+        if dd_col is not None:
+            rows.append(["Max drawdown", fmt_pct_or_num(dd_df[dd_col].iloc[0], True)])
+        if "VaR_95" in dd_df.columns:
+            rows.append(["95% VaR", fmt_pct_or_num(dd_df["VaR_95"].iloc[0], True)])
+        if "CVaR_95" in dd_df.columns:
+            rows.append(["95% CVaR", fmt_pct_or_num(dd_df["CVaR_95"].iloc[0], True)])
+
+    # -- Attribution: top contributors --
+    if asset_attr is not None and not asset_attr.empty and "Total" in asset_attr.columns:
+        totals = asset_attr["Total"]
+        idx_top = totals.idxmax()
+
+        label = None
+        for c in ["Bucket", "Asset", "Name"]:
+            if c in asset_attr.columns:
+                label = asset_attr.loc[idx_top, c]
+                break
+        rows.append(["Top contributing asset", label if label is not None else str(idx_top)])
+
+    if sector_attr is not None and not sector_attr.empty and "Total" in sector_attr.columns:
+        totals_s = sector_attr["Total"]
+        idx_top_s = totals_s.idxmax()
+
+        if "Sector" in sector_attr.columns:
+            sec_label = sector_attr.loc[idx_top_s, "Sector"]
+        else:
+            sec_label = str(idx_top_s)
+        rows.append(["Top contributing sector", sec_label])
+
+    # -- Risk bucket --
+    rows.append(["Risk bucket", risk_bucket_label])
+
+    return rows
+
+
+# ------------------------------------------------------------
+# Image classifier + PDF embedding + section builders
+# ------------------------------------------------------------
+
+def classify_images(outdir):
+    """
+    Scans the outputs directory and assigns PNGs (and extensionless images)
+    to their logical categories.
+
+    This supports universal portfolio outputs — no hardcoding required.
+    """
+    categories = {
+        "performance": [],
+        "drawdown": [],
+        "rolling": [],
+        "frontier": [],
+        "correlation": [],
+        "attribution_asset": [],
+        "attribution_sector": [],
+        "capm": [],
+        "factor": [],
+        "scenarios": [],
+        "other": [],
     }
 
-    series: Dict[str, pd.Series] = {}
+    for root, dirs, files in os.walk(outdir):
+        for fname in files:
+            full = os.path.join(root, fname)
+            name, ext = os.path.splitext(fname)
+            key = name.lower()
 
-    for name, (fname, preferred) in mapping.items():
-        path = os.path.join(outdir, fname)
-        if not os.path.exists(path):
-            continue
-        try:
-            s = _read_value_series(path, preferred)
-            s = s.dropna()
-            if not s.empty:
-                series[name] = s
-        except Exception as e:
-            print(f"Warning: failed to load {name} series from {path}: {e}")
+            # Allow PNGs and extensionless image files
+            if ext.lower() not in (".png", ".jpg", ".jpeg", ""):
+                continue
 
-    if not series:
-        raise RuntimeError(
-            "No value series found in outputs/. Expected files like "
-            "'active_portfolio_value.csv' and 'passive_portfolio_value.csv'."
-        )
-
-    # Align all series to the common date intersection
-    common_index: Optional[pd.DatetimeIndex] = None
-    for s in series.values():
-        if common_index is None:
-            common_index = s.index
-        else:
-            common_index = common_index.intersection(s.index)
-
-    if common_index is not None and len(common_index) > 0:
-        for k in list(series.keys()):
-            series[k] = series[k].loc[common_index]
-
-    return series
-
-
-# ------------------ Stats helpers ------------------ #
-
-
-def _annualized_stats(series: pd.Series, rf_annual: float) -> Dict[str, float]:
-    """Compute annualized return, volatility, and Sharpe for a value series."""
-    # Use month-end ("ME") to avoid pandas "M" deprecation warning
-    monthly = series.resample("ME").last().pct_change().dropna()
-    if monthly.empty:
-        return {"return": np.nan, "vol": np.nan, "sharpe": np.nan}
-
-    mean_m = monthly.mean()
-    vol_m = monthly.std()
-    ret_ann = (1 + mean_m) ** 12 - 1
-    vol_ann = vol_m * sqrt(12)
-    sharpe = (ret_ann - rf_annual) / vol_ann if vol_ann > 0 else np.nan
-    return {"return": ret_ann, "vol": vol_ann, "sharpe": sharpe}
-
-
-def _maybe_img(outdir: str, filename: str) -> Optional[str]:
-    """Return full path to an image in outdir if it exists, else None."""
-    path = os.path.join(outdir, filename)
-    return path if os.path.exists(path) else None
-
-
-# ------------------ Markdown report ------------------ #
-
-
-def _build_markdown_report(
-    outdir: str,
-    series: Dict[str, pd.Series],
-    stats: Dict[str, Dict[str, float]],
-    rf_annual: float,
-    config: dict,
-    holdings_table_path: Optional[str],
-) -> str:
-    """Construct the markdown report text and write it to outputs/report.md."""
-    lines: list[str] = []
-
-    # Basic date range
-    any_series = next(iter(series.values()))
-    start_date = any_series.index.min().strftime("%Y-%m-%d")
-    end_date = any_series.index.max().strftime("%Y-%m-%d")
-
-    benchmark = config.get("passive", {}).get("benchmark", "^GSPC")
-    title = config.get("title", "Portfolio Analysis Report")
-
-    lines.append(f"# {title}\n")
-    lines.append("## 1. Overview\n")
-    lines.append(
-        "This report summarizes the historical performance of the active "
-        "portfolio you constructed, a passive benchmark, the optimal risky "
-        "portfolio (ORP), and the complete portfolio (combining the ORP with "
-        "a risk-free asset) over the sample period.\n"
-    )
-    lines.append(f"- **Start date:** {start_date}\n")
-    lines.append(f"- **End date:**   {end_date}\n")
-    lines.append(f"- **Benchmark:**  {benchmark}\n")
-    lines.append(f"- **Assumed annual risk-free rate:** {rf_annual:.2%}\n")
-
-    # 2. Initial allocation
-    lines.append("\n## 2. Active Portfolio Holdings (Initial Allocation)\n")
-    if holdings_table_path and os.path.exists(holdings_table_path):
-        try:
-            ht = pd.read_csv(holdings_table_path)
-            # Make a compact markdown table
-            display_cols = [
-                c
-                for c in [
-                    "Ticker",
-                    "TargetWeight",
-                    "PurchasePrice",
-                    "Shares",
-                    "Invested",
-                    "RealizedWeight",
-                ]
-                if c in ht.columns
-            ]
-            if display_cols:
-                lines.append(ht[display_cols].to_markdown(index=False))
-                lines.append("\n")
+            if "performance_attribution_sector" in key:
+                categories["attribution_sector"].append(full)
+            elif "performance_attribution" in key:
+                categories["attribution_asset"].append(full)
+            elif "drawdown" in key or "loss_histogram" in key:
+                categories["drawdown"].append(full)
+            elif key.startswith("rolling") or "rolling_" in key:
+                categories["rolling"].append(full)
+            elif "efficient_frontier" in key or key == "cal":
+                categories["frontier"].append(full)
+            elif "corr" in key and ("matrix" in key or "heatmap" in key):
+                categories["correlation"].append(full)
+            elif key.startswith("capm"):
+                categories["capm"].append(full)
+            elif "factor" in key:
+                categories["factor"].append(full)
+            elif "forward_scenarios" in key:
+                categories["scenarios"].append(full)
+            elif (
+                "growth" in key
+                or "portfolio_value" in key
+                or "complete_portfolio" in key
+                or "active_minus_passive" in key
+                or "orp" in key
+            ):
+                categories["performance"].append(full)
             else:
-                lines.append(
-                    "Holdings table CSV found, but columns did not match the "
-                    "expected schema.\n"
-                )
-        except Exception as e:
-            lines.append(f"Could not load holdings_table.csv: {e}\n")
-    else:
-        lines.append(
-            "The detailed holdings table was not found; please check that "
-            "`outputs/holdings_table.csv` was generated.\n"
-        )
+                categories["other"].append(full)
 
-    # 3. Risk/Return summary
-    lines.append("\n## 3. Risk-Return Summary (Annualized)\n")
-    lines.append(
-        "| Portfolio | Annual Return | Annual Volatility | Sharpe (vs rf) |\n"
-        "|-----------|--------------:|------------------:|---------------:|\n"
+    return categories
+
+
+def add_image_flowable(story, path, caption, style_caption, max_width=6.5 * inch):
+    """
+    Safely adds an image to the PDF.
+    Auto-resizes to the given max_width.
+    Never crashes if file isn't a valid image.
+    """
+    try:
+        img = Image(path)
+        img._restrictSize(max_width, 4 * inch)
+        story.append(img)
+        if caption:
+            story.append(Paragraph(caption, style_caption))
+        story.append(Spacer(1, 12))
+    except Exception:
+        return
+
+
+def add_section(story, title, text, image_keys, image_dict, style_section, style_body, style_caption):
+    """
+    Adds a titled section to the PDF with narrative text and all relevant images.
+    """
+    story.append(Paragraph(title, style_section))
+    story.append(Spacer(1, 6))
+
+    story.append(Paragraph(text, style_body))
+    story.append(Spacer(1, 10))
+
+    for key in image_keys:
+        paths = image_dict.get(key, [])
+        for p in paths:
+            base = os.path.basename(p)
+            caption = f"{title} — {base}"
+            add_image_flowable(story, p, caption, style_caption)
+
+    story.append(Spacer(1, 18))
+
+
+# ============================================================
+# Markdown summary builder (story-ordered)
+# ============================================================
+
+def build_markdown_report(
+    md_lines,
+    summary_rows,
+    risk_bucket_expl,
+    performance_text,
+    risk_text,
+    drawdown_text,
+    factor_text,
+    attribution_text,
+    sector_attr_text,
+    conclusions_text,
+    benchmark_label=None,
+    holdings_df=None,
+):
+    """
+    Construct the full markdown narrative in the same logical order
+    as the Streamlit Outputs flow.
+    """
+    md_lines.append("## Summary\n\n")
+    if summary_rows:
+        md_lines.append("| Metric | Value |\n")
+        md_lines.append("| --- | --- |\n")
+        for metric, value in summary_rows:
+            md_lines.append(f"| {metric} | {value} |\n")
+        md_lines.append("\n")
+    else:
+        md_lines.append("Summary statistics were not available.\n\n")
+
+    # Benchmark
+    if benchmark_label:
+        md_lines.append(f"**Benchmark:** `{benchmark_label}`\n\n")
+
+    # Holdings (from holdings_table or config weights)
+    if holdings_df is not None and not holdings_df.empty:
+        md_lines.append("**Initial Holdings:**\n\n")
+        cols = [
+            c
+            for c in ["Ticker", "TargetWeight", "RealizedWeight", "Shares", "PurchasePrice"]
+            if c in holdings_df.columns
+        ]
+        if not cols:
+            cols = list(holdings_df.columns)[:5]
+
+        md_lines.append("| " + " | ".join(cols) + " |\n")
+        md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |\n")
+
+        for _, row in holdings_df[cols].head(20).iterrows():
+            cells = []
+            for c in cols:
+                v = row[c]
+                if isinstance(v, float):
+                    if "Weight" in c:
+                        cells.append(f"{v:.4f}")
+                    elif c == "PurchasePrice":
+                        cells.append(f"{v:.2f}")
+                    elif c == "Shares":
+                        cells.append(f"{v:.2f}")
+                    else:
+                        cells.append(f"{v:.4f}")
+                else:
+                    cells.append(str(v))
+            md_lines.append("| " + " | ".join(cells) + " |\n")
+        md_lines.append("\n")
+
+    # Risk bucket
+    write_md_section(md_lines, "Risk Bucket", risk_bucket_expl)
+
+    # Key charts / performance story
+    write_md_section(
+        md_lines,
+        "Key Charts: Portfolio Growth & Allocation",
+        (
+            "This section summarizes how the portfolio and benchmark evolved over time, "
+            "along with the composition of the Optimal Risky Portfolio (ORP) and the "
+            "complete portfolio. "
+            + performance_text
+        ),
     )
 
-    for name in ["Active", "Passive", "ORP", "Complete"]:
-        st = stats.get(name)
-        if st is None:
-            continue
-        r = st["return"]
-        v = st["vol"]
-        sh = st["sharpe"]
-        lines.append(
-            f"| {name} | {r: .2%} | {v: .2%} | {sh: .2f} |\n"
-        )
+    # Drawdown & tail risk
+    write_md_section(md_lines, "Drawdown & Tail Risk", drawdown_text)
 
-    lines.append(
-        "\nHigher annual return and a larger Sharpe ratio indicate better "
-        "risk-adjusted performance. Comparing the active and passive "
-        "portfolios shows whether your security selection and timing added "
-        "value relative to simply holding the benchmark.\n"
+    # Rolling risk analytics
+    write_md_section(
+        md_lines,
+        "Rolling Risk Analytics",
+        (
+            "Rolling analytics highlight how volatility and correlations evolved over time, "
+            "helping identify regime shifts or changes in portfolio behavior. "
+            + risk_text
+        ),
     )
 
-    # 4. Growth charts and additional visuals
-    lines.append("\n## 4. Growth of $1,000,000\n")
-    img = _maybe_img(outdir, "active_vs_passive_growth.png")
-    if img:
-        lines.append(
-            "![Growth: Active vs Passive](active_vs_passive_growth.png)\n"
-        )
-        lines.append(
-            "The figure above shows how $1,000,000 would have grown over time "
-            "in the active portfolio versus the passive benchmark.\n"
-        )
-    else:
-        lines.append(
-            "Growth plot for Active vs Passive was not found "
-            "(expected `active_vs_passive_growth.png`).\n"
-        )
+    # Attribution sections
+    write_md_section(
+        md_lines,
+        "Performance Attribution (Assets)",
+        attribution_text,
+    )
 
-    img_all = _maybe_img(outdir, "all_portfolios_growth.png")
-    if img_all:
-        lines.append("\n### 4.1 All Portfolios\n")
-        lines.append(
-            "![Growth: All Portfolios](all_portfolios_growth.png)\n"
-        )
-        lines.append(
-            "This chart compares the dollar growth of the Active, Passive, "
-            "ORP, and Complete portfolios on a common scale.\n"
-        )
+    write_md_section(
+        md_lines,
+        "Performance Attribution (Sectors)",
+        sector_attr_text,
+    )
 
-    # 5. Risk-return scatter
-    lines.append("\n## 5. Risk-Return Plot\n")
-    rr_img = _maybe_img(outdir, "active_vs_passive_risk_return.png")
-    if rr_img:
-        lines.append(
-            "![Risk-Return: Active vs Passive]"
-            "(active_vs_passive_risk_return.png)\n"
-        )
-        lines.append(
-            "The scatter plot places each portfolio in annualized risk-return "
-            "space, highlighting the trade-off between volatility and return.\n"
-        )
-    else:
-        lines.append(
-            "Risk-return scatter plot (`active_vs_passive_risk_return.png`) "
-            "was not found.\n"
-        )
+    # Factor analysis
+    write_md_section(
+        md_lines,
+        "Multi-Factor Regression & Style Exposures",
+        factor_text,
+    )
 
-    # 6. Correlations and diversification
-    lines.append("\n## 6. Diversification and Correlations\n")
-    corr_img = _maybe_img(outdir, "correlation_matrix.png")
-    if corr_img:
-        lines.append("![Correlation Matrix](correlation_matrix.png)\n")
-        lines.append(
-            "The correlation heatmap helps illustrate how strongly each pair "
-            "of assets moves together. Lower correlations generally improve "
-            "diversification benefits.\n"
-        )
-    else:
-        lines.append(
-            "Correlation matrix plot (`correlation_matrix.png`) was not found.\n"
-        )
+    # CAPM
+    write_md_section(
+        md_lines,
+        "CAPM Regression",
+        (
+            "CAPM regressions relate each asset’s excess return to the market’s excess return. "
+            "Alpha represents return unexplained by the market, while beta measures sensitivity "
+            "to broad market moves."
+        ),
+    )
 
-    # 7. Complete portfolio composition
-    lines.append("\n## 7. Complete Portfolio Allocation\n")
-    cp_img = _maybe_img(outdir, "complete_portfolio_pie.png")
-    if cp_img:
-        lines.append("![Complete Portfolio Allocation](complete_portfolio_pie.png)\n")
-        lines.append(
-            "This pie chart shows the weights of each component in the "
-            "complete portfolio that combines the optimal risky portfolio "
-            "with the risk-free asset.\n"
-        )
-    else:
-        lines.append(
-            "Complete portfolio pie chart (`complete_portfolio_pie.png`) "
-            "was not found.\n"
-        )
+    # Efficient frontier & ORP (for completeness; charts in PDF)
+    write_md_section(
+        md_lines,
+        "Efficient Frontier & Optimal Risky Portfolio",
+        (
+            "The efficient frontier illustrates the best achievable combinations of risk and return. "
+            "The Optimal Risky Portfolio (ORP) lies at the maximum Sharpe point and reflects the most "
+            "efficient risk-taking position."
+        ),
+    )
 
-    # 8. Forward-looking scenario analysis
-    lines.append("\n## 8. Forward-Looking Scenario Analysis\n")
-    fwd_img = _maybe_img(outdir, "forward_scenarios.png")
-    if fwd_img:
-        lines.append("![Forward Scenarios](forward_scenarios.png)\n")
-        lines.append(
-            "The scenario analysis illustrates how the active portfolio could "
-            "evolve under optimistic, base-case, and pessimistic return "
-            "assumptions going forward.\n"
-        )
-    else:
-        lines.append(
-            "Forward scenario plot (`forward_scenarios.png`) was not found.\n"
-        )
+    # Forward scenarios
+    write_md_section(
+        md_lines,
+        "Forward-Looking Scenarios",
+        (
+            "Simulated scenarios help illustrate a realistic range of future outcomes based on "
+            "historical return distributions. These results help guide planning and expectation setting."
+        ),
+    )
 
-    # 9. Concluding remarks
-    lines.append("\n## 9. Interpretation and Takeaways\n")
-    lines.append(
-        "- Compare the active portfolio's Sharpe ratio and growth path to the "
-        "passive benchmark to assess whether active management added value.\n"
-        "- Use the ORP and complete portfolio results to understand how much "
-        "additional return is available by taking on more risk, and how "
-        "allocating between the risky portfolio and the risk-free asset "
-        "shifts the overall profile.\n"
-        "- The correlation structure across holdings indicates where "
-        "diversification could potentially be improved by adjusting weights "
-        "or adding new assets.\n"
+    # Conclusions
+    write_md_section(
+        md_lines,
+        "Conclusions & Recommendations",
+        conclusions_text,
+    )
+
+    # Appendix heading
+    md_lines.append("## Appendix\n")
+    md_lines.append(
+        "Additional charts, diagnostics, and supporting visuals are included in the appendix.\n\n"
+    )
+
+    return md_lines
+
+
+# ------------------------------------------------------------
+# Final assembly: Markdown + PDF generation
+# ------------------------------------------------------------
+
+def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
+    """
+    Full universal report builder — Markdown + PDF.
+    Uses smart auto-discovery of CSV/JSON files,
+    embeds charts, includes risk buckets, interpretations,
+    and is ordered to match the Streamlit Outputs flow.
+    """
+    print("[report] Generating full report...")
+
+    # --------------------------------------------------------
+    # Load config (for benchmark + fallback holdings info)
+    # --------------------------------------------------------
+    benchmark_label = None
+    holdings_df = None
+    cfg = None
+    try:
+        if config_path and os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+    except Exception as e:
+        print(f"[report] Warning: could not load config '{config_path}': {e}")
+
+    if cfg:
+        benchmark_label = cfg.get("benchmark") or cfg.get("passive_benchmark")
+    # Prefer realized holdings from outputs
+    holdings_df = load_csv_smart(outdir, "holdings_table")
+    # Fallback: use config weights if holdings_table.csv is missing
+    if (holdings_df is None or holdings_df.empty) and cfg:
+        w_dict = cfg.get("active_portfolio", {}).get("weights", {})
+        if isinstance(w_dict, dict) and w_dict:
+            holdings_df = pd.DataFrame(
+                {
+                    "Ticker": list(w_dict.keys()),
+                    "TargetWeight": list(w_dict.values()),
+                }
+            )
+
+    # Smart data loading
+    summary = load_json_smart(outdir, "summary")
+    summary_stats = load_csv_smart(outdir, "summary_stats")
+    dd_df = load_csv_smart(outdir, "drawdown_tail_metrics")
+    capm_df = load_csv_smart(outdir, "capm_results")
+
+    factor_df = load_csv_smart(outdir, "factor_regression_ff5")
+    if factor_df is None:
+        factor_df = load_csv_smart(outdir, "factor_regression_ff3")
+
+    asset_attr = load_csv_smart(outdir, "performance_attribution")
+    sector_attr = load_csv_smart(outdir, "performance_attribution_sector")
+
+    # Interpretations
+    risk_bucket_label, risk_bucket_expl = compute_risk_bucket(summary, dd_df)
+    performance_text = interpret_performance(summary)
+    risk_text = interpret_risk(summary)
+    drawdown_text = interpret_drawdown(dd_df)
+    factor_text = interpret_factors(factor_df)
+    attribution_text = interpret_attribution(asset_attr)
+    sector_attr_text = interpret_sector_attribution(sector_attr)
+    conclusions_text = interpret_conclusions(
+        summary, dd_df, asset_attr, sector_attr, factor_df
+    )
+
+    # Summary table
+    summary_rows = build_summary_rows(
+        summary, dd_df, asset_attr, sector_attr, risk_bucket_label, benchmark_ticker=benchmark_label
+    )
+
+    # -------------------------
+    # Markdown report
+    # -------------------------
+    md_lines = []
+    md_lines.append("# Portfolio Analysis Report\n")
+    md_lines.append(
+        f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    )
+
+    md_lines = build_markdown_report(
+        md_lines,
+        summary_rows,
+        risk_bucket_expl,
+        performance_text,
+        risk_text,
+        drawdown_text,
+        factor_text,
+        attribution_text,
+        sector_attr_text,
+        conclusions_text,
+        benchmark_label=benchmark_label,
+        holdings_df=holdings_df,
     )
 
     md_path = os.path.join(outdir, "report.md")
     with open(md_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+        f.write("\n".join(md_lines))
+    print(f"[report] Markdown written to: {md_path}")
 
-    print(f"Saved report to {md_path}")
-    return md_path
+    # -------------------------
+    # PDF report
+    # -------------------------
+    pdf_path = os.path.join(outdir, "report.pdf")
 
+    styles = getSampleStyleSheet()
+    style_body = styles["BodyText"]
+    style_title = styles["Heading1"]
+    style_section = styles["Heading2"]
 
-# ------------------ PDF report ------------------ #
+    style_caption = ParagraphStyle(
+        "Caption",
+        parent=style_body,
+        fontSize=8,
+        textColor=colors.grey,
+        spaceBefore=2,
+        spaceAfter=6,
+    )
 
-
-class _PDF(FPDF):
-    """Small helper subclass in case we want to tweak defaults later."""
-    pass
-
-
-def _clean(text: str) -> str:
-    """
-    Clean text so it only uses characters supported by core FPDF fonts.
-
-    Replaces common Unicode punctuation with ASCII equivalents.
-    """
-    if not isinstance(text, str):
-        text = str(text)
-
-    replacements = {
-        "–": "-",   # en dash
-        "—": "-",   # em dash
-        "−": "-",   # minus sign
-        "’": "'",   # curly apostrophe
-        "‘": "'",   # left single quote
-        "“": '"',   # left double quote
-        "”": '"',   # right double quote
-        "•": "-",   # bullet
-        "…": "...", # ellipsis
-        "\u00a0": " ",  # non-breaking space
-    }
-    for bad, good in replacements.items():
-        text = text.replace(bad, good)
-    return text
-
-
-def _build_pdf_report(
-    outdir: str,
-    series: Dict[str, pd.Series],
-    stats: Dict[str, Dict[str, float]],
-    rf_annual: float,
-    orp_weights: Optional[pd.DataFrame],
-    allow_short: bool,
-) -> None:
-    """
-    Build a simple PDF report from the same information as the markdown.
-
-    Layout is intentionally conservative so that fpdf2 does not run into
-    horizontal-space issues when wrapping text.
-    """
-    pdf = _PDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-
-    # Effective page width (total width minus margins)
-    epw = pdf.w - pdf.l_margin - pdf.r_margin
-
-    pdf.set_title(_clean("Portfolio Analysis Report"))
-    pdf.set_author(_clean("Portfolio Analyzer"))
+    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+    story = []
 
     # Title
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(epw, 10, _clean("Portfolio Analysis Report"), ln=1, align="C")
-    pdf.ln(4)
-
-    # Date range
-    any_series = next(iter(series.values()))
-    start_date = any_series.index.min().strftime("%Y-%m-%d")
-    end_date = any_series.index.max().strftime("%Y-%m-%d")
-
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(
-        epw,
-        6,
-        _clean(
-            f"This report summarizes the performance of the active portfolio, "
-            f"a passive benchmark, the optimal risky portfolio (ORP), and the "
-            f"complete portfolio over the period {start_date} to {end_date}. "
-            f"We assume an annual risk-free rate of {rf_annual:.2%}."
-        ),
-    )
-    pdf.ln(4)
-
-    # Risk/Return table (text only)
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.set_x(pdf.l_margin)
-    pdf.cell(epw, 8, _clean("Annualized Risk-Return Summary"), ln=1)
-    pdf.set_font("Helvetica", "", 11)
-
-    for name in ["Active", "Passive", "ORP", "Complete"]:
-        st = stats.get(name)
-        if st is None:
-            continue
-        r = st["return"]
-        v = st["vol"]
-        sh = st["sharpe"]
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(
-            epw,
-            6,
-            _clean(
-                f"- {name}: Return {r:.2%}, Volatility {v:.2%}, Sharpe {sh:.2f}"
-            ),
+    story.append(Paragraph("Portfolio Analysis Report", style_title))
+    story.append(
+        Paragraph(
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            style_body,
         )
-    pdf.ln(4)
+    )
+    story.append(Spacer(1, 20))
 
-    # If ORP weights are available, summarise them briefly
-    if orp_weights is not None and not orp_weights.empty:
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(epw, 8, _clean("ORP Weights"), ln=1)
-        pdf.set_font("Helvetica", "", 10)
+    # Summary table
+    story.append(Paragraph("Summary", style_section))
+    story.append(Spacer(1, 6))
 
-        try:
-            w = orp_weights.copy()
-            if "weight" in w.columns:
-                w = w.sort_values("weight", ascending=False)
-            # Cap at top 10
-            w = w.head(10)
-            for idx, row in w.iterrows():
-                w_val = row["weight"] if "weight" in row else row.iloc[0]
-                pdf.set_x(pdf.l_margin)
-                pdf.multi_cell(epw, 5, _clean(f"- {idx}: {w_val:.2%}"))
-        except Exception:
-            pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(
-                epw,
-                5,
-                _clean(
-                    "ORP weights file found, but could not be parsed cleanly."
-                ),
+    if summary_rows:
+        header = [["Metric", "Value"]]
+        table = Table(header + summary_rows, colWidths=[2.5 * inch, 3.5 * inch])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ]
             )
-        pdf.ln(4)
-
-    # Helper to add image sections
-    def add_image_section(title: str, filename: str, caption: str):
-        img_path = os.path.join(outdir, filename)
-        if not os.path.exists(img_path):
-            return
-
-        pdf.add_page()
-        local_epw = pdf.w - pdf.l_margin - pdf.r_margin
-
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.set_x(pdf.l_margin)
-        pdf.cell(local_epw, 8, _clean(title), ln=1)
-        pdf.ln(2)
-
-        # Place image with a safe width (fits within margins)
-        max_width = min(180, local_epw)
-        pdf.set_x(pdf.l_margin)
-        pdf.image(img_path, w=max_width)
-        pdf.ln(4)
-
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(local_epw, 5, _clean(caption))
-
-    add_image_section(
-        "Growth of $1,000,000: Active vs Passive",
-        "active_vs_passive_growth.png",
-        "Growth of an initial $1,000,000 investment in the active portfolio "
-        "versus the passive benchmark over the sample period.",
-    )
-
-    add_image_section(
-        "Risk-Return Comparison: Active vs Passive",
-        "active_vs_passive_risk_return.png",
-        "Annualized risk-return trade-off for the active and passive "
-        "portfolios.",
-    )
-
-    add_image_section(
-        "Correlation Matrix",
-        "correlation_matrix.png",
-        "Correlation structure across portfolio holdings. Lower correlations "
-        "indicate better diversification potential.",
-    )
-
-    add_image_section(
-        "Complete Portfolio Allocation",
-        "complete_portfolio_pie.png",
-        "Weights of each component in the complete portfolio, combining the "
-        "optimal risky portfolio with the risk-free asset.",
-    )
-
-    add_image_section(
-        "Forward-Looking Scenarios",
-        "forward_scenarios.png",
-        "Projected paths of the active portfolio under pessimistic, base-case, "
-        "and optimistic assumptions.",
-    )
-
-    pdf_path = os.path.join(outdir, "report.pdf")
-    pdf.output(pdf_path)
-    print(f"Saved PDF report to {pdf_path}")
-
-
-# ------------------ Public entry point ------------------ #
-
-
-def generate_report(outdir: str, config_path: str = "config.json") -> None:
-    """Main entry point: build markdown + PDF reports."""
-    os.makedirs(outdir, exist_ok=True)
-
-    series = _load_series(outdir)
-
-    # Load config if present
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            cfg = json.load(f)
+        )
+        story.append(table)
     else:
-        cfg = {}
+        story.append(Paragraph("Summary statistics were not available.", style_body))
 
-    rf = cfg.get("risk_free_rate", 0.02)
+    story.append(Spacer(1, 12))
 
-    stats = {name: _annualized_stats(s, rf) for name, s in series.items()}
+    # Holdings & Benchmark section (PDF)
+    if benchmark_label or (holdings_df is not None and not holdings_df.empty):
+        story.append(Paragraph("Holdings & Benchmark", style_section))
+        story.append(Spacer(1, 6))
 
-    holdings_table_path = os.path.join(outdir, "holdings_table.csv")
-    if not os.path.exists(holdings_table_path):
-        holdings_table_path = None
+        if benchmark_label:
+            story.append(
+                Paragraph(f"Benchmark: <b>{benchmark_label}</b>", style_body)
+            )
+            story.append(Spacer(1, 6))
 
-    # Build markdown
-    _build_markdown_report(outdir, series, stats, rf, cfg, holdings_table_path)
+        if holdings_df is not None and not holdings_df.empty:
+            cols = [
+                c
+                for c in ["Ticker", "TargetWeight", "RealizedWeight", "Shares", "PurchasePrice"]
+                if c in holdings_df.columns
+            ]
+            if not cols:
+                cols = list(holdings_df.columns)[:5]
 
-    # ORP weights (if available)
-    orp_weights_path = os.path.join(outdir, "orp_weights.csv")
-    orp_weights: Optional[pd.DataFrame]
-    if os.path.exists(orp_weights_path):
-        try:
-            orp_weights = pd.read_csv(orp_weights_path, index_col=0)
-        except Exception:
-            orp_weights = None
-    else:
-        orp_weights = None
+            header_cols = cols
+            data_rows = []
+            for _, row in holdings_df[cols].head(20).iterrows():
+                row_vals = []
+                for c in cols:
+                    v = row[c]
+                    if isinstance(v, float):
+                        if "Weight" in c:
+                            row_vals.append(f"{v:.4f}")
+                        elif c == "PurchasePrice":
+                            row_vals.append(f"{v:.2f}")
+                        elif c == "Shares":
+                            row_vals.append(f"{v:.2f}")
+                        else:
+                            row_vals.append(f"{v:.4f}")
+                    else:
+                        row_vals.append(str(v))
+                data_rows.append(row_vals)
 
-    allow_short = cfg.get("constraints", {}).get("short_sales", False)
+            if data_rows:
+                h_table = Table([header_cols] + data_rows)
+                h_table.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ]
+                    )
+                )
+                story.append(h_table)
 
-    try:
-        _build_pdf_report(outdir, series, stats, rf, orp_weights, allow_short)
-    except Exception as e:
-        print(f"Failed to generate PDF: {e}")
+        story.append(Spacer(1, 20))
+
+    # Risk bucket
+    story.append(Paragraph("Risk Bucket", style_section))
+    story.append(Paragraph(risk_bucket_expl, style_body))
+    story.append(Spacer(1, 20))
+
+    # Image classification
+    img_cats = classify_images(outdir)
+
+    # 1) Key Charts: Growth, ORP, Efficient Frontier, Correlation, Scenarios
+    key_charts_text = (
+        "These charts show how the portfolio and benchmark evolved over time, "
+        "the relationship between risk and return on the efficient frontier, and "
+        "how the Optimal Risky Portfolio (ORP) and complete portfolio allocate capital. "
+        + performance_text
+    )
+    add_section(
+        story,
+        "Key Charts: Portfolio Growth & Allocation",
+        key_charts_text,
+        ["performance", "frontier", "correlation", "scenarios"],
+        img_cats,
+        style_section,
+        style_body,
+        style_caption,
+    )
+
+    # 2) Drawdown & Tail Risk
+    add_section(
+        story,
+        "Drawdown & Tail Risk",
+        drawdown_text,
+        ["drawdown"],
+        img_cats,
+        style_section,
+        style_body,
+        style_caption,
+    )
+
+    # 3) Rolling Risk Analytics
+    rolling_text = (
+        "Rolling analytics highlight how volatility and correlations evolved over time, "
+        "helping identify regime shifts or changes in portfolio behavior. "
+        + risk_text
+    )
+    add_section(
+        story,
+        "Rolling Risk Analytics",
+        rolling_text,
+        ["rolling"],
+        img_cats,
+        style_section,
+        style_body,
+        style_caption,
+    )
+
+    # 4) Performance Attribution (Assets)
+    add_section(
+        story,
+        "Performance Attribution (Assets)",
+        attribution_text,
+        ["attribution_asset"],
+        img_cats,
+        style_section,
+        style_body,
+        style_caption,
+    )
+
+    # 5) Performance Attribution (Sectors)
+    add_section(
+        story,
+        "Performance Attribution (Sectors)",
+        sector_attr_text,
+        ["attribution_sector"],
+        img_cats,
+        style_section,
+        style_body,
+        style_caption,
+    )
+
+    # 6) Multi-Factor Regression (text only, charts left in outputs zip)
+    add_section(
+        story,
+        "Multi-Factor Regression & Style Exposures",
+        factor_text,
+        [],  # no factor images to avoid 20+ pages
+        img_cats,
+        style_section,
+        style_body,
+        style_caption,
+    )
+
+    # 7) CAPM Regression & Scatter Plots
+    if capm_df is not None:
+        capm_text = (
+            "CAPM analysis relates each asset’s excess return to the market’s excess return. "
+            "Beta measures sensitivity to broad market moves, while alpha represents return "
+            "unexplained by the market. The scatter plots illustrate this relationship for each holding."
+        )
+        add_section(
+            story,
+            "CAPM Regression & Scatter Plots",
+            capm_text,
+            ["capm"],
+            img_cats,
+            style_section,
+            style_body,
+            style_caption,
+        )
+
+    # 8) Conclusions
+    story.append(Paragraph("Conclusions & Recommendations", style_section))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(conclusions_text, style_body))
+    story.append(Spacer(1, 20))
+
+    # 9) Appendix – additional charts only (no correlation here; it was "key")
+    story.append(Paragraph("Appendix: Additional Charts & Diagnostics", style_section))
+    story.append(Spacer(1, 10))
+    story.append(
+        Paragraph(
+            "This appendix includes additional charts and diagnostics that support the analysis "
+            "presented in the main report.",
+            style_body,
+        )
+    )
+    story.append(Spacer(1, 12))
+
+    for p in img_cats.get("other", []):
+        add_image_flowable(
+            story,
+            p,
+            "Additional Diagnostic Chart",
+            style_caption,
+        )
+
+    doc.build(story)
+    print(f"[report] PDF written to: {pdf_path}")
+    print("[report] Done.")

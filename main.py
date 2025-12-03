@@ -205,10 +205,78 @@ def main(config_path: str) -> None:
     run_style_regression(outdir=outdir)
 
     # ------------------------------
-    # 7) Save summary.json BEFORE performance plots
+    # 7) Save summary.json with full performance metrics
     # ------------------------------
+
+    # --- Portfolio Total Return ---
+    active_path = os.path.join(outdir, "active_portfolio_value.csv")
+    passive_path = os.path.join(outdir, "passive_portfolio_value.csv")
+
+    portfolio_return = None
+    benchmark_return = None
+
+    # Active: use PortfolioValue column (or first numeric as fallback)
+    try:
+        act = pd.read_csv(active_path)
+
+        if "PortfolioValue" in act.columns:
+            s = act["PortfolioValue"]
+        else:
+            # Fallback: first numeric column
+            num_cols = act.select_dtypes(include=["number"]).columns
+            if len(num_cols) == 0:
+                raise KeyError("No numeric columns in active_portfolio_value.csv")
+            s = act[num_cols[0]]
+
+        s = s.astype(float).dropna()
+        if len(s) >= 2:
+            portfolio_return = float(s.iloc[-1] / s.iloc[0] - 1.0)
+    except Exception as e:
+        print(f"[summary] Warning: could not compute portfolio_return: {e}")
+
+    # Passive: use Passive column (or first numeric as fallback)
+    try:
+        pas = pd.read_csv(passive_path)
+
+        if "Passive" in pas.columns:
+            s = pas["Passive"]
+        else:
+            num_cols = pas.select_dtypes(include=["number"]).columns
+            if len(num_cols) == 0:
+                raise KeyError("No numeric columns in passive_portfolio_value.csv")
+            s = pas[num_cols[0]]
+
+        s = s.astype(float).dropna()
+        if len(s) >= 2:
+            benchmark_return = float(s.iloc[-1] / s.iloc[0] - 1.0)
+    except Exception as e:
+        print(f"[summary] Warning: could not compute benchmark_return: {e}")
+
+    # --- Portfolio Volatility (annualized) ---
+    try:
+        vol_annual = np.sqrt(12) * asset_rets.std().mean()
+    except Exception:
+        vol_annual = None
+
+    # --- Alpha & Beta from CAPM summary ---
+    alpha = None
+    beta = None
+    try:
+        if "capm_results.csv" in os.listdir(outdir):
+            capm_df = pd.read_csv(os.path.join(outdir, "capm_results.csv"))
+            alpha = float(capm_df["alpha"].mean())
+            beta = float(capm_df["beta"].mean())
+    except Exception:
+        pass
+
     summary_payload = {
         "risk_free_rate_annual": rf,
+        "portfolio_return": portfolio_return,
+        "benchmark_return": benchmark_return,
+        "portfolio_volatility": vol_annual,
+        "portfolio_sharpe": port_sharpe,
+        "alpha": alpha,
+        "beta": beta,
         "max_sharpe_weights": weights.to_dict(),
         "max_sharpe_portfolio": {
             "ann_expected_return": port_mean,
