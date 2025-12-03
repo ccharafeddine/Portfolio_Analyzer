@@ -37,6 +37,8 @@ from rolling_metrics import run_rolling_metrics
 from factor_loader import load_factors
 from multi_factor_regression import run_all_factor_models
 
+from performance_attribution import run_performance_attribution
+
 
 def load_config(path: str) -> dict:
     with open(path, "r") as f:
@@ -245,7 +247,15 @@ def main(config_path: str) -> None:
         print(f"[drawdown/tail] Warning: drawdown & tail-risk analytics failed: {e}")
 
     # ------------------------------
-    # 10) Multi-factor regressions (FF3, Carhart4, FF5, Quality/LowVol)
+    # 10) Performance attribution (Brinson–Fachler)
+    # ------------------------------
+    try:
+        run_performance_attribution(outdir=outdir, config_path=config_path)
+    except Exception as e:
+        print(f"[attribution] Warning: performance attribution failed: {e}")
+
+    # ------------------------------
+    # 11) Multi-factor regressions (FF3, Carhart4, FF5, Quality/LowVol)
     # ------------------------------
     factors_dict: dict[str, pd.DataFrame] = {}
     for model in ["ff3", "carhart4", "ff5", "quality_lowvol"]:
@@ -263,15 +273,18 @@ def main(config_path: str) -> None:
             outdir=outdir,
         )
     else:
-        print("[factor regression] No factor data loaded; skipping multi-factor regressions.")
+        print(
+            "[factor regression] No factor data loaded; "
+            "skipping multi-factor regressions."
+        )
 
     # ------------------------------
-    # 11) Forward-looking forecasts
+    # 12) Forward-looking forecasts
     # ------------------------------
     run_martingale_forecasts(outdir=outdir, horizon_days=252 * 3, n_paths=500)
 
     # ------------------------------
-    # 12) Rolling risk analytics
+    # 13) Rolling risk analytics
     # ------------------------------
     try:
         run_rolling_metrics(outdir=outdir)
@@ -279,7 +292,7 @@ def main(config_path: str) -> None:
         print(f"[rolling_metrics] Warning: rolling risk analytics failed: {e}")
 
     # ------------------------------
-    # 13) Final markdown/PDF report
+    # 14) Final markdown/PDF report
     # ------------------------------
     generate_report(outdir=outdir, config_path="config.json")
 

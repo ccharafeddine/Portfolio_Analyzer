@@ -399,6 +399,11 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
     drawdown_curves_path = None
     loss_histogram_path = None
 
+    attribution_png_path = None
+    attribution_csv_path = None
+    sector_attribution_png_path = None
+    sector_attribution_csv_path = None
+
     priority_order = [
         "correlation_matrix.png",
         "efficient_frontier.png",
@@ -425,6 +430,10 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
                 drawdown_curves_path = full_path
             elif lower == "loss_histogram_active.png":
                 loss_histogram_path = full_path
+            elif lower == "performance_attribution.png":
+                attribution_png_path = full_path
+            elif lower == "performance_attribution_sector.png":
+                sector_attribution_png_path = full_path
             elif lower.startswith("capm_"):
                 capm_pngs.append((f, full_path))
             else:
@@ -432,7 +441,14 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         elif lower.endswith(".gif"):
             gif_files.append((f, full_path))
         elif lower.endswith(".csv"):
-            csv_files.append((f, full_path))
+            if lower == "performance_attribution.csv":
+                attribution_csv_path = full_path
+                csv_files.append((f, full_path))
+            elif lower == "performance_attribution_sector.csv":
+                sector_attribution_csv_path = full_path
+                csv_files.append((f, full_path))
+            else:
+                csv_files.append((f, full_path))
         elif lower.endswith(".pdf") or lower.endswith(".md"):
             if "report" in lower:
                 reports.append((f, full_path))
@@ -552,7 +568,49 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         if rolling_metrics_path is not None:
             st.image(rolling_metrics_path, caption="rolling_metrics.png")
 
-    # 6) Extra charts
+    # 6) Performance Attribution (Brinson–Fachler)
+    if (
+        attribution_png_path is not None
+        or attribution_csv_path is not None
+        or sector_attribution_png_path is not None
+        or sector_attribution_csv_path is not None
+    ):
+        st.write("### Performance Attribution (Brinson–Fachler)")
+
+        # Asset-level attribution
+        if attribution_png_path is not None:
+            st.image(
+                attribution_png_path,
+                caption="Allocation, Selection, and Interaction Effects (Assets)",
+            )
+        if attribution_csv_path is not None:
+            try:
+                attr_df = pd.read_csv(attribution_csv_path)
+                st.dataframe(attr_df)
+            except Exception as e:
+                st.caption(f"Could not load performance_attribution.csv: {e}")
+
+        # Sector-level attribution (optional)
+        if sector_attribution_png_path is not None or sector_attribution_csv_path is not None:
+            st.write("#### Sector-level Attribution")
+            if sector_attribution_png_path is not None:
+                st.image(
+                    sector_attribution_png_path,
+                    caption=(
+                        "Allocation, Selection, and Interaction Effects "
+                        "(Sectors)"
+                    ),
+                )
+            if sector_attribution_csv_path is not None:
+                try:
+                    sec_attr_df = pd.read_csv(sector_attribution_csv_path)
+                    st.dataframe(sec_attr_df)
+                except Exception as e:
+                    st.caption(
+                        f"Could not load performance_attribution_sector.csv: {e}"
+                    )
+
+    # 7) Extra charts
     if other_pngs:
         st.write("### Additional Charts")
         for f, full_path in other_pngs:
@@ -563,7 +621,7 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         for f, full_path in gif_files:
             st.image(full_path, caption=f)
 
-    # 7) Multi-factor regression tables
+    # 8) Multi-factor regression tables
     mf_files = {
         "Fama-French 3-Factor (FF3)": "factor_regression_ff3.csv",
         "Carhart 4-Factor (Carhart4)": "factor_regression_carhart4.csv",
@@ -585,13 +643,13 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
             except Exception as e:
                 st.write(f"*(Could not load {fname}: {e})*")
 
-    # 8) CAPM PNGs
+    # 9) CAPM PNGs
     if capm_pngs:
         st.write("### CAPM Scatter Plots")
         for f, full_path in capm_pngs:
             st.image(full_path, caption=f)
 
-    # 9) CSV downloads
+    # 10) CSV downloads
     if csv_files:
         st.write("### CSV Data Files")
         for f, full_path in csv_files:
