@@ -21,6 +21,7 @@ from analytics import (
     efficient_frontier,
     sharpe_ratio,
     capm_regression,
+    compute_all_portfolio_drawdown_and_tail_risk,
 )
 
 from plotting import plot_efficient_frontier, plot_cal, plot_capm_scatter
@@ -28,7 +29,7 @@ from plotting import plot_efficient_frontier, plot_cal, plot_capm_scatter
 from build_active_portfolio_series import build_active_portfolio
 from build_passive_portfolio_series import build_passive_portfolio
 
-from make_performance_plots import run_performance_plots
+from make_performance_plots import run_performance_plots, run_drawdown_tail_plots
 from make_additional_plots import run_additional_plots
 from style_analysis import run_style_regression
 from rolling_metrics import run_rolling_metrics
@@ -47,36 +48,28 @@ def main(config_path: str) -> None:
     outdir = ensure_output_dir()
 
     # ------------------------------
-    # 1) Tickers, benchmark, dates
+    # 1) Tickers / dates / benchmark
     # ------------------------------
     tickers = cfg["tickers"]
-    benchmark = cfg.get("benchmark", cfg.get("passive_benchmark", "SPY"))
+    benchmark = cfg.get("benchmark", cfg.get("passive_benchmark", "^GSPC"))
 
-    # make sure benchmark is included in download universe
-    use_tickers = tickers + ([benchmark] if benchmark not in tickers else [])
-
-    # normalize start/end/interval so older configs still work
-    start = (
-        cfg.get("start")
-        or cfg.get("start_date")
-        or cfg.get("active_portfolio", {}).get("start_date")
-    )
-    end = (
-        cfg.get("end")
-        or cfg.get("end_date")
-        or cfg.get("active_portfolio", {}).get("end_date")
-    )
+    start = cfg.get("start") or cfg.get("start_date")
+    end = cfg.get("end") or cfg.get("end_date")
     interval = cfg.get("interval", "1d")
 
     if start is None or end is None:
-        raise ValueError(
-            "Config must define 'start'/'end' at the top level or "
-            "'active_portfolio.start_date'/'active_portfolio.end_date'."
-        )
+        raise ValueError("Config must specify 'start' and 'end' dates.")
+
+    rf = cfg.get("risk_free_rate", 0.02)  # annual risk-free
+    short_sales_flag = bool(cfg.get("short_sales", False))
+    frontier_points = int(cfg.get("frontier_points", 50))
+    y_cp = cfg.get("complete_portfolio", {}).get("y", cfg.get("y_cp", 1.0))
 
     # ------------------------------
-    # 2) Download price & dividend data
+    # 2) Price & dividend data
     # ------------------------------
+    use_tickers = sorted(set(tickers + [benchmark]))
+
     prices = download_prices(
         use_tickers,
         start=start,
@@ -93,13 +86,13 @@ def main(config_path: str) -> None:
     dividends.to_csv(os.path.join(outdir, "dividends.csv"))
 
     # monthly returns
-    rets_m = monthly_returns_from_prices(prices).dropna(how="all")
+    rets_m = monthly_returns_from_prices(prices)
     rets_m.to_csv(os.path.join(outdir, "monthly_returns.csv"))
 
-    # ------------------------------
-    # 3) Separate benchmark & compute stats
-    # ------------------------------
     bench_col = benchmark
+    if bench_col not in rets_m.columns:
+        raise ValueError(f"Benchmark {benchmark} is not in monthly returns columns.")
+
     bench_rets = rets_m[bench_col].dropna()
     asset_rets = rets_m.drop(columns=[bench_col], errors="ignore").dropna(how="all")
 
@@ -115,15 +108,8 @@ def main(config_path: str) -> None:
     cov_m = asset_rets.cov()
     cov_m.to_csv(os.path.join(outdir, "cov_matrix.csv"))
 
-    rf = cfg.get("risk_free_rate", 0.02)  # annual risk-free
-    rf_m = (1.0 + rf) ** (1.0 / 12.0) - 1.0
-
-    short_sales_flag = bool(cfg.get("short_sales", False))
-    frontier_points = int(cfg.get("frontier_points", 50))
-    y_cp = cfg.get("complete_portfolio", {}).get("y", cfg.get("y_cp", 1.0))
-
     # ------------------------------
-    # 4) Optimal risky portfolio (ORP), frontier, CAL
+    # 3) ORP & efficient frontier
     # ------------------------------
     mu_a = (1.0 + asset_rets.mean()) ** 12 - 1.0  # annualized means
 
@@ -151,16 +137,18 @@ def main(config_path: str) -> None:
         short_sales_flag,
     )
     plot_efficient_frontier(R, V, os.path.join(outdir, "efficient_frontier.png"))
+    # call plot_cal with positional args to match your plotting.py signature
     plot_cal(
-        sigma_rp=port_vol,
-        mu_rp=port_mean,
-        rf=rf,
-        fname=os.path.join(outdir, "CAL.png"),
+        port_vol,
+        port_mean,
+        rf,
+        os.path.join(outdir, "CAL.png"),
     )
 
     # ------------------------------
-    # 5) CAPM regressions & plots
+    # 4) CAPM regressions & plots
     # ------------------------------
+    rf_m = (1 + rf) ** (1 / 12) - 1  # monthly rf approximation
     capm_results: dict[str, dict] = {}
     capm_rows: list[dict] = []
 
@@ -189,19 +177,16 @@ def main(config_path: str) -> None:
         capm_df.to_csv(os.path.join(outdir, "capm_results.csv"), index=False)
 
     # ------------------------------
-    # 6) Build active & passive portfolios
+    # 5) Build active & passive portfolios
     # ------------------------------
     active_cfg = cfg["active_portfolio"]
-    holdings_df, active_series = build_active_portfolio(
+    build_active_portfolio(
         prices_csv=os.path.join(outdir, "clean_prices.csv"),
         capital=active_cfg["capital"],
         start_date=active_cfg["start_date"],
         weights=active_cfg["weights"],
         outdir=outdir,
     )
-
-    print("\n=== Active Portfolio Holdings (Initial Allocation) ===")
-    print(holdings_df.to_string(index=False))
 
     passive_cfg = cfg["passive_portfolio"]
     build_passive_portfolio(
@@ -213,7 +198,12 @@ def main(config_path: str) -> None:
     )
 
     # ------------------------------
-    # 7) Save summary.json BEFORE plotting
+    # 6) Style regression (moved AFTER active_portfolio_value.csv exists)
+    # ------------------------------
+    run_style_regression(outdir=outdir)
+
+    # ------------------------------
+    # 7) Save summary.json BEFORE performance plots
     # ------------------------------
     summary_payload = {
         "risk_free_rate_annual": rf,
@@ -231,7 +221,7 @@ def main(config_path: str) -> None:
         json.dump(summary_payload, f, indent=2)
 
     # ------------------------------
-    # 8) Performance plots & additional plots (incl. ORP/Complete)
+    # 8) Performance plots & additional plots
     # ------------------------------
     run_performance_plots(outdir=outdir, rf_annual=rf)
 
@@ -242,9 +232,17 @@ def main(config_path: str) -> None:
     )
 
     # ------------------------------
-    # 9) Style regression
+    # 9) Drawdown & tail-risk analytics
     # ------------------------------
-    run_style_regression(outdir=outdir)
+    try:
+        compute_all_portfolio_drawdown_and_tail_risk(outdir=outdir, rf_annual=rf)
+        run_drawdown_tail_plots(
+            outdir=outdir,
+            var_level=0.95,
+            focus_portfolio="Active",
+        )
+    except Exception as e:
+        print(f"[drawdown/tail] Warning: drawdown & tail-risk analytics failed: {e}")
 
     # ------------------------------
     # 10) Multi-factor regressions (FF3, Carhart4, FF5, Quality/LowVol)
@@ -273,7 +271,7 @@ def main(config_path: str) -> None:
     run_martingale_forecasts(outdir=outdir, horizon_days=252 * 3, n_paths=500)
 
     # ------------------------------
-    # 12) Rolling risk analytics (rolling_metrics.png + rolling_corr_heatmap.gif)
+    # 12) Rolling risk analytics
     # ------------------------------
     try:
         run_rolling_metrics(outdir=outdir)

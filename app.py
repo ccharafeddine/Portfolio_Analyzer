@@ -34,7 +34,7 @@ def clear_output_dir():
 
 
 st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
-st.title("📊 Portfolio Analyzer App")
+st.title("Portfolio Analyzer App")
 
 cfg = load_config()
 ap = cfg.get("active_portfolio", {}) or {}
@@ -64,7 +64,7 @@ start_default = (
     cfg.get("start")
     or cfg.get("start_date")
     or ap.get("start_date")
-    or "2024-01-01"
+    or "2020-01-01"
 )
 end_default = (
     cfg.get("end")
@@ -85,6 +85,13 @@ benchmark = st.sidebar.text_input(
     value=cfg.get("benchmark") or cfg.get("passive_benchmark", "SPY"),
 )
 
+rf_rate = st.sidebar.number_input(
+    "Risk-free rate (annual, e.g. 0.04 for 4%)",
+    value=float(cfg.get("risk_free_rate", 0.04)),
+    step=0.005,
+    format="%.4f",
+)
+
 include_orp = st.sidebar.checkbox(
     "Include ORP (Optimal Risky Portfolio)",
     value=cfg.get("include_orp", True),
@@ -102,6 +109,11 @@ y_cp = st.sidebar.slider(
     value=float(cfg.get("complete_portfolio", {}).get("y", cfg.get("y_cp", 0.8))),
 )
 
+# ------------------------------------------------------------------
+# PER-ASSET BOUND DEFAULTS
+# ------------------------------------------------------------------
+DEFAULT_MAX_BOUND = 1.0
+
 # =========================
 # Active Portfolio
 # =========================
@@ -111,9 +123,10 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     st.markdown("### Tickers (one per line)")
+    # Default: EMPTY textarea so each new session/user starts fresh
     tickers_text = st.text_area(
         "Tickers (one per line)",
-        value="\n".join(ap.get("tickers", ["AAPL", "MSFT", "GLD"])),
+        value="",
         height=200,
         label_visibility="collapsed",
     )
@@ -124,18 +137,45 @@ with col2:
     # spacer so checkboxes visually align with text box
     st.markdown("<br><br>", unsafe_allow_html=True)
 
+    # Default: equal weights ON for a fresh session
     equal_weights = st.checkbox(
         "Use Equal Weights",
-        value=False,
+        value=True,
     )
     use_dividends = st.checkbox(
         "Use Dividends",
         value=ap.get("use_dividends", False),
     )
+
+    # Allow Shorting + per-asset bound
+    allow_shorts_initial = ap.get("allow_shorts", cfg.get("short_sales", False))
     allow_shorts = st.checkbox(
         "Allow Shorting",
-        value=ap.get("allow_shorts", False),
+        value=allow_shorts_initial,
     )
+
+    max_bound = st.slider(
+        "Per-asset weight bound (|wᵢ| ≤ ...)",
+        min_value=0.5,
+        max_value=1.5,  # upper limit the user can choose
+        value=DEFAULT_MAX_BOUND,  # always start at 1.0 on app load
+        step=0.1,
+        help=(
+            "Sets the maximum absolute position per asset.\n\n"
+            "• 1.0 = no asset can exceed 100% of portfolio value.\n"
+            "• Values above 1.0 allow leverage, where a single asset "
+            "can be larger than the portfolio (long or short)."
+        ),
+    )
+
+    # If user pushes bound above 1.0, show a gentle leverage warning
+    if max_bound > 1.0:
+        st.warning(
+            "Per-asset bound is above 1.0 — you’re now allowing **leverage**.\n\n"
+            "This means a single position can be larger than your total capital "
+            "(or a short position can be more than 100% of the portfolio). "
+            "Make sure this is intentional."
+        )
 
 # =========================
 # Weights
@@ -150,13 +190,8 @@ else:
 
     weight_cols = st.columns(3)
 
-    stored_weights = ap.get("weights")
-    if isinstance(stored_weights, dict):
-        default_weights = [stored_weights.get(t, 0.0) for t in tickers]
-    elif isinstance(stored_weights, list):
-        default_weights = stored_weights
-    else:
-        default_weights = [1.0 / len(tickers)] * len(tickers) if tickers else []
+    # Start custom weights at equal-weight by default
+    default_weights = [1.0 / len(tickers)] * len(tickers) if tickers else []
 
     for idx, t in enumerate(tickers):
         col = weight_cols[idx % 3]
@@ -168,19 +203,64 @@ else:
 
         w = col.number_input(
             f"{t} weight",
-            min_value=-1.0,
-            max_value=2.0,
+            min_value=-max_bound if allow_shorts else 0.0,
+            max_value=max_bound,
             value=default_val,
             step=0.01,
             format="%.4f",
         )
         weights_list.append(float(w))
 
-    if tickers and abs(sum(weights_list) - 1.0) > 1e-6:
-        st.error("❌ Weights must sum to 1.0 unless equal-weights is selected. ❌")
-        st.stop()
+# Basic guard: if no tickers, do nothing further
+if not tickers:
+    st.warning("Please enter at least one ticker.")
+    st.stop()
+
+if equal_weights and not weights_list:
+    weights_list = [1.0 / len(tickers)] * len(tickers)
 
 weights_dict = {t: w for t, w in zip(tickers, weights_list)}
+
+# ----- Enforce custom weights sum exactly to 1 with red popup -----
+weights_sum = sum(weights_list) if weights_list else 0.0
+weights_invalid = (not equal_weights) and (abs(weights_sum - 1.0) > 1e-6)
+
+if not equal_weights:
+    st.markdown(
+        f"**Total custom weight (must equal 1.0000):** {weights_sum:.4f}"
+    )
+    if weights_invalid:
+        st.error(
+            "Custom weights must sum to 1.0000. "
+            f"Current total is {weights_sum:.4f}. "
+            "Please adjust one or more weights."
+        )
+
+# ----- Leverage health bar (gross exposure) -----
+# Gross exposure = sum of absolute weights. 1.0x means fully invested, no leverage.
+gross_exposure = sum(abs(w) for w in weights_list) if weights_list else 0.0
+
+st.markdown("### Leverage Health")
+st.markdown(f"**Gross exposure:** {gross_exposure:.2f}×")
+
+# Color-coded health messages
+if gross_exposure <= 1.0 + 1e-6:
+    st.success("Conservative: gross exposure ≤ 1.0× (no leverage).")
+elif gross_exposure <= 1.5 + 1e-6:
+    st.info(
+        "Aggressive: gross exposure between 1.0× and 1.5×. "
+        "You are using some leverage; expect higher volatility."
+    )
+elif gross_exposure <= 2.0 + 1e-6:
+    st.warning(
+        "High leverage: gross exposure between 1.5× and 2.0×. "
+        "Large swings and deep drawdowns are likely."
+    )
+else:
+    st.error(
+        "Extreme leverage: gross exposure above 2.0×. "
+        "Portfolios at this level can blow up quickly; proceed with caution."
+    )
 
 # =========================
 # Build config.json
@@ -191,16 +271,14 @@ cfg["benchmark"] = benchmark
 cfg["start"] = str(start_date)
 cfg["end"] = str(end_date)
 
-cfg["risk_free_rate"] = float(cfg.get("risk_free_rate", 0.04))
+cfg["risk_free_rate"] = float(rf_rate)
 
-# Shorting + bounds logic
+# Shorting + bounds logic (uses current slider value)
 cfg["short_sales"] = bool(allow_shorts)
 if allow_shorts:
-    # Allow up to 150% long or short per asset (net exposure still 100% via sum(w)=1)
-    cfg["max_allocation_bounds"] = [-1.5, 1.5]
+    cfg["max_allocation_bounds"] = [-max_bound, max_bound]
 else:
-    # Long-only case; per-asset cap at 150% but sum(w)=1 keeps net 100% long
-    cfg["max_allocation_bounds"] = [0.0, 1.5]
+    cfg["max_allocation_bounds"] = [0.0, max_bound]
 
 cfg["frontier_points"] = int(cfg.get("frontier_points", 50))
 
@@ -224,48 +302,52 @@ cfg["passive_portfolio"] = {
 
 cfg["complete_portfolio"] = {"y": float(y_cp)}
 
-cfg["passive_benchmark"] = benchmark
-cfg["passive"] = {"benchmark": benchmark}
-cfg["initial_capital"] = float(initial_capital)
-cfg["start_date"] = str(start_date)
-cfg["end_date"] = str(end_date)
-cfg["y_cp"] = float(y_cp)
+# -------------------------
+# Run button & status
+# -------------------------
+status = st.session_state.get("run_status")
+error_msg = st.session_state.get("run_error")
 
 if st.button("💾 Save Config 💾"):
-    save_config(cfg)
-    st.success("Config saved!")
-
-# =========================
-# Run Analysis
-# =========================
-st.subheader("🚀 Run Analysis")
-
-run_clicked = st.button("🏃‍♀️ Run Portfolio Analysis 🏃‍♀️")
-
-if run_clicked:
-    st.session_state["run_status"] = "running"
-    st.session_state["run_error"] = None
-
-    # Clear outputs so each run is clean (no leftover CAPM plots, etc.)
-    clear_output_dir()
-
-    python_exec = sys.executable
-
-    # 🔄 Show spinner while analysis runs
-    with st.spinner("Running portfolio analysis... this may take a moment ⏳"):
-        result = subprocess.run(
-            [python_exec, "main.py", "--config", "config.json"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=".",
+    if weights_invalid:
+        st.error(
+            "Cannot save config: custom weights must sum to exactly 1. "
+            "Please adjust them first."
         )
-
-    if result.returncode != 0:
-        st.session_state["run_status"] = "error"
-        st.session_state["run_error"] = result.stderr
     else:
-        st.session_state["run_status"] = "ok"
+        save_config(cfg)
+        st.success("Configuration saved to config.json")
+
+st.markdown("## 🏃 Run Analysis")
+
+if st.button("▶️ Run Portfolio Analysis ▶️"):
+    if weights_invalid:
+        st.error(
+            "Cannot run analysis: custom weights must sum to exactly 1. "
+            "Please adjust them first."
+        )
+    else:
+        st.session_state["run_status"] = "running"
+        st.session_state["run_error"] = None
+
+        clear_output_dir()
+
+        python_exec = sys.executable
+
+        with st.spinner("Running portfolio analysis... this may take a moment ⏳"):
+            result = subprocess.run(
+                [python_exec, "main.py", "--config", "config.json"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=".",
+            )
+
+        if result.returncode != 0:
+            st.session_state["run_status"] = "error"
+            st.session_state["run_error"] = result.stderr
+        else:
+            st.session_state["run_status"] = "ok"
 
 status = st.session_state.get("run_status")
 error_msg = st.session_state.get("run_error")
@@ -280,7 +362,7 @@ elif status == "error":
 # =========================
 # Outputs & Stats (ordered)
 # =========================
-if os.path.exists(OUTPUT_DIR):
+if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
     all_files = sorted(os.listdir(OUTPUT_DIR))
     st.write("### Output Files")
 
@@ -303,18 +385,19 @@ if os.path.exists(OUTPUT_DIR):
         )
 
     # ---------- Categorize files ----------
-    reports = []         # report.pdf, report.md, etc.
-    priority_pngs = {}   # specific PNGs, by name
-    capm_pngs = []       # capm_*.png
-    other_pngs = []      # any other pngs
-    csv_files = []       # all csvs
-    other_files = []     # anything else (non-report pdf/md/etc.)
-    gif_files = []       # all gifs
+    reports = []
+    priority_pngs = {}
+    capm_pngs = []
+    other_pngs = []
+    csv_files = []
+    other_files = []
+    gif_files = []
 
-    # Special rolling-risk outputs
     rolling_metrics_path = None
     rolling_corr_name = None
     rolling_corr_path = None
+    drawdown_curves_path = None
+    loss_histogram_path = None
 
     priority_order = [
         "correlation_matrix.png",
@@ -337,8 +420,11 @@ if os.path.exists(OUTPUT_DIR):
             if lower in priority_order:
                 priority_pngs[lower] = full_path
             elif lower == "rolling_metrics.png":
-                # reserve for Rolling Risk Analytics section
                 rolling_metrics_path = full_path
+            elif lower == "drawdown_curves.png":
+                drawdown_curves_path = full_path
+            elif lower == "loss_histogram_active.png":
+                loss_histogram_path = full_path
             elif lower.startswith("capm_"):
                 capm_pngs.append((f, full_path))
             else:
@@ -355,7 +441,6 @@ if os.path.exists(OUTPUT_DIR):
         else:
             other_files.append((f, full_path))
 
-    # Helper to pull & remove a specific GIF by name
     def pop_gif_by_name(target_name: str):
         target_name = target_name.lower()
         for idx, (gf, gpath) in enumerate(gif_files):
@@ -364,14 +449,13 @@ if os.path.exists(OUTPUT_DIR):
                 return gf, gpath
         return None, None
 
-    # Reserve rolling correlation GIF for Rolling Risk section
     for candidate in ["rolling_corr_heatmap.gif", "rolling_cor_heatmap.gif"]:
         gf, gpath = pop_gif_by_name(candidate)
         if gpath:
             rolling_corr_name, rolling_corr_path = gf, gpath
             break
 
-    # ---------- 1) Reports right after ZIP ----------
+    # 1) Reports
     if reports:
         st.write("### Report Files")
         for f, full_path in reports:
@@ -393,9 +477,9 @@ if os.path.exists(OUTPUT_DIR):
                 key=f"download_report_{f}",
             )
 
-    # ---------- 2) Holdings + CAPM tables ----------
+    # 2) Holdings + CAPM summary
     holdings_path = os.path.join(OUTPUT_DIR, "holdings_table.csv")
-    capm_path = os.path.join(OUTPUT_DIR, "capm_results.csv")
+    capm_path = os.path.join(OUTPUT_DIR, "capm_summary.csv")
 
     if os.path.exists(holdings_path):
         st.write("### Holdings Table")
@@ -407,7 +491,7 @@ if os.path.exists(OUTPUT_DIR):
         df_capm = pd.read_csv(capm_path, index_col=0)
         st.dataframe(df_capm)
 
-    # ---------- ORP weights from summary.json ----------
+    # ORP weights from summary.json
     orp_df = None
     summary_path = os.path.join(OUTPUT_DIR, "summary.json")
     if os.path.exists(summary_path):
@@ -427,17 +511,37 @@ if os.path.exists(OUTPUT_DIR):
         except Exception:
             orp_df = None
 
-    # ---------- 3) Key Charts in desired order ----------
+    # 3) Key Charts
     st.write("### Key Charts")
     for name in priority_order:
         if name in priority_pngs:
             st.image(priority_pngs[name], caption=name)
-            # Insert ORP table right after efficient_frontier.png
             if name == "efficient_frontier.png" and orp_df is not None:
                 st.write("### ORP (Optimal Risky Portfolio) Weights")
                 st.dataframe(orp_df)
 
-    # ---------- 4) Rolling Risk Analytics (right after Key Charts) ----------
+    # 4) Drawdown & Tail Risk
+    if drawdown_curves_path is not None or loss_histogram_path is not None:
+        st.write("### Drawdown & Tail Risk")
+        if drawdown_curves_path is not None:
+            st.image(
+                drawdown_curves_path,
+                caption="Portfolio drawdown curves",
+            )
+        if loss_histogram_path is not None:
+            st.image(
+                loss_histogram_path,
+                caption="Daily return distribution with VaR/CVaR",
+            )
+        metrics_path = os.path.join(OUTPUT_DIR, "drawdown_tail_metrics.csv")
+        if os.path.exists(metrics_path):
+            try:
+                dd_metrics_df = pd.read_csv(metrics_path)
+                st.dataframe(dd_metrics_df)
+            except Exception as e:
+                st.caption(f"Could not load drawdown_tail_metrics.csv: {e}")
+
+    # 5) Rolling Risk Analytics
     if rolling_corr_path is not None or rolling_metrics_path is not None:
         st.write("### Rolling Risk Analytics")
         if rolling_corr_path is not None:
@@ -448,19 +552,18 @@ if os.path.exists(OUTPUT_DIR):
         if rolling_metrics_path is not None:
             st.image(rolling_metrics_path, caption="rolling_metrics.png")
 
-    # ---------- 5) Any other non-CAPM PNGs ----------
+    # 6) Extra charts
     if other_pngs:
         st.write("### Additional Charts")
         for f, full_path in other_pngs:
             st.image(full_path, caption=f)
 
-    # (Optional) any remaining GIFs (if you ever add more animations)
     if gif_files:
         st.write("### Animated Charts")
         for f, full_path in gif_files:
             st.image(full_path, caption=f)
 
-    # ---------- 6) Multi-factor regression tables ----------
+    # 7) Multi-factor regression tables
     mf_files = {
         "Fama-French 3-Factor (FF3)": "factor_regression_ff3.csv",
         "Carhart 4-Factor (Carhart4)": "factor_regression_carhart4.csv",
@@ -473,22 +576,22 @@ if os.path.exists(OUTPUT_DIR):
         fpath = os.path.join(OUTPUT_DIR, fname)
         if os.path.exists(fpath):
             if first_mf:
-                st.write("### Multi-Factor Regression Results")
+                st.write("### Multi-Factor Regression Tables")
                 first_mf = False
-            st.write(f"#### {title}")
+            st.write(f"**{title}**")
             try:
                 df_mf = pd.read_csv(fpath)
                 st.dataframe(df_mf)
             except Exception as e:
                 st.write(f"*(Could not load {fname}: {e})*")
 
-    # ---------- 7) CAPM PNGs (before CSVs) ----------
+    # 8) CAPM PNGs
     if capm_pngs:
         st.write("### CAPM Scatter Plots")
         for f, full_path in capm_pngs:
             st.image(full_path, caption=f)
 
-    # ---------- 8) CSV downloads (last) ----------
+    # 9) CSV downloads
     if csv_files:
         st.write("### CSV Data Files")
         for f, full_path in csv_files:
