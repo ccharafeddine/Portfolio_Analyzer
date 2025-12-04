@@ -39,6 +39,15 @@ from multi_factor_regression import run_all_factor_models
 
 from performance_attribution import run_performance_attribution
 
+# --- Black-Litterman imports (new) ---
+from black_litterman import (
+    get_market_cap_weights_fmp,
+    compute_black_litterman_prior,
+    build_P_Q_Omega,
+    compute_bl_posterior,
+    optimize_bl_weights,
+)
+
 
 def load_config(path: str) -> dict:
     with open(path, "r") as f:
@@ -170,6 +179,82 @@ def main(config_path: str) -> None:
         rf,
         os.path.join(outdir, "CAL.png"),
     )
+
+    # ------------------------------
+    # 3b) Black-Litterman (optional, new)
+    # ------------------------------
+    bl_cfg = cfg.get("black_litterman", {}) or {}
+    bl_enabled = bool(bl_cfg.get("enabled", False))
+    bl_weights = None
+
+    if bl_enabled:
+        try:
+            # Universe for BL: the same assets used in ORP (i.e. asset_rets columns)
+            bl_tickers = list(asset_rets.columns)
+
+            # Use the price history for those tickers only
+            price_subset = prices[bl_tickers].dropna(how="all")
+
+            # 1) Market-cap weights from FMP
+            mkt_caps = get_market_cap_weights_fmp(bl_tickers)
+
+            # 2) Prior equilibrium returns & covariance (annualized)
+            tau = float(bl_cfg.get("tau", 0.05))
+            pi, cov_a_bl = compute_black_litterman_prior(
+                price_subset,
+                mkt_caps,
+                rf_annual=rf,
+                periods_per_year=252,
+            )
+
+            # 3) Build P, Q, Omega from views (if any)
+            views = bl_cfg.get("views", []) or []
+            P, Q, Omega = build_P_Q_Omega(bl_tickers, views, cov_a_bl, tau=tau)
+
+            # 4) Posterior Black-Litterman mean & covariance
+            mu_bl, cov_bl = compute_bl_posterior(
+                pi,
+                cov_a_bl,
+                P,
+                Q,
+                Omega,
+                tau=tau,
+            )
+
+            # 5) Optimize BL portfolio using existing max_sharpe
+            bl_bounds = tuple(cfg["max_allocation_bounds"])
+            bl_weights = optimize_bl_weights(
+                mu_bl,
+                cov_bl,
+                rf_annual=rf,
+                bounds=bl_bounds,
+                short_sales=short_sales_flag,
+            )
+
+            # 6) Save BL weights to CSV
+            bl_weights.to_csv(
+                os.path.join(outdir, "black_litterman_weights.csv"),
+                header=["weight"],
+            )
+
+            # 7) BL efficient frontier plot
+            cov_bl_m = cov_bl / 12.0  # annual -> monthly
+            W_bl, R_bl, V_bl = efficient_frontier(
+                mu_bl.values,
+                cov_bl_m.values,
+                frontier_points,
+                bl_bounds,
+                short_sales_flag,
+            )
+            plot_efficient_frontier(
+                R_bl,
+                V_bl,
+                os.path.join(outdir, "black_litterman_efficient_frontier.png"),
+            )
+
+        except Exception as e:
+            print(f"[black_litterman] Warning: BL optimization failed: {e}")
+            bl_weights = None
 
     # ------------------------------
     # 4) CAPM regressions & plots
@@ -355,6 +440,13 @@ def main(config_path: str) -> None:
         "capm": capm_results,
         "y_cp": y_cp,
     }
+
+    # Attach BL weights to summary (if available) without affecting anything else
+    if bl_weights is not None:
+        summary_payload["black_litterman"] = {
+            "enabled": True,
+            "weights": bl_weights.to_dict(),
+        }
 
     with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(summary_payload, f, indent=2)

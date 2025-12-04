@@ -4,12 +4,38 @@ import pandas as pd
 import os  # to infer asset name from filename
 
 
-def plot_efficient_frontier(R: np.ndarray, V: np.ndarray, fname: str):
+def plot_efficient_frontier(
+    R: np.ndarray,
+    V: np.ndarray,
+    fname: str,
+    title: str | None = None,
+) -> None:
+    """
+    Plot an efficient frontier and save to *fname*.
+
+    Backwards compatible with the old signature: existing calls that pass only
+    (R, V, fname) still work. If *title* is None, we infer a sensible one
+    from the filename:
+
+    - 'Black-Litterman Efficient Frontier' if 'black_litterman' in the filename.
+    - 'Efficient Frontier (ORP)' if the filename is exactly 'efficient_frontier.png'.
+    - 'Efficient Frontier' otherwise.
+    """
     plt.figure()
     plt.plot(V, R, marker="o", linestyle="-")
     plt.xlabel("Annualized Volatility")
     plt.ylabel("Annualized Return")
-    plt.title("Efficient Frontier")
+
+    if title is None:
+        base = os.path.basename(fname).lower()
+        if "black_litterman" in base:
+            title = "Black-Litterman Efficient Frontier"
+        elif base == "efficient_frontier.png":
+            title = "Efficient Frontier (ORP)"
+        else:
+            title = "Efficient Frontier"
+
+    plt.title(title)
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(fname, dpi=160)

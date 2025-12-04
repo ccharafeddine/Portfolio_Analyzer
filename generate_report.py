@@ -10,6 +10,7 @@
 # - Backtest start/end dates
 # - Ordered narrative matching Streamlit outputs
 # - Universal support for any portfolio
+# - Optional Black-Litterman section (when outputs exist)
 # ------------------------------------------------------------
 
 import os
@@ -38,6 +39,7 @@ OUTPUT_DIR = "outputs"
 # ============================================================
 # Helper Smart Loaders
 # ============================================================
+
 
 def _find_matching_file(outdir, prefix, exts=(".csv", ".json", "")):
     """Find a file in outdir whose name starts with prefix.
@@ -85,6 +87,7 @@ def load_csv_smart(outdir, prefix):
 # Markdown helper
 # ============================================================
 
+
 def write_md_section(md_lines, title, body):
     md_lines.append(f"## {title}\n\n")
     md_lines.append(body.strip() + "\n\n")
@@ -93,6 +96,7 @@ def write_md_section(md_lines, title, body):
 # ============================================================
 # Formatting helpers
 # ============================================================
+
 
 def fmt_pct_or_num(x, force_pct=False):
     if x is None:
@@ -113,6 +117,7 @@ def fmt_pct_or_num(x, force_pct=False):
 # ------------------------------------------------------------
 # Interpretation Engine + Risk Buckets + Conclusions
 # ------------------------------------------------------------
+
 
 def interpret_performance(summary_json):
     if not summary_json:
@@ -326,9 +331,104 @@ def interpret_factors(df):
     return intro + "\n" + "\n".join(lines)
 
 
+def interpret_black_litterman(bl_weights_df, bl_views_df, bl_tickers=None):
+    """Explain the Black-Litterman results in the same narrative style.
+
+    bl_tickers is an optional ordered list of tickers corresponding to the
+    rows of bl_weights_df. When provided, it is used to label weights so the
+    narrative and tables reference actual names instead of row indices.
+    """
+    if (
+        (bl_weights_df is None or bl_weights_df.empty)
+        and (bl_views_df is None or bl_views_df.empty)
+    ):
+        return (
+            "The Black-Litterman model blends market-implied equilibrium returns "
+            "with explicit investor views to produce an alternative, view-consistent "
+            "set of expected returns and portfolio weights. In this run, no "
+            "Black-Litterman outputs were detected in the outputs directory."
+        )
+
+    text = (
+        "The Black-Litterman model combines market-cap–implied equilibrium returns "
+        "with the investor views specified in the configuration. The result is a "
+        "posterior set of expected returns that is consistent with both the market "
+        "and the views, and a corresponding Black-Litterman portfolio optimized "
+        "on that posterior return vector.\n\n"
+    )
+
+    if bl_weights_df is not None and not bl_weights_df.empty:
+        try:
+            df = bl_weights_df.copy()
+
+            # Attach tickers if not already present
+            ticker_col = None
+            for c in df.columns:
+                cl = c.lower()
+                if cl in ("ticker", "asset", "name", "symbol"):
+                    ticker_col = c
+                    break
+            if ticker_col is None and bl_tickers is not None:
+                labels = [str(t) for t in bl_tickers]
+                if len(labels) >= len(df):
+                    df.insert(0, "Ticker", labels[: len(df)])
+                    ticker_col = "Ticker"
+
+            # Find weight column
+            weight_col = None
+            for c in df.columns:
+                cl = c.lower()
+                if cl in ("weight", "weights", "bl_weight", "bl_weights"):
+                    weight_col = c
+                    break
+            if weight_col is None:
+                num_cols = df.select_dtypes(include="number").columns
+                if len(num_cols) == 1:
+                    weight_col = num_cols[0]
+
+            if weight_col is not None:
+                s = df[weight_col].astype(float)
+
+                # Label the series
+                if ticker_col is not None:
+                    s.index = df[ticker_col].astype(str)
+                elif df.index.name is not None or df.index.dtype == "object":
+                    s.index = df.index.astype(str)
+
+                s = s[s.abs() > 1e-6].sort_values(ascending=False)
+                top = s.head(5)
+                if not top.empty:
+                    bullets = ", ".join(f"{idx} ({val:.1%})" for idx, val in top.items())
+                    text += (
+                        "The resulting Black-Litterman portfolio tilts toward a "
+                        "subset of names that express those views. Key weights include: "
+                        f"{bullets}.\n\n"
+                    )
+        except Exception:
+            # Fail silently; narrative above still stands
+            pass
+
+    if bl_views_df is not None and not bl_views_df.empty:
+        text += (
+            "The view table summarises the assumptions used in the model—such as "
+            "absolute or relative return views and their associated confidence "
+            "levels. Together with the benchmark covariance matrix, these define "
+            "how far the posterior returns can deviate from equilibrium.\n"
+        )
+    else:
+        text += (
+            "The detailed view table was not available in the outputs directory; "
+            "consult the configuration for the specific investor views used in "
+            "this run.\n"
+        )
+
+    return text
+
+
 # ============================================================
 # Risk Bucket Classification
 # ============================================================
+
 
 def compute_risk_bucket(summary_json, dd_df):
     """Assign a risk bucket even if some metrics are missing."""
@@ -394,6 +494,7 @@ def compute_risk_bucket(summary_json, dd_df):
 # Conclusions & Recommendations
 # ============================================================
 
+
 def interpret_conclusions(summary_json, dd_df, asset_attr, sector_attr, factor_df):
     performance_text = interpret_performance(summary_json)
     risk_text = interpret_risk(summary_json)
@@ -457,6 +558,7 @@ def interpret_conclusions(summary_json, dd_df, asset_attr, sector_attr, factor_d
 # Summary Table Builder
 # ============================================================
 
+
 def build_summary_rows(
     summary,
     dd_df,
@@ -500,7 +602,9 @@ def build_summary_rows(
         if bench_sharpe is not None:
             rows.append(["Benchmark Sharpe ratio", f"{float(bench_sharpe):.2f}"])
         if gain_to_pain is not None:
-            rows.append(["Gain-to-Pain ratio (portfolio)", f"{float(gain_to_pain):.2f}"])
+            rows.append(
+                ["Gain-to-Pain ratio (portfolio)", f"{float(gain_to_pain):.2f}"]
+            )
         if beta is not None:
             rows.append(["Beta", f"{beta:.2f}"])
 
@@ -512,7 +616,9 @@ def build_summary_rows(
                 break
 
         if dd_col is not None:
-            rows.append(["Max drawdown", fmt_pct_or_num(dd_df[dd_col].iloc[0], True)])
+            rows.append(
+                ["Max drawdown", fmt_pct_or_num(dd_df[dd_col].iloc[0], True)]
+            )
         if "VaR_95" in dd_df.columns:
             rows.append(["95% VaR", fmt_pct_or_num(dd_df["VaR_95"].iloc[0], True)])
         if "CVaR_95" in dd_df.columns:
@@ -527,7 +633,12 @@ def build_summary_rows(
             if c in asset_attr.columns:
                 label = asset_attr.loc[idx_top, c]
                 break
-        rows.append(["Top contributing asset", label if label is not None else str(idx_top)])
+        rows.append(
+            [
+                "Top contributing asset",
+                label if label is not None else str(idx_top),
+            ]
+        )
 
     if sector_attr is not None and not sector_attr.empty and "Total" in sector_attr.columns:
         totals_s = sector_attr["Total"]
@@ -548,6 +659,7 @@ def build_summary_rows(
 # Image classifier + PDF embedding + section builders
 # ------------------------------------------------------------
 
+
 def classify_images(outdir):
     categories = {
         "performance": [],
@@ -560,6 +672,7 @@ def classify_images(outdir):
         "capm": [],
         "factor": [],
         "scenarios": [],
+        "black_litterman": [],
         "other": [],
     }
 
@@ -580,6 +693,8 @@ def classify_images(outdir):
                 categories["drawdown"].append(full)
             elif key.startswith("rolling") or "rolling_" in key:
                 categories["rolling"].append(full)
+            elif "black_litterman" in key:
+                categories["black_litterman"].append(full)
             elif "efficient_frontier" in key or key == "cal":
                 categories["frontier"].append(full)
             elif "corr" in key and ("matrix" in key or "heatmap" in key):
@@ -616,7 +731,16 @@ def add_image_flowable(story, path, caption, style_caption, max_width=6.5 * inch
         return
 
 
-def add_section(story, title, text, image_keys, image_dict, style_section, style_body, style_caption):
+def add_section(
+    story,
+    title,
+    text,
+    image_keys,
+    image_dict,
+    style_section,
+    style_body,
+    style_caption,
+):
     story.append(Paragraph(title, style_section))
     story.append(Spacer(1, 6))
 
@@ -633,9 +757,56 @@ def add_section(story, title, text, image_keys, image_dict, style_section, style
     story.append(Spacer(1, 18))
 
 
+def add_key_charts_section(
+    story,
+    text,
+    image_dict,
+    style_section,
+    style_body,
+    style_caption,
+):
+    """Custom section for Key Charts with a fixed, professional order."""
+    story.append(Paragraph("Key Charts: Portfolio Growth & Allocation", style_section))
+    story.append(Spacer(1, 6))
+
+    story.append(Paragraph(text, style_body))
+    story.append(Spacer(1, 10))
+
+    desired_order = [
+        "growth_active_vs_passive",
+        "active_minus_passive_cumulative",
+        "correlation_matrix",
+        "efficient_frontier",
+        "cal",
+        "orp_real_vs_expected",
+        "complete_portfolio_pie",
+        "growth_all_portfolios",
+        "forward_scenarios",
+    ]
+
+    # Flatten all image paths into a single list
+    all_paths = []
+    for paths in image_dict.values():
+        all_paths.extend(paths)
+
+    for name in desired_order:
+        for p in all_paths:
+            base = os.path.splitext(os.path.basename(p))[0].lower()
+            if base == name:
+                caption = (
+                    "Key Charts: Portfolio Growth & Allocation — "
+                    + os.path.basename(p)
+                )
+                add_image_flowable(story, p, caption, style_caption)
+                break
+
+    story.append(Spacer(1, 18))
+
+
 # ============================================================
 # Markdown summary builder (story-ordered)
 # ============================================================
+
 
 def build_markdown_report(
     md_lines,
@@ -650,6 +821,10 @@ def build_markdown_report(
     conclusions_text,
     benchmark_label=None,
     holdings_df=None,
+    bl_enabled=False,
+    bl_views_df=None,
+    bl_weights_df=None,
+    bl_tickers=None,
 ):
     md_lines.append("## Summary\n\n")
     if summary_rows:
@@ -668,7 +843,13 @@ def build_markdown_report(
         md_lines.append("**Initial Holdings:**\n\n")
         cols = [
             c
-            for c in ["Ticker", "TargetWeight", "RealizedWeight", "Shares", "PurchasePrice"]
+            for c in [
+                "Ticker",
+                "TargetWeight",
+                "RealizedWeight",
+                "Shares",
+                "PurchasePrice",
+            ]
             if c in holdings_df.columns
         ]
         if not cols:
@@ -755,6 +936,80 @@ def build_markdown_report(
         ),
     )
 
+    # ---- Black-Litterman section (only when enabled) ----
+    if bl_enabled:
+        bl_text = interpret_black_litterman(bl_weights_df, bl_views_df, bl_tickers=bl_tickers)
+        write_md_section(
+            md_lines,
+            "Black-Litterman Model (Optional)",
+            bl_text,
+        )
+
+        # Allocation table
+        if bl_weights_df is not None and not bl_weights_df.empty:
+            md_lines.append("**Black-Litterman Allocation:**\n\n")
+            df = bl_weights_df.copy()
+
+            ticker_col = None
+            for c in df.columns:
+                if c.lower() in ("ticker", "asset", "name", "symbol"):
+                    ticker_col = c
+                    break
+            if ticker_col is None and bl_tickers is not None:
+                labels = [str(t) for t in bl_tickers]
+                if len(labels) >= len(df):
+                    df.insert(0, "Ticker", labels[: len(df)])
+                    ticker_col = "Ticker"
+
+            weight_col = None
+            for c in df.columns:
+                if c.lower() in ("weight", "weights", "bl_weight", "bl_weights"):
+                    weight_col = c
+                    break
+            if weight_col is None:
+                num_cols = df.select_dtypes(include="number").columns
+                if len(num_cols) >= 1:
+                    weight_col = num_cols[0]
+
+            cols = []
+            if ticker_col is not None:
+                cols.append(ticker_col)
+            if weight_col is not None:
+                cols.append(weight_col)
+
+            # Add one more numeric column if available and distinct
+            for c in df.columns:
+                if c in cols:
+                    continue
+                if df[c].dtype.kind in "if" and len(cols) < 3:
+                    cols.append(c)
+                    break
+
+            if cols:
+                md_lines.append("| " + " | ".join(cols) + " |\n")
+                md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |\n")
+                for _, row in df[cols].head(20).iterrows():
+                    cells = []
+                    for c in cols:
+                        v = row[c]
+                        if c == weight_col and isinstance(v, (float, int)):
+                            cells.append(f"{float(v):.4%}")
+                        else:
+                            cells.append(str(v))
+                    md_lines.append("| " + " | ".join(cells) + " |\n")
+                md_lines.append("\n")
+
+        if bl_views_df is not None and not bl_views_df.empty:
+            md_lines.append("**Black-Litterman Views Used in This Run:**\n\n")
+            cols = list(bl_views_df.columns)[:6]
+            if cols:
+                md_lines.append("| " + " | ".join(cols) + " |\n")
+                md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |\n")
+                for _, row in bl_views_df[cols].head(15).iterrows():
+                    cells = [str(row[c]) for c in cols]
+                    md_lines.append("| " + " | ".join(cells) + " |\n")
+                md_lines.append("\n")
+
     write_md_section(
         md_lines,
         "Forward-Looking Scenarios",
@@ -781,6 +1036,7 @@ def build_markdown_report(
 # ------------------------------------------------------------
 # Final assembly: Markdown + PDF generation
 # ------------------------------------------------------------
+
 
 def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
     print("[report] Generating full report...")
@@ -822,6 +1078,31 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
     asset_attr = load_csv_smart(outdir, "performance_attribution")
     sector_attr = load_csv_smart(outdir, "performance_attribution_sector")
 
+    # --- Black-Litterman outputs (optional) ---
+    bl_weights_df = load_csv_smart(outdir, "black_litterman_weights")
+    bl_views_df = load_csv_smart(outdir, "black_litterman_views")
+    bl_frontier_path = _find_matching_file(
+        outdir, "black_litterman_efficient_frontier", exts=(".png", ".jpg", ".jpeg", "")
+    )
+    bl_enabled = False
+    if bl_weights_df is not None and not bl_weights_df.empty:
+        bl_enabled = True
+    if bl_views_df is not None and not bl_views_df.empty:
+        bl_enabled = True
+    if bl_frontier_path is not None:
+        bl_enabled = True
+
+    # derive BL tickers from config if possible
+    bl_tickers = None
+    if cfg:
+        ap = cfg.get("active_portfolio") or {}
+        if isinstance(ap, dict):
+            bl_tickers = ap.get("tickers")
+        if not bl_tickers:
+            bl_tickers = cfg.get("tickers")
+        if isinstance(bl_tickers, dict):
+            bl_tickers = list(bl_tickers.keys())
+
     risk_bucket_label, risk_bucket_expl = compute_risk_bucket(summary, dd_df)
     performance_text = interpret_performance(summary)
     risk_text = interpret_risk(summary)
@@ -844,6 +1125,7 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         end_date=end_date_cfg,
     )
 
+    # ----------------- Markdown -----------------
     md_lines = []
     md_lines.append("# Portfolio Analysis Report\n\n")
     md_lines.append(
@@ -863,6 +1145,10 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         conclusions_text,
         benchmark_label=benchmark_label,
         holdings_df=holdings_df,
+        bl_enabled=bl_enabled,
+        bl_views_df=bl_views_df,
+        bl_weights_df=bl_weights_df,
+        bl_tickers=bl_tickers,
     )
 
     md_path = os.path.join(outdir, "report.md")
@@ -870,6 +1156,7 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         f.write("\n".join(md_lines))
     print(f"[report] Markdown written to: {md_path}")
 
+    # ----------------- PDF -----------------
     pdf_path = os.path.join(outdir, "report.pdf")
 
     styles = getSampleStyleSheet()
@@ -938,13 +1225,23 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
                 date_text_parts.append(f"Start: {start_date_cfg}")
             if end_date_cfg:
                 date_text_parts.append(f"End: {end_date_cfg}")
-            story.append(Paragraph("Backtest period: " + ", ".join(date_text_parts), style_body))
+            story.append(
+                Paragraph(
+                    "Backtest period: " + ", ".join(date_text_parts), style_body
+                )
+            )
             story.append(Spacer(1, 6))
 
         if holdings_df is not None and not holdings_df.empty:
             cols = [
                 c
-                for c in ["Ticker", "TargetWeight", "RealizedWeight", "Shares", "PurchasePrice"]
+                for c in [
+                    "Ticker",
+                    "TargetWeight",
+                    "RealizedWeight",
+                    "Shares",
+                    "PurchasePrice",
+                ]
                 if c in holdings_df.columns
             ]
             if not cols:
@@ -997,11 +1294,9 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         "how the Optimal Risky Portfolio (ORP) and complete portfolio allocate capital. "
         + performance_text
     )
-    add_section(
+    add_key_charts_section(
         story,
-        "Key Charts: Portfolio Growth & Allocation",
         key_charts_text,
-        ["performance", "frontier", "correlation", "scenarios"],
         img_cats,
         style_section,
         style_body,
@@ -1083,6 +1378,110 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
             style_body,
             style_caption,
         )
+
+    # ---- Black-Litterman section in PDF (only when enabled) ----
+    if bl_enabled:
+        bl_text = interpret_black_litterman(bl_weights_df, bl_views_df, bl_tickers=bl_tickers)
+        add_section(
+            story,
+            "Black-Litterman Model (Optional)",
+            bl_text,
+            ["black_litterman"],
+            img_cats,
+            style_section,
+            style_body,
+            style_caption,
+        )
+
+        # Allocation table
+        if bl_weights_df is not None and not bl_weights_df.empty:
+            story.append(Paragraph("Black-Litterman Allocation", style_section))
+            story.append(Spacer(1, 6))
+            df = bl_weights_df.copy()
+
+            ticker_col = None
+            for c in df.columns:
+                if c.lower() in ("ticker", "asset", "name", "symbol"):
+                    ticker_col = c
+                    break
+            if ticker_col is None and bl_tickers is not None:
+                labels = [str(t) for t in bl_tickers]
+                if len(labels) >= len(df):
+                    df.insert(0, "Ticker", labels[: len(df)])
+                    ticker_col = "Ticker"
+
+            weight_col = None
+            for c in df.columns:
+                if c.lower() in ("weight", "weights", "bl_weight", "bl_weights"):
+                    weight_col = c
+                    break
+            if weight_col is None:
+                num_cols = df.select_dtypes(include="number").columns
+                if len(num_cols) >= 1:
+                    weight_col = num_cols[0]
+
+            cols = []
+            if ticker_col is not None:
+                cols.append(ticker_col)
+            if weight_col is not None:
+                cols.append(weight_col)
+
+            # Add one more numeric column if available and distinct
+            for c in df.columns:
+                if c in cols:
+                    continue
+                if df[c].dtype.kind in "if" and len(cols) < 3:
+                    cols.append(c)
+                    break
+
+            data_rows = []
+            if cols:
+                for _, row in df[cols].head(20).iterrows():
+                    row_vals = []
+                    for c in cols:
+                        v = row[c]
+                        if c == weight_col and isinstance(v, (float, int)):
+                            row_vals.append(f"{float(v):.4%}")
+                        else:
+                            row_vals.append(str(v))
+                    data_rows.append(row_vals)
+
+            if data_rows:
+                tbl = Table([cols] + data_rows)
+                tbl.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ]
+                    )
+                )
+                story.append(tbl)
+                story.append(Spacer(1, 18))
+
+        if bl_views_df is not None and not bl_views_df.empty:
+            story.append(Paragraph("Black-Litterman Views", style_section))
+            story.append(Spacer(1, 6))
+            cols = list(bl_views_df.columns)[:5]
+            data_rows = []
+            for _, row in bl_views_df[cols].head(15).iterrows():
+                data_rows.append([str(row[c]) for c in cols])
+            if data_rows:
+                tbl = Table([cols] + data_rows)
+                tbl.setStyle(
+                    TableStyle(
+                        [
+                            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                            ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                        ]
+                    )
+                )
+                story.append(tbl)
+                story.append(Spacer(1, 18))
 
     story.append(Paragraph("Conclusions & Recommendations", style_section))
     story.append(Spacer(1, 6))

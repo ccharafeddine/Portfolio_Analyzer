@@ -109,6 +109,29 @@ y_cp = st.sidebar.slider(
     value=float(cfg.get("complete_portfolio", {}).get("y", cfg.get("y_cp", 0.8))),
 )
 
+# -------------------------
+# Black-Litterman (optional, new)
+# -------------------------
+bl_cfg = cfg.get("black_litterman", {}) or {}
+bl_enabled = st.sidebar.checkbox(
+    "Enable Black-Litterman Model",
+    value=bool(bl_cfg.get("enabled", False)),
+)
+if bl_enabled:
+    tau = st.sidebar.number_input(
+        "Black-Litterman τ (model uncertainty)",
+        min_value=0.001,
+        max_value=1.0,
+        value=float(bl_cfg.get("tau", 0.05)),
+        step=0.005,
+        format="%.3f",
+        help="Controls how much weight is placed on the prior vs your views. "
+        "Smaller τ = more weight on views.",
+    )
+else:
+    # Keep previous tau as default so you don't lose it when disabling
+    tau = float(bl_cfg.get("tau", 0.05))
+
 # ------------------------------------------------------------------
 # PER-ASSET BOUND DEFAULTS
 # ------------------------------------------------------------------
@@ -263,6 +286,136 @@ else:
     )
 
 # =========================
+# Black-Litterman Views (optional, new)
+# =========================
+bl_views: list[dict] = []
+
+if bl_enabled:
+    st.subheader("🧠 Black-Litterman Views (optional)")
+
+    if not tickers:
+        st.info("Enter tickers above to define Black-Litterman views.")
+    else:
+        existing_views = []
+        if isinstance(bl_cfg, dict):
+            existing_views = bl_cfg.get("views", []) or []
+
+        max_views = 3  # simple V1: up to 3 views
+        conf_index_map = {"low": 0, "medium": 1, "high": 2}
+
+        for i in range(max_views):
+            prior = existing_views[i] if i < len(existing_views) else {}
+
+            with st.expander(f"View {i + 1}", expanded=(i == 0 and not existing_views)):
+                enabled_this = st.checkbox(
+                    "Enable this view",
+                    value=bool(prior),
+                    key=f"bl_view_enable_{i}",
+                )
+                if not enabled_this:
+                    continue
+
+                # View type
+                prior_type = str(prior.get("type", "absolute")).lower()
+                vtype = st.selectbox(
+                    "View type",
+                    options=["absolute", "relative"],
+                    index=0 if prior_type == "absolute" else 1,
+                    key=f"bl_view_type_{i}",
+                )
+
+                # Confidence
+                prior_conf = str(prior.get("confidence", "medium")).lower()
+                conf_idx = conf_index_map.get(prior_conf, 1)
+                confidence = st.selectbox(
+                    "Confidence",
+                    options=["low", "medium", "high"],
+                    index=conf_idx,
+                    key=f"bl_view_conf_{i}",
+                )
+
+                if vtype == "absolute":
+                    # Absolute: pick one asset and an expected annual excess return
+                    default_asset = prior.get("asset", tickers[0])
+                    try:
+                        default_idx = tickers.index(default_asset)
+                    except ValueError:
+                        default_idx = 0
+
+                    asset = st.selectbox(
+                        "Asset",
+                        options=tickers,
+                        index=default_idx,
+                        key=f"bl_view_asset_{i}",
+                    )
+
+                    q_val = float(prior.get("q", 0.0))
+                    q = st.number_input(
+                        "Expected annual excess return (decimal, e.g. 0.08 = 8%)",
+                        value=q_val,
+                        step=0.01,
+                        format="%.4f",
+                        key=f"bl_view_q_abs_{i}",
+                    )
+
+                    bl_views.append(
+                        {
+                            "type": "absolute",
+                            "asset": asset,
+                            "q": float(q),
+                            "confidence": confidence,
+                        }
+                    )
+                else:
+                    # Relative: long vs short
+                    default_long = prior.get("asset_long", tickers[0])
+                    try:
+                        long_idx = tickers.index(default_long)
+                    except ValueError:
+                        long_idx = 0
+
+                    default_short = prior.get(
+                        "asset_short",
+                        tickers[1] if len(tickers) > 1 else tickers[0],
+                    )
+                    try:
+                        short_idx = tickers.index(default_short)
+                    except ValueError:
+                        short_idx = 1 if len(tickers) > 1 else 0
+
+                    asset_long = st.selectbox(
+                        "Asset (long)",
+                        options=tickers,
+                        index=long_idx,
+                        key=f"bl_view_long_{i}",
+                    )
+                    asset_short = st.selectbox(
+                        "Asset (short)",
+                        options=tickers,
+                        index=short_idx,
+                        key=f"bl_view_short_{i}",
+                    )
+
+                    q_val = float(prior.get("q", 0.0))
+                    q = st.number_input(
+                        "Expected outperformance of long vs short (decimal, e.g. 0.03 = 3%)",
+                        value=q_val,
+                        step=0.01,
+                        format="%.4f",
+                        key=f"bl_view_q_rel_{i}",
+                    )
+
+                    bl_views.append(
+                        {
+                            "type": "relative",
+                            "asset_long": asset_long,
+                            "asset_short": asset_short,
+                            "q": float(q),
+                            "confidence": confidence,
+                        }
+                    )
+
+# =========================
 # Build config.json
 # =========================
 cfg["tickers"] = tickers
@@ -301,6 +454,13 @@ cfg["passive_portfolio"] = {
 }
 
 cfg["complete_portfolio"] = {"y": float(y_cp)}
+
+# --- Black-Litterman config wiring (new) ---
+bl_cfg_out = {"enabled": bool(bl_enabled)}
+if bl_enabled and tickers:
+    bl_cfg_out["tau"] = float(tau)
+    bl_cfg_out["views"] = bl_views
+cfg["black_litterman"] = bl_cfg_out
 
 # -------------------------
 # Run button & status
@@ -404,9 +564,11 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
     sector_attribution_png_path = None
     sector_attribution_csv_path = None
 
+    # NOTE: Black-Litterman frontier inserted right after ORP frontier
     priority_order = [
         "correlation_matrix.png",
         "efficient_frontier.png",
+        "black_litterman_efficient_frontier.png",
         "cal.png",
         "orp_real_vs_expected.png",
         "complete_portfolio_pie.png",
@@ -507,8 +669,9 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         df_capm = pd.read_csv(capm_path, index_col=0)
         st.dataframe(df_capm)
 
-    # ORP weights from summary.json
+    # ORP weights + BL weights from summary.json
     orp_df = None
+    bl_df = None
     summary_path = os.path.join(OUTPUT_DIR, "summary.json")
     if os.path.exists(summary_path):
         try:
@@ -524,17 +687,49 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
                 )
                 orp_df["weight"] = orp_df["weight"].round(4)
                 orp_df["weight_pct"] = orp_df["weight_pct"].round(2)
+
+            bl_info = summary.get("black_litterman")
+            if isinstance(bl_info, dict) and bl_info.get("enabled"):
+                w_bl = bl_info.get("weights", {})
+                if isinstance(w_bl, dict) and w_bl:
+                    bl_df = (
+                        pd.Series(w_bl, name="weight")
+                        .to_frame()
+                        .assign(weight_pct=lambda df: df["weight"] * 100)
+                        .sort_values("weight", ascending=False)
+                    )
+                    bl_df["weight"] = bl_df["weight"].round(4)
+                    bl_df["weight_pct"] = bl_df["weight_pct"].round(2)
+
         except Exception:
             orp_df = None
+            bl_df = None
 
     # 3) Key Charts
     st.write("### Key Charts")
     for name in priority_order:
         if name in priority_pngs:
-            st.image(priority_pngs[name], caption=name)
+            # nicer captions but filenames still drive PNG titles via plotting.py
+            if name == "efficient_frontier.png":
+                caption = "Efficient Frontier (ORP universe)"
+            elif name == "black_litterman_efficient_frontier.png":
+                caption = "Black-Litterman Efficient Frontier"
+            elif name == "cal.png":
+                caption = "Capital Allocation Line (CAL)"
+            else:
+                caption = name
+
+            st.image(priority_pngs[name], caption=caption)
+
+            # ORP weights under ORP frontier
             if name == "efficient_frontier.png" and orp_df is not None:
                 st.write("### ORP (Optimal Risky Portfolio) Weights")
                 st.dataframe(orp_df)
+
+            # BL frontier + BL weights right underneath
+            if name == "black_litterman_efficient_frontier.png" and bl_df is not None:
+                st.write("### Black-Litterman Portfolio Weights")
+                st.dataframe(bl_df)
 
     # 4) Drawdown & Tail Risk
     if drawdown_curves_path is not None or loss_histogram_path is not None:
