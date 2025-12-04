@@ -45,6 +45,30 @@ def load_config(path: str) -> dict:
         return json.load(f)
 
 
+def gain_to_pain_ratio(returns) -> float | None:
+    """
+    Gain-to-Pain ratio: sum of positive returns / abs(sum of negative returns).
+
+    Expects a 1D return series (e.g., monthly returns).
+    Returns None if there is not enough data or no losses.
+    """
+    if returns is None:
+        return None
+
+    r = pd.Series(returns).dropna()
+    if r.empty:
+        return None
+
+    gains = r[r > 0].sum()
+    losses = r[r < 0].sum()
+
+    # Need at least some losses for denominator
+    if losses >= 0:
+        return None
+
+    return float(gains / abs(losses))
+
+
 def main(config_path: str) -> None:
     cfg = load_config(config_path)
     outdir = ensure_output_dir()
@@ -208,16 +232,22 @@ def main(config_path: str) -> None:
     # 7) Save summary.json with full performance metrics
     # ------------------------------
 
-    # --- Portfolio Total Return ---
+    # --- Portfolio Total Return + monthly series for Gain-to-Pain ---
     active_path = os.path.join(outdir, "active_portfolio_value.csv")
     passive_path = os.path.join(outdir, "passive_portfolio_value.csv")
 
     portfolio_return = None
     benchmark_return = None
+    portfolio_monthly_rets = None  # for Gain-to-Pain
 
     # Active: use PortfolioValue column (or first numeric as fallback)
     try:
         act = pd.read_csv(active_path)
+
+        # If Date column exists, use it to create a DatetimeIndex (for resampling)
+        if "Date" in act.columns:
+            act["Date"] = pd.to_datetime(act["Date"], errors="coerce")
+            act = act.dropna(subset=["Date"]).set_index("Date")
 
         if "PortfolioValue" in act.columns:
             s = act["PortfolioValue"]
@@ -231,8 +261,20 @@ def main(config_path: str) -> None:
         s = s.astype(float).dropna()
         if len(s) >= 2:
             portfolio_return = float(s.iloc[-1] / s.iloc[0] - 1.0)
+
+            # Monthly returns if we have dates, otherwise simple freq returns
+            try:
+                if isinstance(s.index, pd.DatetimeIndex):
+                    portfolio_monthly_rets = (
+                        s.resample("ME").last().pct_change().dropna()
+                    )
+                else:
+                    portfolio_monthly_rets = s.pct_change().dropna()
+            except Exception:
+                portfolio_monthly_rets = s.pct_change().dropna()
     except Exception as e:
         print(f"[summary] Warning: could not compute portfolio_return: {e}")
+        portfolio_monthly_rets = None
 
     # Passive: use Passive column (or first numeric as fallback)
     try:
@@ -258,6 +300,31 @@ def main(config_path: str) -> None:
     except Exception:
         vol_annual = None
 
+    # --- Benchmark Sharpe ratio (annualized) ---
+    benchmark_sharpe = None
+    try:
+        if bench_rets is not None and len(bench_rets) >= 3:
+            mean_m_b = bench_rets.mean()
+            vol_m_b = bench_rets.std()
+
+            ann_ret_b = (1.0 + mean_m_b) ** 12 - 1.0
+            ann_vol_b = float(vol_m_b * np.sqrt(12.0))
+
+            if ann_vol_b > 0:
+                benchmark_sharpe = float((ann_ret_b - rf) / ann_vol_b)
+    except Exception as e:
+        print(f"[summary] Warning: could not compute benchmark Sharpe: {e}")
+        benchmark_sharpe = None
+
+    # --- Portfolio Gain-to-Pain ratio ---
+    portfolio_gain_to_pain = None
+    try:
+        if portfolio_monthly_rets is not None and len(portfolio_monthly_rets) > 0:
+            portfolio_gain_to_pain = gain_to_pain_ratio(portfolio_monthly_rets)
+    except Exception as e:
+        print(f"[summary] Warning: could not compute Gain-to-Pain: {e}")
+        portfolio_gain_to_pain = None
+
     # --- Alpha & Beta from CAPM summary ---
     alpha = None
     beta = None
@@ -275,6 +342,8 @@ def main(config_path: str) -> None:
         "benchmark_return": benchmark_return,
         "portfolio_volatility": vol_annual,
         "portfolio_sharpe": port_sharpe,
+        "benchmark_sharpe": benchmark_sharpe,
+        "portfolio_gain_to_pain": portfolio_gain_to_pain,
         "alpha": alpha,
         "beta": beta,
         "max_sharpe_weights": weights.to_dict(),

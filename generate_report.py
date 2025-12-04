@@ -491,10 +491,16 @@ def build_summary_rows(
         vol = summary.get("portfolio_volatility")
         sharpe = summary.get("portfolio_sharpe")
         beta = summary.get("beta")
+        bench_sharpe = summary.get("benchmark_sharpe")
+        gain_to_pain = summary.get("portfolio_gain_to_pain")
 
         rows.append(["Volatility (annualized)", fmt_pct_or_num(vol, True)])
         if sharpe is not None:
-            rows.append(["Sharpe ratio", f"{sharpe:.2f}"])
+            rows.append(["Portfolio Sharpe ratio", f"{sharpe:.2f}"])
+        if bench_sharpe is not None:
+            rows.append(["Benchmark Sharpe ratio", f"{float(bench_sharpe):.2f}"])
+        if gain_to_pain is not None:
+            rows.append(["Gain-to-Pain ratio (portfolio)", f"{float(gain_to_pain):.2f}"])
         if beta is not None:
             rows.append(["Beta", f"{beta:.2f}"])
 
