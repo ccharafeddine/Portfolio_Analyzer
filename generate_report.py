@@ -6,7 +6,9 @@
 # - Summary table
 # - Risk bucket classification
 # - Interpretations
-# - Ordered to match Streamlit Outputs flow
+# - Holdings & benchmark in summary
+# - Backtest start/end dates
+# - Ordered narrative matching Streamlit outputs
 # - Universal support for any portfolio
 # ------------------------------------------------------------
 
@@ -38,21 +40,17 @@ OUTPUT_DIR = "outputs"
 # ============================================================
 
 def _find_matching_file(outdir, prefix, exts=(".csv", ".json", "")):
-    """
-    Finds a file in outdir whose name starts with prefix.
-    Supports:
-        - exact matches
-        - prefix matches
-        - extensionless files
+    """Find a file in outdir whose name starts with prefix.
+    Supports exact matches, prefix matches, and extensionless files.
     Returns full path or None.
     """
-    # 1. Exact expected priority
+    # First: try exact names with preferred extensions
     for ext in exts:
         candidate = os.path.join(outdir, prefix + ext)
         if os.path.exists(candidate):
             return candidate
 
-    # 2. Fuzzy match: any file starting with prefix
+    # Second: fuzzy match: any file that starts with prefix
     for fname in os.listdir(outdir):
         if fname.startswith(prefix):
             return os.path.join(outdir, fname)
@@ -61,9 +59,7 @@ def _find_matching_file(outdir, prefix, exts=(".csv", ".json", "")):
 
 
 def load_json_smart(outdir, prefix):
-    """
-    Loads json even if extension is missing or different.
-    """
+    """Load JSON even if extension is missing or different."""
     path = _find_matching_file(outdir, prefix, exts=(".json", ""))
     if path is None:
         return None
@@ -75,9 +71,7 @@ def load_json_smart(outdir, prefix):
 
 
 def load_csv_smart(outdir, prefix):
-    """
-    Loads CSV even if extension is missing or has variations.
-    """
+    """Load CSV even if extension is missing or has variations."""
     path = _find_matching_file(outdir, prefix, exts=(".csv", ""))
     if path is None:
         return None
@@ -92,7 +86,7 @@ def load_csv_smart(outdir, prefix):
 # ============================================================
 
 def write_md_section(md_lines, title, body):
-    md_lines.append(f"## {title}\n")
+    md_lines.append(f"## {title}\n\n")
     md_lines.append(body.strip() + "\n\n")
 
 
@@ -108,7 +102,6 @@ def fmt_pct_or_num(x, force_pct=False):
     except Exception:
         return str(x)
 
-    # Treat NaN / inf as missing
     if not math.isfinite(val):
         return "N/A"
 
@@ -233,7 +226,6 @@ def interpret_attribution(df):
     idx_top = totals.idxmax()
     idx_bottom = totals.idxmin()
 
-    # Prefer a label column if present
     label_col = None
     for c in ["Bucket", "Asset", "Name"]:
         if c in df.columns:
@@ -297,10 +289,7 @@ def interpret_sector_attribution(df):
 
 
 def interpret_factors(df):
-    """
-    Explain multi-factor regression results in plain language.
-    If the summary table is missing, fall back to explaining the charts.
-    """
+    """Explain multi-factor regression results in plain language."""
     if df is None or df.empty:
         return (
             "Multi-factor regressions were run to measure how the holdings load onto common style factors "
@@ -312,7 +301,6 @@ def interpret_factors(df):
     beta_cols = [c for c in cols if c.endswith("_coef") and c.lower() != "const_coef"]
 
     lines = []
-
     for b in beta_cols:
         try:
             val = float(df[b].abs().mean())
@@ -343,11 +331,7 @@ def interpret_factors(df):
 # ============================================================
 
 def compute_risk_bucket(summary_json, dd_df):
-    """
-    Assigns a risk bucket even if some metrics are missing.
-    Fully defensive against None values.
-    """
-    # --- Volatility ---
+    """Assign a risk bucket even if some metrics are missing."""
     vol = None
     if summary_json:
         vol = summary_json.get("portfolio_volatility")
@@ -359,7 +343,6 @@ def compute_risk_bucket(summary_json, dd_df):
     if not math.isfinite(vol):
         vol = 0.0
 
-    # --- Max Drawdown ---
     max_dd = 0.0
     if dd_df is not None and not dd_df.empty:
         col = None
@@ -373,7 +356,6 @@ def compute_risk_bucket(summary_json, dd_df):
             except Exception:
                 max_dd = 0.0
 
-    # --- Risk Bucket Logic ---
     if vol < 0.10 and max_dd > -0.15:
         bucket = "Conservative"
         expl = (
@@ -419,7 +401,6 @@ def interpret_conclusions(summary_json, dd_df, asset_attr, sector_attr, factor_d
 
     extras = []
 
-    # Outperformance vs benchmark
     if summary_json:
         rp = summary_json.get("portfolio_return")
         rb = summary_json.get("benchmark_return")
@@ -441,7 +422,6 @@ def interpret_conclusions(summary_json, dd_df, asset_attr, sector_attr, factor_d
                     "to reassess position sizing or sector exposures."
                 )
 
-    # Attribution insights
     if asset_attr is not None and not asset_attr.empty and "Total" in asset_attr.columns:
         totals = asset_attr["Total"]
         idx_top = totals.idxmax()
@@ -477,14 +457,26 @@ def interpret_conclusions(summary_json, dd_df, asset_attr, sector_attr, factor_d
 # Summary Table Builder
 # ============================================================
 
-def build_summary_rows(summary, dd_df, asset_attr, sector_attr, risk_bucket_label, benchmark_ticker=None):
+def build_summary_rows(
+    summary,
+    dd_df,
+    asset_attr,
+    sector_attr,
+    risk_bucket_label,
+    benchmark_ticker=None,
+    start_date=None,
+    end_date=None,
+):
     rows = []
 
-    # -- Benchmark label --
     if benchmark_ticker:
         rows.append(["Benchmark", str(benchmark_ticker)])
 
-    # -- Portfolio & Benchmark Returns --
+    if start_date:
+        rows.append(["Backtest Start Date", str(start_date)])
+    if end_date:
+        rows.append(["Backtest End Date", str(end_date)])
+
     if summary:
         pr = summary.get("portfolio_return")
         br = summary.get("benchmark_return")
@@ -506,7 +498,6 @@ def build_summary_rows(summary, dd_df, asset_attr, sector_attr, risk_bucket_labe
         if beta is not None:
             rows.append(["Beta", f"{beta:.2f}"])
 
-    # -- Drawdowns & Tail Risk --
     if dd_df is not None and not dd_df.empty:
         dd_col = None
         for candidate in ["MaxDrawdown", "max_drawdown"]:
@@ -521,7 +512,6 @@ def build_summary_rows(summary, dd_df, asset_attr, sector_attr, risk_bucket_labe
         if "CVaR_95" in dd_df.columns:
             rows.append(["95% CVaR", fmt_pct_or_num(dd_df["CVaR_95"].iloc[0], True)])
 
-    # -- Attribution: top contributors --
     if asset_attr is not None and not asset_attr.empty and "Total" in asset_attr.columns:
         totals = asset_attr["Total"]
         idx_top = totals.idxmax()
@@ -543,7 +533,6 @@ def build_summary_rows(summary, dd_df, asset_attr, sector_attr, risk_bucket_labe
             sec_label = str(idx_top_s)
         rows.append(["Top contributing sector", sec_label])
 
-    # -- Risk bucket --
     rows.append(["Risk bucket", risk_bucket_label])
 
     return rows
@@ -554,12 +543,6 @@ def build_summary_rows(summary, dd_df, asset_attr, sector_attr, risk_bucket_labe
 # ------------------------------------------------------------
 
 def classify_images(outdir):
-    """
-    Scans the outputs directory and assigns PNGs (and extensionless images)
-    to their logical categories.
-
-    This supports universal portfolio outputs — no hardcoding required.
-    """
     categories = {
         "performance": [],
         "drawdown": [],
@@ -580,7 +563,6 @@ def classify_images(outdir):
             name, ext = os.path.splitext(fname)
             key = name.lower()
 
-            # Allow PNGs and extensionless image files
             if ext.lower() not in (".png", ".jpg", ".jpeg", ""):
                 continue
 
@@ -617,11 +599,6 @@ def classify_images(outdir):
 
 
 def add_image_flowable(story, path, caption, style_caption, max_width=6.5 * inch):
-    """
-    Safely adds an image to the PDF.
-    Auto-resizes to the given max_width.
-    Never crashes if file isn't a valid image.
-    """
     try:
         img = Image(path)
         img._restrictSize(max_width, 4 * inch)
@@ -634,9 +611,6 @@ def add_image_flowable(story, path, caption, style_caption, max_width=6.5 * inch
 
 
 def add_section(story, title, text, image_keys, image_dict, style_section, style_body, style_caption):
-    """
-    Adds a titled section to the PDF with narrative text and all relevant images.
-    """
     story.append(Paragraph(title, style_section))
     story.append(Spacer(1, 6))
 
@@ -671,10 +645,6 @@ def build_markdown_report(
     benchmark_label=None,
     holdings_df=None,
 ):
-    """
-    Construct the full markdown narrative in the same logical order
-    as the Streamlit Outputs flow.
-    """
     md_lines.append("## Summary\n\n")
     if summary_rows:
         md_lines.append("| Metric | Value |\n")
@@ -685,11 +655,9 @@ def build_markdown_report(
     else:
         md_lines.append("Summary statistics were not available.\n\n")
 
-    # Benchmark
     if benchmark_label:
         md_lines.append(f"**Benchmark:** `{benchmark_label}`\n\n")
 
-    # Holdings (from holdings_table or config weights)
     if holdings_df is not None and not holdings_df.empty:
         md_lines.append("**Initial Holdings:**\n\n")
         cols = [
@@ -702,7 +670,6 @@ def build_markdown_report(
 
         md_lines.append("| " + " | ".join(cols) + " |\n")
         md_lines.append("| " + " | ".join(["---"] * len(cols)) + " |\n")
-
         for _, row in holdings_df[cols].head(20).iterrows():
             cells = []
             for c in cols:
@@ -721,36 +688,29 @@ def build_markdown_report(
             md_lines.append("| " + " | ".join(cells) + " |\n")
         md_lines.append("\n")
 
-    # Risk bucket
     write_md_section(md_lines, "Risk Bucket", risk_bucket_expl)
 
-    # Key charts / performance story
     write_md_section(
         md_lines,
         "Key Charts: Portfolio Growth & Allocation",
         (
             "This section summarizes how the portfolio and benchmark evolved over time, "
             "along with the composition of the Optimal Risky Portfolio (ORP) and the "
-            "complete portfolio. "
-            + performance_text
+            "complete portfolio. " + performance_text
         ),
     )
 
-    # Drawdown & tail risk
     write_md_section(md_lines, "Drawdown & Tail Risk", drawdown_text)
 
-    # Rolling risk analytics
     write_md_section(
         md_lines,
         "Rolling Risk Analytics",
         (
             "Rolling analytics highlight how volatility and correlations evolved over time, "
-            "helping identify regime shifts or changes in portfolio behavior. "
-            + risk_text
+            "helping identify regime shifts or changes in portfolio behavior. " + risk_text
         ),
     )
 
-    # Attribution sections
     write_md_section(
         md_lines,
         "Performance Attribution (Assets)",
@@ -763,14 +723,12 @@ def build_markdown_report(
         sector_attr_text,
     )
 
-    # Factor analysis
     write_md_section(
         md_lines,
         "Multi-Factor Regression & Style Exposures",
         factor_text,
     )
 
-    # CAPM
     write_md_section(
         md_lines,
         "CAPM Regression",
@@ -781,7 +739,6 @@ def build_markdown_report(
         ),
     )
 
-    # Efficient frontier & ORP (for completeness; charts in PDF)
     write_md_section(
         md_lines,
         "Efficient Frontier & Optimal Risky Portfolio",
@@ -792,7 +749,6 @@ def build_markdown_report(
         ),
     )
 
-    # Forward scenarios
     write_md_section(
         md_lines,
         "Forward-Looking Scenarios",
@@ -802,15 +758,13 @@ def build_markdown_report(
         ),
     )
 
-    # Conclusions
     write_md_section(
         md_lines,
         "Conclusions & Recommendations",
         conclusions_text,
     )
 
-    # Appendix heading
-    md_lines.append("## Appendix\n")
+    md_lines.append("## Appendix\n\n")
     md_lines.append(
         "Additional charts, diagnostics, and supporting visuals are included in the appendix.\n\n"
     )
@@ -823,19 +777,12 @@ def build_markdown_report(
 # ------------------------------------------------------------
 
 def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
-    """
-    Full universal report builder — Markdown + PDF.
-    Uses smart auto-discovery of CSV/JSON files,
-    embeds charts, includes risk buckets, interpretations,
-    and is ordered to match the Streamlit Outputs flow.
-    """
     print("[report] Generating full report...")
 
-    # --------------------------------------------------------
-    # Load config (for benchmark + fallback holdings info)
-    # --------------------------------------------------------
     benchmark_label = None
     holdings_df = None
+    start_date_cfg = None
+    end_date_cfg = None
     cfg = None
     try:
         if config_path and os.path.exists(config_path):
@@ -846,20 +793,17 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
 
     if cfg:
         benchmark_label = cfg.get("benchmark") or cfg.get("passive_benchmark")
-    # Prefer realized holdings from outputs
+        start_date_cfg = cfg.get("start") or cfg.get("start_date")
+        end_date_cfg = cfg.get("end") or cfg.get("end_date")
+
     holdings_df = load_csv_smart(outdir, "holdings_table")
-    # Fallback: use config weights if holdings_table.csv is missing
     if (holdings_df is None or holdings_df.empty) and cfg:
         w_dict = cfg.get("active_portfolio", {}).get("weights", {})
         if isinstance(w_dict, dict) and w_dict:
             holdings_df = pd.DataFrame(
-                {
-                    "Ticker": list(w_dict.keys()),
-                    "TargetWeight": list(w_dict.values()),
-                }
+                {"Ticker": list(w_dict.keys()), "TargetWeight": list(w_dict.values())}
             )
 
-    # Smart data loading
     summary = load_json_smart(outdir, "summary")
     summary_stats = load_csv_smart(outdir, "summary_stats")
     dd_df = load_csv_smart(outdir, "drawdown_tail_metrics")
@@ -872,7 +816,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
     asset_attr = load_csv_smart(outdir, "performance_attribution")
     sector_attr = load_csv_smart(outdir, "performance_attribution_sector")
 
-    # Interpretations
     risk_bucket_label, risk_bucket_expl = compute_risk_bucket(summary, dd_df)
     performance_text = interpret_performance(summary)
     risk_text = interpret_risk(summary)
@@ -884,16 +827,19 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         summary, dd_df, asset_attr, sector_attr, factor_df
     )
 
-    # Summary table
     summary_rows = build_summary_rows(
-        summary, dd_df, asset_attr, sector_attr, risk_bucket_label, benchmark_ticker=benchmark_label
+        summary,
+        dd_df,
+        asset_attr,
+        sector_attr,
+        risk_bucket_label,
+        benchmark_ticker=benchmark_label,
+        start_date=start_date_cfg,
+        end_date=end_date_cfg,
     )
 
-    # -------------------------
-    # Markdown report
-    # -------------------------
     md_lines = []
-    md_lines.append("# Portfolio Analysis Report\n")
+    md_lines.append("# Portfolio Analysis Report\n\n")
     md_lines.append(
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     )
@@ -918,9 +864,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         f.write("\n".join(md_lines))
     print(f"[report] Markdown written to: {md_path}")
 
-    # -------------------------
-    # PDF report
-    # -------------------------
     pdf_path = os.path.join(outdir, "report.pdf")
 
     styles = getSampleStyleSheet()
@@ -940,7 +883,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
     doc = SimpleDocTemplate(pdf_path, pagesize=letter)
     story = []
 
-    # Title
     story.append(Paragraph("Portfolio Analysis Report", style_title))
     story.append(
         Paragraph(
@@ -950,7 +892,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
     )
     story.append(Spacer(1, 20))
 
-    # Summary table
     story.append(Paragraph("Summary", style_section))
     story.append(Spacer(1, 6))
 
@@ -975,7 +916,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
 
     story.append(Spacer(1, 12))
 
-    # Holdings & Benchmark section (PDF)
     if benchmark_label or (holdings_df is not None and not holdings_df.empty):
         story.append(Paragraph("Holdings & Benchmark", style_section))
         story.append(Spacer(1, 6))
@@ -984,6 +924,15 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
             story.append(
                 Paragraph(f"Benchmark: <b>{benchmark_label}</b>", style_body)
             )
+            story.append(Spacer(1, 6))
+
+        if start_date_cfg or end_date_cfg:
+            date_text_parts = []
+            if start_date_cfg:
+                date_text_parts.append(f"Start: {start_date_cfg}")
+            if end_date_cfg:
+                date_text_parts.append(f"End: {end_date_cfg}")
+            story.append(Paragraph("Backtest period: " + ", ".join(date_text_parts), style_body))
             story.append(Spacer(1, 6))
 
         if holdings_df is not None and not holdings_df.empty:
@@ -1030,15 +979,12 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
 
         story.append(Spacer(1, 20))
 
-    # Risk bucket
     story.append(Paragraph("Risk Bucket", style_section))
     story.append(Paragraph(risk_bucket_expl, style_body))
     story.append(Spacer(1, 20))
 
-    # Image classification
     img_cats = classify_images(outdir)
 
-    # 1) Key Charts: Growth, ORP, Efficient Frontier, Correlation, Scenarios
     key_charts_text = (
         "These charts show how the portfolio and benchmark evolved over time, "
         "the relationship between risk and return on the efficient frontier, and "
@@ -1056,7 +1002,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         style_caption,
     )
 
-    # 2) Drawdown & Tail Risk
     add_section(
         story,
         "Drawdown & Tail Risk",
@@ -1068,11 +1013,9 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         style_caption,
     )
 
-    # 3) Rolling Risk Analytics
     rolling_text = (
         "Rolling analytics highlight how volatility and correlations evolved over time, "
-        "helping identify regime shifts or changes in portfolio behavior. "
-        + risk_text
+        "helping identify regime shifts or changes in portfolio behavior. " + risk_text
     )
     add_section(
         story,
@@ -1085,7 +1028,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         style_caption,
     )
 
-    # 4) Performance Attribution (Assets)
     add_section(
         story,
         "Performance Attribution (Assets)",
@@ -1097,7 +1039,6 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         style_caption,
     )
 
-    # 5) Performance Attribution (Sectors)
     add_section(
         story,
         "Performance Attribution (Sectors)",
@@ -1109,19 +1050,17 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
         style_caption,
     )
 
-    # 6) Multi-Factor Regression (text only, charts left in outputs zip)
     add_section(
         story,
         "Multi-Factor Regression & Style Exposures",
         factor_text,
-        [],  # no factor images to avoid 20+ pages
+        [],
         img_cats,
         style_section,
         style_body,
         style_caption,
     )
 
-    # 7) CAPM Regression & Scatter Plots
     if capm_df is not None:
         capm_text = (
             "CAPM analysis relates each asset’s excess return to the market’s excess return. "
@@ -1139,13 +1078,11 @@ def generate_report(outdir=OUTPUT_DIR, config_path="config.json"):
             style_caption,
         )
 
-    # 8) Conclusions
     story.append(Paragraph("Conclusions & Recommendations", style_section))
     story.append(Spacer(1, 6))
     story.append(Paragraph(conclusions_text, style_body))
     story.append(Spacer(1, 20))
 
-    # 9) Appendix – additional charts only (no correlation here; it was "key")
     story.append(Paragraph("Appendix: Additional Charts & Diagnostics", style_section))
     story.append(Spacer(1, 10))
     story.append(
