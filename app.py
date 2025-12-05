@@ -110,7 +110,7 @@ y_cp = st.sidebar.slider(
 )
 
 # -------------------------
-# Black-Litterman (optional, new)
+# Black-Litterman (optional)
 # -------------------------
 bl_cfg = cfg.get("black_litterman", {}) or {}
 bl_enabled = st.sidebar.checkbox(
@@ -129,7 +129,6 @@ if bl_enabled:
         "Smaller τ = more weight on views.",
     )
 else:
-    # Keep previous tau as default so you don't lose it when disabling
     tau = float(bl_cfg.get("tau", 0.05))
 
 # ------------------------------------------------------------------
@@ -146,7 +145,6 @@ col1, col2 = st.columns([2, 1])
 
 with col1:
     st.markdown("### Tickers (one per line)")
-    # Default: EMPTY textarea so each new session/user starts fresh
     tickers_text = st.text_area(
         "Tickers (one per line)",
         value="",
@@ -157,10 +155,8 @@ with col1:
 tickers = [t.strip().upper() for t in tickers_text.split("\n") if t.strip()]
 
 with col2:
-    # spacer so checkboxes visually align with text box
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # Default: equal weights ON for a fresh session
     equal_weights = st.checkbox(
         "Use Equal Weights",
         value=True,
@@ -170,7 +166,6 @@ with col2:
         value=ap.get("use_dividends", False),
     )
 
-    # Allow Shorting + per-asset bound
     allow_shorts_initial = ap.get("allow_shorts", cfg.get("short_sales", False))
     allow_shorts = st.checkbox(
         "Allow Shorting",
@@ -180,18 +175,16 @@ with col2:
     max_bound = st.slider(
         "Per-asset weight bound (|wᵢ| ≤ ...)",
         min_value=0.5,
-        max_value=1.5,  # upper limit the user can choose
-        value=DEFAULT_MAX_BOUND,  # always start at 1.0 on app load
+        max_value=1.5,
+        value=DEFAULT_MAX_BOUND,
         step=0.1,
         help=(
             "Sets the maximum absolute position per asset.\n\n"
             "• 1.0 = no asset can exceed 100% of portfolio value.\n"
-            "• Values above 1.0 allow leverage, where a single asset "
-            "can be larger than the portfolio (long or short)."
+            "• Values above 1.0 allow leverage."
         ),
     )
 
-    # If user pushes bound above 1.0, show a gentle leverage warning
     if max_bound > 1.0:
         st.warning(
             "Per-asset bound is above 1.0 — you’re now allowing **leverage**.\n\n"
@@ -205,24 +198,23 @@ with col2:
 # =========================
 weights_list: list[float] = []
 
+if not tickers:
+    st.warning("Please enter at least one ticker.")
+    st.stop()
+
 if equal_weights:
-    if tickers:
-        weights_list = [1.0 / len(tickers)] * len(tickers)
+    weights_list = [1.0 / len(tickers)] * len(tickers)
 else:
     st.markdown("### Weights")
 
     weight_cols = st.columns(3)
-
-    # Start custom weights at equal-weight by default
     default_weights = [1.0 / len(tickers)] * len(tickers) if tickers else []
 
     for idx, t in enumerate(tickers):
         col = weight_cols[idx % 3]
-
-        if idx < len(default_weights):
-            default_val = float(default_weights[idx])
-        else:
-            default_val = 1.0 / len(tickers) if tickers else 0.0
+        default_val = float(default_weights[idx]) if idx < len(default_weights) else (
+            1.0 / len(tickers) if tickers else 0.0
+        )
 
         w = col.number_input(
             f"{t} weight",
@@ -234,17 +226,11 @@ else:
         )
         weights_list.append(float(w))
 
-# Basic guard: if no tickers, do nothing further
-if not tickers:
-    st.warning("Please enter at least one ticker.")
-    st.stop()
-
 if equal_weights and not weights_list:
     weights_list = [1.0 / len(tickers)] * len(tickers)
 
 weights_dict = {t: w for t, w in zip(tickers, weights_list)}
 
-# ----- Enforce custom weights sum exactly to 1 with red popup -----
 weights_sum = sum(weights_list) if weights_list else 0.0
 weights_invalid = (not equal_weights) and (abs(weights_sum - 1.0) > 1e-6)
 
@@ -259,14 +245,12 @@ if not equal_weights:
             "Please adjust one or more weights."
         )
 
-# ----- Leverage health bar (gross exposure) -----
-# Gross exposure = sum of absolute weights. 1.0x means fully invested, no leverage.
+# ----- Leverage health bar -----
 gross_exposure = sum(abs(w) for w in weights_list) if weights_list else 0.0
 
 st.markdown("### Leverage Health")
 st.markdown(f"**Gross exposure:** {gross_exposure:.2f}×")
 
-# Color-coded health messages
 if gross_exposure <= 1.0 + 1e-6:
     st.success("Conservative: gross exposure ≤ 1.0× (no leverage).")
 elif gross_exposure <= 1.5 + 1e-6:
@@ -286,7 +270,7 @@ else:
     )
 
 # =========================
-# Black-Litterman Views (optional, new)
+# Black-Litterman Views
 # =========================
 bl_views: list[dict] = []
 
@@ -300,7 +284,7 @@ if bl_enabled:
         if isinstance(bl_cfg, dict):
             existing_views = bl_cfg.get("views", []) or []
 
-        max_views = 3  # simple V1: up to 3 views
+        max_views = 3
         conf_index_map = {"low": 0, "medium": 1, "high": 2}
 
         for i in range(max_views):
@@ -315,7 +299,6 @@ if bl_enabled:
                 if not enabled_this:
                     continue
 
-                # View type
                 prior_type = str(prior.get("type", "absolute")).lower()
                 vtype = st.selectbox(
                     "View type",
@@ -324,7 +307,6 @@ if bl_enabled:
                     key=f"bl_view_type_{i}",
                 )
 
-                # Confidence
                 prior_conf = str(prior.get("confidence", "medium")).lower()
                 conf_idx = conf_index_map.get(prior_conf, 1)
                 confidence = st.selectbox(
@@ -335,7 +317,6 @@ if bl_enabled:
                 )
 
                 if vtype == "absolute":
-                    # Absolute: pick one asset and an expected annual excess return
                     default_asset = prior.get("asset", tickers[0])
                     try:
                         default_idx = tickers.index(default_asset)
@@ -367,7 +348,6 @@ if bl_enabled:
                         }
                     )
                 else:
-                    # Relative: long vs short
                     default_long = prior.get("asset_long", tickers[0])
                     try:
                         long_idx = tickers.index(default_long)
@@ -426,7 +406,6 @@ cfg["end"] = str(end_date)
 
 cfg["risk_free_rate"] = float(rf_rate)
 
-# Shorting + bounds logic (uses current slider value)
 cfg["short_sales"] = bool(allow_shorts)
 if allow_shorts:
     cfg["max_allocation_bounds"] = [-max_bound, max_bound]
@@ -446,7 +425,7 @@ ap["capital"] = float(initial_capital)
 ap["start_date"] = str(start_date)
 ap["end_date"] = str(end_date)
 cfg["active_portfolio"] = ap
-cfg["tickers"] = tickers  # keep top-level tickers in sync
+cfg["tickers"] = tickers
 
 cfg["passive_portfolio"] = {
     "capital": float(initial_capital),
@@ -455,7 +434,6 @@ cfg["passive_portfolio"] = {
 
 cfg["complete_portfolio"] = {"y": float(y_cp)}
 
-# --- Black-Litterman config wiring (new) ---
 bl_cfg_out = {"enabled": bool(bl_enabled)}
 if bl_enabled and tickers:
     bl_cfg_out["tau"] = float(tau)
@@ -561,15 +539,15 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
 
     attribution_png_path = None
     attribution_csv_path = None
-    sector_attribution_png_path = None
+    sector_attribution_png_path = None    # noqa: E501
     sector_attribution_csv_path = None
 
-    # NOTE: Black-Litterman frontier inserted right after ORP frontier
     priority_order = [
         "correlation_matrix.png",
         "efficient_frontier.png",
         "black_litterman_efficient_frontier.png",
         "cal.png",
+        "hrp_cluster_tree.png",  # NEW: HRP cluster tree
         "orp_real_vs_expected.png",
         "complete_portfolio_pie.png",
         "growth_all_portfolios.png",
@@ -669,9 +647,11 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         df_capm = pd.read_csv(capm_path, index_col=0)
         st.dataframe(df_capm)
 
-    # ORP weights + BL weights from summary.json
+    # ORP, BL, HRP weights from summary / CSV
     orp_df = None
     bl_df = None
+    hrp_df = None
+
     summary_path = os.path.join(OUTPUT_DIR, "summary.json")
     if os.path.exists(summary_path):
         try:
@@ -705,33 +685,59 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
             orp_df = None
             bl_df = None
 
+    # HRP weights (from hrp_weights.csv)
+    hrp_path = os.path.join(OUTPUT_DIR, "hrp_weights.csv")
+    if os.path.exists(hrp_path):
+        try:
+            hrp_df = pd.read_csv(hrp_path, index_col=0)
+            if "weight" in hrp_df.columns:
+                if "weight_pct" not in hrp_df.columns:
+                    hrp_df["weight_pct"] = hrp_df["weight"] * 100.0
+                hrp_df["weight"] = hrp_df["weight"].round(4)
+                hrp_df["weight_pct"] = hrp_df["weight_pct"].round(2)
+                hrp_df = hrp_df.sort_values("weight", ascending=False)
+        except Exception:
+            hrp_df = None
+
     # 3) Key Charts
     st.write("### Key Charts")
     for name in priority_order:
         if name in priority_pngs:
-            # nicer captions but filenames still drive PNG titles via plotting.py
             if name == "efficient_frontier.png":
                 caption = "Efficient Frontier (ORP universe)"
             elif name == "black_litterman_efficient_frontier.png":
                 caption = "Black-Litterman Efficient Frontier"
             elif name == "cal.png":
                 caption = "Capital Allocation Line (CAL)"
+            elif name == "hrp_cluster_tree.png":
+                caption = "HRP Cluster Tree"
             else:
                 caption = name
 
             st.image(priority_pngs[name], caption=caption)
 
-            # ORP weights under ORP frontier
             if name == "efficient_frontier.png" and orp_df is not None:
                 st.write("### ORP (Optimal Risky Portfolio) Weights")
                 st.dataframe(orp_df)
 
-            # BL frontier + BL weights right underneath
             if name == "black_litterman_efficient_frontier.png" and bl_df is not None:
                 st.write("### Black-Litterman Portfolio Weights")
                 st.dataframe(bl_df)
 
-    # 4) Drawdown & Tail Risk
+    # 4) Optimization Models (ORP, HRP & BL)
+    if orp_df is not None or hrp_df is not None or bl_df is not None:
+        st.write("### Optimization Models (ORP, HRP & Black-Litterman)")
+        if orp_df is not None:
+            st.write("**ORP (Optimal Risky Portfolio) Weights**")
+            st.dataframe(orp_df)
+        if hrp_df is not None:
+            st.write("**HRP (Hierarchical Risk Parity) Weights**")
+            st.dataframe(hrp_df)
+        if bl_df is not None:
+            st.write("**Black-Litterman Portfolio Weights**")
+            st.dataframe(bl_df)
+
+    # 5) Drawdown & Tail Risk
     if drawdown_curves_path is not None or loss_histogram_path is not None:
         st.write("### Drawdown & Tail Risk")
         if drawdown_curves_path is not None:
@@ -752,7 +758,7 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
             except Exception as e:
                 st.caption(f"Could not load drawdown_tail_metrics.csv: {e}")
 
-    # 5) Rolling Risk Analytics
+    # 6) Rolling Risk Analytics
     if rolling_corr_path is not None or rolling_metrics_path is not None:
         st.write("### Rolling Risk Analytics")
         if rolling_corr_path is not None:
@@ -763,7 +769,7 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         if rolling_metrics_path is not None:
             st.image(rolling_metrics_path, caption="rolling_metrics.png")
 
-    # 6) Performance Attribution (Brinson–Fachler)
+    # 7) Performance Attribution (Brinson–Fachler)
     if (
         attribution_png_path is not None
         or attribution_csv_path is not None
@@ -772,7 +778,6 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
     ):
         st.write("### Performance Attribution (Brinson–Fachler)")
 
-        # Asset-level attribution
         if attribution_png_path is not None:
             st.image(
                 attribution_png_path,
@@ -785,7 +790,6 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
             except Exception as e:
                 st.caption(f"Could not load performance_attribution.csv: {e}")
 
-        # Sector-level attribution (optional)
         if sector_attribution_png_path is not None or sector_attribution_csv_path is not None:
             st.write("#### Sector-level Attribution")
             if sector_attribution_png_path is not None:
@@ -805,7 +809,7 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
                         f"Could not load performance_attribution_sector.csv: {e}"
                     )
 
-    # 7) Extra charts
+    # 8) Additional charts
     if other_pngs:
         st.write("### Additional Charts")
         for f, full_path in other_pngs:
@@ -816,7 +820,7 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
         for f, full_path in gif_files:
             st.image(full_path, caption=f)
 
-    # 8) Multi-factor regression tables
+    # 9) Multi-factor regression tables
     mf_files = {
         "Fama-French 3-Factor (FF3)": "factor_regression_ff3.csv",
         "Carhart 4-Factor (Carhart4)": "factor_regression_carhart4.csv",
@@ -838,13 +842,13 @@ if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
             except Exception as e:
                 st.write(f"*(Could not load {fname}: {e})*")
 
-    # 9) CAPM PNGs
+    # 10) CAPM PNGs
     if capm_pngs:
         st.write("### CAPM Scatter Plots")
         for f, full_path in capm_pngs:
             st.image(full_path, caption=f)
 
-    # 10) CSV downloads
+    # 11) CSV downloads
     if csv_files:
         st.write("### CSV Data Files")
         for f, full_path in csv_files:

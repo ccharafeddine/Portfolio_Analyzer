@@ -111,6 +111,22 @@ def run_additional_plots(
     # Normalise for pie chart
     plot_weights = {t: w / total_plot for t, w in plot_weights.items()}
 
+    # --- NEW: drop effectively-zero slices so we don't show 0.0% wedges ---
+    # Anything below 0.05% of the portfolio is removed from the pie.
+    min_slice = 0.0005  # 0.05%
+    plot_weights = {t: w for t, w in plot_weights.items() if w >= min_slice}
+
+    if not plot_weights:
+        print(
+            "[additional_plots] All CP exposures below min_slice; "
+            "skipping pie chart."
+        )
+        return
+
+    # Renormalize after dropping tiny slices
+    total_plot = float(sum(plot_weights.values()))
+    plot_weights = {t: w / total_plot for t, w in plot_weights.items()}
+
     labels = list(plot_weights.keys())
     sizes = list(plot_weights.values())
 

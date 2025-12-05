@@ -232,3 +232,129 @@ def run_rolling_metrics(outdir: str = "outputs", window_months: int = 12) -> Non
     # Rolling correlation GIF
     frames = _build_corr_frames(rets, window=window_months)
     _save_corr_gif(outdir, frames)
+
+
+# ------------------------------------------------------------
+# Drawdown & tail-risk analytics (used by main.py)
+# ------------------------------------------------------------
+def _compute_drawdown_from_values(values: pd.Series) -> pd.Series:
+    """Compute drawdown series from a portfolio value series.
+
+    Drawdown is defined as (V_t / cummax(V) - 1).
+    """
+    v = values.dropna().astype(float).sort_index()
+    if v.empty:
+        return pd.Series(dtype=float, index=values.index)
+    cum_max = v.cummax()
+    dd = v / cum_max - 1.0
+    return dd
+
+
+def _compute_var_cvar(returns: pd.Series, alpha: float = 0.95) -> tuple[float, float]:
+    """Historical VaR / CVaR for a return series at confidence level alpha.
+
+    Returns
+    -------
+    (var, cvar)
+        var  : left-tail quantile of returns at (1 - alpha)
+        cvar : mean of returns in the tail (<= var)
+    """
+    r = returns.dropna().astype(float)
+    if r.empty:
+        return np.nan, np.nan
+
+    q = float(r.quantile(1.0 - alpha))
+    tail = r[r <= q]
+    if tail.empty:
+        return q, np.nan
+    return q, float(tail.mean())
+
+
+def compute_all_portfolio_drawdown_and_tail_risk(
+    outdir: str = "outputs",
+    var_levels: tuple[float, ...] = (0.95,),
+) -> None:
+    """Compute drawdown series and tail-risk metrics for all portfolios.
+
+    This function is called from main.py and is expected to write:
+
+      * drawdown_series.csv
+      * drawdown_tail_metrics.csv
+
+    It is intentionally self-contained and only depends on the value CSVs
+    produced earlier in the pipeline:
+
+      * active_portfolio_value.csv
+      * passive_portfolio_value.csv
+      * orp_value_realized.csv      (if present)
+      * complete_portfolio_value.csv (if present)
+    """
+    os.makedirs(outdir, exist_ok=True)
+
+    value_files = {
+        "Active": "active_portfolio_value.csv",
+        "Passive": "passive_portfolio_value.csv",
+        "ORP": "orp_value_realized.csv",
+        "Complete": "complete_portfolio_value.csv",
+    }
+
+    value_series: dict[str, pd.Series] = {}
+
+    for name, fname in value_files.items():
+        path = os.path.join(outdir, fname)
+        if not os.path.exists(path):
+            continue
+        try:
+            df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
+            num_cols = df.select_dtypes(include=["number"]).columns
+            if len(num_cols) == 0:
+                continue
+            s = df[num_cols[0]].astype(float).sort_index()
+            if s.dropna().empty:
+                continue
+            value_series[name] = s
+        except Exception as e:
+            print(f"[rolling_metrics] Failed to load {fname} for {name}: {e}")
+
+    if not value_series:
+        print("[rolling_metrics] No portfolio value series found for drawdown/tail-risk.")
+        return
+
+    # Build drawdown DataFrame aligned on the union of all dates
+    combined_index = None
+    for s in value_series.values():
+        combined_index = s.index if combined_index is None else combined_index.union(s.index)
+
+    drawdown_dict = {}
+    for name, s in value_series.items():
+        dd = _compute_drawdown_from_values(s)
+        drawdown_dict[name] = dd.reindex(combined_index)
+
+    dd_df = pd.DataFrame(drawdown_dict)
+    dd_path = os.path.join(outdir, "drawdown_series.csv")
+    dd_df.to_csv(dd_path, index_label="Date")
+
+    # Tail-risk metrics per portfolio
+    metrics_rows: list[dict[str, float]] = []
+    for name, s in value_series.items():
+        dd = _compute_drawdown_from_values(s)
+        rets = s.pct_change().dropna()
+        row: dict[str, float] = {"Portfolio": name}
+        row["MaxDrawdown"] = float(dd.min()) if not dd.dropna().empty else np.nan
+
+        for alpha in var_levels:
+            var_val, cvar_val = _compute_var_cvar(rets, alpha=alpha)
+            suffix = str(int(round(alpha * 100)))
+            row[f"VaR_{suffix}"] = var_val
+            row[f"CVaR_{suffix}"] = cvar_val
+
+        metrics_rows.append(row)
+
+    metrics_df = pd.DataFrame(metrics_rows)
+    metrics_path = os.path.join(outdir, "drawdown_tail_metrics.csv")
+    metrics_df.to_csv(metrics_path, index=False)
+
+    print(
+        f"[rolling_metrics] Saved drawdown series to {dd_path} and "
+        f"tail-risk metrics to {metrics_path}"
+    )

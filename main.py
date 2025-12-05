@@ -7,14 +7,12 @@ import pandas as pd
 
 from simulate_forecasts import run_martingale_forecasts
 from generate_report import generate_report
-
 from data_io import (
     download_prices,
     download_dividends,
     monthly_returns_from_prices,
     ensure_output_dir,
 )
-
 from analytics import (
     summarize_returns,
     max_sharpe,
@@ -23,29 +21,30 @@ from analytics import (
     capm_regression,
     compute_all_portfolio_drawdown_and_tail_risk,
 )
-
 from plotting import plot_efficient_frontier, plot_cal, plot_capm_scatter
-
 from build_active_portfolio_series import build_active_portfolio
 from build_passive_portfolio_series import build_passive_portfolio
-
 from make_performance_plots import run_performance_plots, run_drawdown_tail_plots
 from make_additional_plots import run_additional_plots
 from style_analysis import run_style_regression
 from rolling_metrics import run_rolling_metrics
-
 from factor_loader import load_factors
 from multi_factor_regression import run_all_factor_models
-
 from performance_attribution import run_performance_attribution
 
-# --- Black-Litterman imports (new) ---
+# --- Black-Litterman imports ---
 from black_litterman import (
     get_market_cap_weights_fmp,
     compute_black_litterman_prior,
     build_P_Q_Omega,
     compute_bl_posterior,
     optimize_bl_weights,
+)
+
+# --- Hierarchical Risk Parity imports (new) ---
+from hierarchical_risk_parity import (
+    compute_hrp_weights,
+    plot_hrp_dendrogram,
 )
 
 
@@ -58,12 +57,11 @@ def gain_to_pain_ratio(returns) -> float | None:
     """
     Gain-to-Pain ratio: sum of positive returns / abs(sum of negative returns).
 
-    Expects a 1D return series (e.g., monthly returns).
-    Returns None if there is not enough data or no losses.
+    Expects a 1D return series (e.g., monthly returns). Returns None if there
+    is not enough data or no losses.
     """
     if returns is None:
         return None
-
     r = pd.Series(returns).dropna()
     if r.empty:
         return None
@@ -87,7 +85,6 @@ def main(config_path: str) -> None:
     # ------------------------------
     tickers = cfg["tickers"]
     benchmark = cfg.get("benchmark", cfg.get("passive_benchmark", "^GSPC"))
-
     start = cfg.get("start") or cfg.get("start_date")
     end = cfg.get("end") or cfg.get("end_date")
     interval = cfg.get("interval", "1d")
@@ -104,7 +101,6 @@ def main(config_path: str) -> None:
     # 2) Price & dividend data
     # ------------------------------
     use_tickers = sorted(set(tickers + [benchmark]))
-
     prices = download_prices(
         use_tickers,
         start=start,
@@ -129,7 +125,10 @@ def main(config_path: str) -> None:
         raise ValueError(f"Benchmark {benchmark} is not in monthly returns columns.")
 
     bench_rets = rets_m[bench_col].dropna()
-    asset_rets = rets_m.drop(columns=[bench_col], errors="ignore").dropna(how="all")
+    asset_rets = (
+        rets_m.drop(columns=[bench_col], errors="ignore")
+        .dropna(how="all")
+    )
 
     # align on common dates
     aligned = asset_rets.join(bench_rets, how="inner")
@@ -155,7 +154,6 @@ def main(config_path: str) -> None:
         bounds=tuple(cfg["max_allocation_bounds"]),
         short_sales=short_sales_flag,
     )
-
     weights = pd.Series(res.x, index=asset_rets.columns, name="weight").round(6)
 
     cov_a = cov_m.values * 12.0
@@ -171,8 +169,11 @@ def main(config_path: str) -> None:
         tuple(cfg["max_allocation_bounds"]),
         short_sales_flag,
     )
-    plot_efficient_frontier(R, V, os.path.join(outdir, "efficient_frontier.png"))
-    # call plot_cal with positional args to match your plotting.py signature
+    plot_efficient_frontier(
+        R,
+        V,
+        os.path.join(outdir, "efficient_frontier.png"),
+    )
     plot_cal(
         port_vol,
         port_mean,
@@ -181,7 +182,7 @@ def main(config_path: str) -> None:
     )
 
     # ------------------------------
-    # 3b) Black-Litterman (optional, new)
+    # 3b) Black-Litterman (optional)
     # ------------------------------
     bl_cfg = cfg.get("black_litterman", {}) or {}
     bl_enabled = bool(bl_cfg.get("enabled", False))
@@ -189,7 +190,7 @@ def main(config_path: str) -> None:
 
     if bl_enabled:
         try:
-            # Universe for BL: the same assets used in ORP (i.e. asset_rets columns)
+            # Universe for BL: the same assets used in ORP
             bl_tickers = list(asset_rets.columns)
 
             # Use the price history for those tickers only
@@ -207,7 +208,7 @@ def main(config_path: str) -> None:
                 periods_per_year=252,
             )
 
-            # 3) Build P, Q, Omega from views (if any)
+            # 3) Build P, Q, Omega from views
             views = bl_cfg.get("views", []) or []
             P, Q, Omega = build_P_Q_Omega(bl_tickers, views, cov_a_bl, tau=tau)
 
@@ -237,8 +238,8 @@ def main(config_path: str) -> None:
                 header=["weight"],
             )
 
-            # 7) BL efficient frontier plot
-            cov_bl_m = cov_bl / 12.0  # annual -> monthly
+            # 7) BL efficient frontier plot (convert cov_bl to monthly)
+            cov_bl_m = cov_bl / 12.0
             W_bl, R_bl, V_bl = efficient_frontier(
                 mu_bl.values,
                 cov_bl_m.values,
@@ -251,15 +252,37 @@ def main(config_path: str) -> None:
                 V_bl,
                 os.path.join(outdir, "black_litterman_efficient_frontier.png"),
             )
-
         except Exception as e:
             print(f"[black_litterman] Warning: BL optimization failed: {e}")
             bl_weights = None
 
     # ------------------------------
+    # 3c) Hierarchical Risk Parity (HRP) – always computed (new)
+    # ------------------------------
+    hrp_weights = None
+    try:
+        if asset_rets is not None and not asset_rets.empty:
+            hrp_weights = compute_hrp_weights(
+                asset_returns=asset_rets,
+                outdir=outdir,
+                linkage_method="single",
+            )
+            # Cluster tree / dendrogram
+            plot_hrp_dendrogram(
+                asset_returns=asset_rets,
+                outdir=outdir,
+                linkage_method="single",
+                fname="hrp_cluster_tree.png",
+            )
+    except Exception as e:
+        print(f"[HRP] Warning: HRP computation failed: {e}")
+        hrp_weights = None
+
+    # ------------------------------
     # 4) CAPM regressions & plots
     # ------------------------------
     rf_m = (1 + rf) ** (1 / 12) - 1  # monthly rf approximation
+
     capm_results: dict[str, dict] = {}
     capm_rows: list[dict] = []
 
@@ -270,6 +293,7 @@ def main(config_path: str) -> None:
 
         ex_i = df[t] - rf_m
         ex_m = df["mkt"] - rf_m
+
         plot_capm_scatter(
             ex_i,
             ex_m,
@@ -309,15 +333,13 @@ def main(config_path: str) -> None:
     )
 
     # ------------------------------
-    # 6) Style regression (moved AFTER active_portfolio_value.csv exists)
+    # 6) Style regression
     # ------------------------------
     run_style_regression(outdir=outdir)
 
     # ------------------------------
     # 7) Save summary.json with full performance metrics
     # ------------------------------
-
-    # --- Portfolio Total Return + monthly series for Gain-to-Pain ---
     active_path = os.path.join(outdir, "active_portfolio_value.csv")
     passive_path = os.path.join(outdir, "passive_portfolio_value.csv")
 
@@ -325,11 +347,9 @@ def main(config_path: str) -> None:
     benchmark_return = None
     portfolio_monthly_rets = None  # for Gain-to-Pain
 
-    # Active: use PortfolioValue column (or first numeric as fallback)
+    # Active portfolio
     try:
         act = pd.read_csv(active_path)
-
-        # If Date column exists, use it to create a DatetimeIndex (for resampling)
         if "Date" in act.columns:
             act["Date"] = pd.to_datetime(act["Date"], errors="coerce")
             act = act.dropna(subset=["Date"]).set_index("Date")
@@ -337,7 +357,6 @@ def main(config_path: str) -> None:
         if "PortfolioValue" in act.columns:
             s = act["PortfolioValue"]
         else:
-            # Fallback: first numeric column
             num_cols = act.select_dtypes(include=["number"]).columns
             if len(num_cols) == 0:
                 raise KeyError("No numeric columns in active_portfolio_value.csv")
@@ -347,24 +366,22 @@ def main(config_path: str) -> None:
         if len(s) >= 2:
             portfolio_return = float(s.iloc[-1] / s.iloc[0] - 1.0)
 
-            # Monthly returns if we have dates, otherwise simple freq returns
-            try:
-                if isinstance(s.index, pd.DatetimeIndex):
-                    portfolio_monthly_rets = (
-                        s.resample("ME").last().pct_change().dropna()
-                    )
-                else:
-                    portfolio_monthly_rets = s.pct_change().dropna()
-            except Exception:
+        try:
+            if isinstance(s.index, pd.DatetimeIndex):
+                portfolio_monthly_rets = (
+                    s.resample("ME").last().pct_change().dropna()
+                )
+            else:
                 portfolio_monthly_rets = s.pct_change().dropna()
+        except Exception:
+            portfolio_monthly_rets = s.pct_change().dropna()
     except Exception as e:
         print(f"[summary] Warning: could not compute portfolio_return: {e}")
         portfolio_monthly_rets = None
 
-    # Passive: use Passive column (or first numeric as fallback)
+    # Passive / benchmark portfolio
     try:
         pas = pd.read_csv(passive_path)
-
         if "Passive" in pas.columns:
             s = pas["Passive"]
         else:
@@ -379,13 +396,13 @@ def main(config_path: str) -> None:
     except Exception as e:
         print(f"[summary] Warning: could not compute benchmark_return: {e}")
 
-    # --- Portfolio Volatility (annualized) ---
+    # Portfolio volatility (annualized)
     try:
         vol_annual = np.sqrt(12) * asset_rets.std().mean()
     except Exception:
         vol_annual = None
 
-    # --- Benchmark Sharpe ratio (annualized) ---
+    # Benchmark Sharpe ratio (annualized)
     benchmark_sharpe = None
     try:
         if bench_rets is not None and len(bench_rets) >= 3:
@@ -394,14 +411,13 @@ def main(config_path: str) -> None:
 
             ann_ret_b = (1.0 + mean_m_b) ** 12 - 1.0
             ann_vol_b = float(vol_m_b * np.sqrt(12.0))
-
             if ann_vol_b > 0:
                 benchmark_sharpe = float((ann_ret_b - rf) / ann_vol_b)
     except Exception as e:
         print(f"[summary] Warning: could not compute benchmark Sharpe: {e}")
         benchmark_sharpe = None
 
-    # --- Portfolio Gain-to-Pain ratio ---
+    # Portfolio Gain-to-Pain ratio
     portfolio_gain_to_pain = None
     try:
         if portfolio_monthly_rets is not None and len(portfolio_monthly_rets) > 0:
@@ -410,7 +426,7 @@ def main(config_path: str) -> None:
         print(f"[summary] Warning: could not compute Gain-to-Pain: {e}")
         portfolio_gain_to_pain = None
 
-    # --- Alpha & Beta from CAPM summary ---
+    # Alpha & Beta from CAPM summary
     alpha = None
     beta = None
     try:
@@ -441,12 +457,16 @@ def main(config_path: str) -> None:
         "y_cp": y_cp,
     }
 
-    # Attach BL weights to summary (if available) without affecting anything else
+    # Attach BL weights (if available)
     if bl_weights is not None:
         summary_payload["black_litterman"] = {
             "enabled": True,
             "weights": bl_weights.to_dict(),
         }
+
+    # Attach HRP weights (if available) – new
+    if hrp_weights is not None:
+        summary_payload["hrp_weights"] = hrp_weights.to_dict()
 
     with open(os.path.join(outdir, "summary.json"), "w") as f:
         json.dump(summary_payload, f, indent=2)
@@ -455,7 +475,6 @@ def main(config_path: str) -> None:
     # 8) Performance plots & additional plots
     # ------------------------------
     run_performance_plots(outdir=outdir, rf_annual=rf)
-
     run_additional_plots(
         outdir=outdir,
         orp_weights=weights.to_dict(),
@@ -484,7 +503,7 @@ def main(config_path: str) -> None:
         print(f"[attribution] Warning: performance attribution failed: {e}")
 
     # ------------------------------
-    # 11) Multi-factor regressions (FF3, Carhart4, FF5, Quality/LowVol)
+    # 11) Multi-factor regressions
     # ------------------------------
     factors_dict: dict[str, pd.DataFrame] = {}
     for model in ["ff3", "carhart4", "ff5", "quality_lowvol"]:
@@ -527,7 +546,9 @@ def main(config_path: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Portfolio optimization & analysis")
+    parser = argparse.ArgumentParser(
+        description="Portfolio optimization & analysis"
+    )
     parser.add_argument(
         "--config",
         type=str,
