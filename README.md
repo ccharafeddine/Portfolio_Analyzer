@@ -1,438 +1,339 @@
-# Portfolio Analyzer
+# Portfolio Analyzer v2
 
-A complete Python + Streamlit toolkit for portfolio optimization, risk analysis, simulations, and automated report generation.
+A professional-grade portfolio analytics platform built with Python and Streamlit. Runs a 14-step analysis pipeline covering optimization, risk decomposition, factor exposure, income tracking, rebalancing, stress testing, and Monte Carlo simulation -- all rendered through interactive Plotly charts on a Bloomberg-style dark UI.
 
-**Overview**
+**Live demo:** [ccportfolioanalyzer.streamlit.app](https://ccportfolioanalyzer.streamlit.app)
 
-The Portfolio Analyzer is a full-featured system for analyzing:
-```
-Active portfolios (your chosen tickers + weights)
+---
 
-Passive benchmark portfolios (e.g., SPY, ^GSPC, etc.)
+## Table of Contents
 
-Optimal Risky Portfolio (ORP) via Max-Sharpe optimization
+- [Features at a Glance](#features-at-a-glance)
+- [Getting Started](#getting-started)
+- [How It Works](#how-it-works)
+- [Analysis Tabs in Detail](#analysis-tabs-in-detail)
+  - [Overview](#1-overview)
+  - [Risk](#2-risk)
+  - [Attribution](#3-attribution)
+  - [Income](#4-income)
+  - [Optimization](#5-optimization)
+  - [Forecast](#6-forecast)
+  - [Data](#7-data)
+- [Pipeline Architecture](#pipeline-architecture)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Tech Stack](#tech-stack)
+- [Limitations](#limitations)
 
-Complete portfolio blending ORP with risk-free assets
+---
 
-Portfolio factor exposures (CAPM + style regressions)
+## Features at a Glance
 
-Forward-looking Monte Carlo forecasts
+| Category | Capabilities |
+|----------|-------------|
+| **Portfolio Construction** | Active (custom weights), Passive (benchmark), ORP (Max-Sharpe), HRP (Hierarchical Risk Parity), Rebalanced (quarterly), Complete (ORP + risk-free blend) |
+| **Optimization** | Mean-variance efficient frontier, Capital Allocation Line, Max-Sharpe portfolio, HRP clustering, concentration metrics |
+| **Risk Analytics** | VaR/CVaR (95% & 99%), max drawdown, Sortino, Calmar, skewness, kurtosis, rolling volatility & Sharpe, correlation regime detection, 8 historical stress tests |
+| **Factor Analysis** | CAPM regression per asset, return-based factor tilts (beta, size, momentum, quality), sector exposure via yfinance metadata |
+| **Income Tracking** | Dividend fetching per ticker, yield on cost, current yield, income growth rate, cumulative income series |
+| **Rebalancing** | Weight drift tracking, quarterly rebalanced backtest, turnover measurement |
+| **Forecasting** | Parametric and bootstrap Monte Carlo (500 paths, 3-year horizon), probability of loss, percentile fan charts |
+| **UI/UX** | 7-tab Streamlit app, 21 interactive Plotly chart types, dark theme, hover-rich tooltips, ZIP export of all outputs |
 
-Efficient frontier visualization
+---
 
-Automated full report generation (Markdown + optional PDF)
-```
+## Getting Started
 
-You can now run all analyses through a Streamlit app that:
-```
-Lets you input tickers, weights, bounds, and settings
+### Prerequisites
 
-Runs the full pipeline with one button
+- Python 3.10+ (tested on 3.12 and 3.14)
+- Internet connection (for Yahoo Finance price data)
 
-Shows all outputs directly in the browser
+### Installation
 
-Offers instant ZIP download of all plots + CSVs
-
-Automatically sorts outputs into a clean, professional order
-```
-**Web App**
-
-The app.py provides a complete Streamlit user interface.
-
-Can run from ccportfolioanalyzer.streamlit.app
-
-Features:
-```
-Text box for tickers (one per line)
-
-Per-ticker weight inputs or equal-weight toggle
-
-Dividend toggle
-
-Shorting toggle
-
-If ON: per-asset bounds = [-1.5, +1.5]
-
-If OFF: per-asset bounds = [0, +1.5]
-
-Start/end date selectors
-
-Benchmark selector
-
-Complete portfolio risk-free mix slider
-
-“Run Analysis” button triggers main.py
-
-Automatic clearing of old outputs between runs
-
-Ordered output display:
-
-ZIP download
-
-Reports
-
-Holdings + CAPM tables
-
-Key charts (efficient frontier, CAL, ORP pie, etc.)
-
-Forward simulation
-
-CSVs
-
-CAPM scatter plots
-```
-**Deployment**
-
-You can deploy the entire app on Streamlit Cloud, using:
-```
-FMP API key via st.secrets["FMP_API_KEY"]
-
-Alpha Vantage key via st.secrets["ALPHA_VANTAGE_API_KEY"]
-```
-Both are supported in data_io.py.
-
-**API Keys (FMP + Alpha Vantage)**
-
-Place your keys in your environment:
-
-Local (Windows PowerShell)
-```powershell
-setx FMP_API_KEY "YOUR_KEY"
-setx ALPA_VANTAGE_API_KEY "YOUR_KEY"
-```
-Streamlit Cloud (Add to Secrets)
-```powershell
-FMP_API_KEY = "YOUR_KEY"
-ALPHA_VANTAGE_API_KEY = "YOUR_KEY"
+```bash
+git clone https://github.com/ccharafeddine/Portfolio_Analyzer.git
+cd Portfolio_Analyzer
 ```
 
-**Running the Analysis**
-Option 1 - Use the Streamlit app
+Create and activate a virtual environment:
+
+```bash
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Run the App
+
 ```bash
 streamlit run app.py
 ```
-Option 2 - Direct Python
-```bash
-python main.py --config config.json
+
+The app opens in your browser. Configure your portfolio in the sidebar and click **Run Analysis**.
+
+---
+
+## How It Works
+
+1. **Configure** -- Enter tickers, weights, date range, benchmark, and settings in the sidebar
+2. **Run** -- Click the Run Analysis button. The pipeline fetches prices via yfinance, then executes 14 sequential steps with a live progress bar
+3. **Explore** -- Results populate across 7 tabs with interactive charts. Hover for details, zoom into regions, compare strategies
+4. **Export** -- Download all outputs as a ZIP from the Data tab
+
+The entire analysis runs in-process (no subprocess calls). Each pipeline step is wrapped in try/except so a failure in one step (e.g., no dividend data) does not block the rest.
+
+---
+
+## Analysis Tabs in Detail
+
+### 1. Overview
+
+The starting point for understanding portfolio performance.
+
+**Growth of $X Chart** -- Overlays up to 6 portfolio strategies (Active, Passive, ORP, HRP, Rebalanced, Complete) normalized to the same starting capital. Lets you visually compare how each strategy would have grown over the analysis period. Each line represents a different construction methodology applied to the same tickers and date range.
+
+**Cumulative Outperformance** -- Shows the running dollar difference between your Active portfolio and the Passive benchmark. Green fill indicates periods of outperformance; red fill shows underperformance. The final value tells you the total dollar alpha (or deficit) generated by your active allocation decisions relative to simply holding the benchmark.
+
+**Performance Summary Table** -- Side-by-side comparison of annualized return, annualized volatility, Sharpe ratio, and maximum drawdown across all portfolio variants. This table answers the core question: did your active decisions add value on a risk-adjusted basis compared to simpler alternatives?
+
+### 2. Risk
+
+Comprehensive risk decomposition and tail analysis.
+
+**Drawdown Chart** -- Plots the percentage decline from each portfolio's running peak value over time. Drawdowns visualize the pain experienced during market downturns. Deeper and longer drawdowns indicate higher risk. Comparing drawdown profiles across Active, Passive, and ORP reveals which strategy protects capital better during stress.
+
+**Return Distribution Histogram** -- Displays the frequency distribution of daily returns for the Active portfolio with vertical markers at the 95% VaR and CVaR levels. VaR (Value at Risk) answers "what is the worst daily loss I can expect 95% of the time?" CVaR (Conditional VaR) answers "given that I'm in the worst 5%, how bad is the average loss?" Together they characterize the left tail of your return distribution.
+
+**Correlation Heatmap** -- An interactive matrix showing pairwise correlations between all assets over the full period. High correlations between holdings reduce diversification benefit. The color scale runs from red (-1, perfect inverse) through dark (0, uncorrelated) to green (+1, perfectly correlated).
+
+**Correlation Regime Detection** -- Tracks the average pairwise correlation across all asset pairs using a 63-day rolling window. A horizontal band marks the long-run mean plus/minus one standard deviation. When the line turns red (above mean + 1 std), assets are moving together more than usual, which typically signals a stress regime where diversification fails. This is a leading indicator of systemic risk that static correlation matrices miss entirely.
+
+**Rolling Volatility and Sharpe** -- A two-panel chart showing 12-month rolling annualized volatility (top) and rolling Sharpe ratio (bottom) for each asset. Rolling metrics reveal how risk characteristics change over time. A ticker with stable volatility is more predictable than one with volatility spikes. Negative rolling Sharpe periods highlight when assets were destroying risk-adjusted value.
+
+**Tail Risk Metrics** -- Eight cards displaying Sortino ratio (downside-risk-adjusted return), Calmar ratio (return vs max drawdown), skewness (asymmetry of returns), excess kurtosis (fat-tail tendency), worst/best single day, gain-to-pain ratio, and maximum drawdown. These metrics go beyond standard deviation to characterize the actual shape of your return distribution.
+
+**Stress Testing** -- Tests portfolio behavior during 8 named historical crises: COVID Crash, 2022 Bear Market, SVB Crisis, Aug 2024 Unwind, GFC, Taper Tantrum, China Devaluation, and VIX-mageddon. For each scenario, shows the total return of both your portfolio and the benchmark during that exact date range, plus the max drawdown experienced. This answers "how would my portfolio have performed during known market disasters?"
+
+### 3. Attribution
+
+Decomposes performance into its sources.
+
+**Brinson-Fachler Attribution** -- Breaks the excess return of your active portfolio vs the benchmark into three components per asset: Allocation effect (did you overweight sectors that outperformed?), Selection effect (within each sector, did you pick better stocks?), and Interaction effect (the cross-term). The stacked bar chart shows which assets contributed positively or negatively to active return, and through which mechanism.
+
+**Sector Exposure** -- A donut chart showing what percentage of your portfolio is allocated to each GICS sector (Technology, Healthcare, Financials, etc.), derived from yfinance metadata. The "Effective N Sectors" metric below it quantifies diversification: a portfolio concentrated in one sector has N close to 1; a portfolio equally spread across 5 sectors has N = 5.
+
+**Factor Tilts** -- A grouped bar chart showing four return-based factor exposures per asset:
+- **Beta**: sensitivity to market movements (>1 means amplified market exposure)
+- **Size**: annualized volatility as a proxy for market cap (higher vol correlates with smaller companies)
+- **Momentum**: trailing 12-minus-1-month return (positive means the asset has been trending up)
+- **Quality**: trailing Sharpe ratio (higher means better risk-adjusted performance recently)
+
+These are computed from returns alone, requiring no external factor data.
+
+**CAPM Regression** -- Runs a Capital Asset Pricing Model regression for each asset against the benchmark. Displays alpha (excess return unexplained by market movement), beta (market sensitivity), t-statistics (statistical significance), and R-squared (how much of the asset's variance is explained by the market). Individual scatter plots show each asset's monthly excess returns versus market excess returns with the regression line overlaid.
+
+### 4. Income
+
+Dividend and yield analytics for income-oriented investors.
+
+**Income Metric Cards** -- Four headline numbers: total annual dividend income (dollars), portfolio yield (income / total invested), average yield on cost (dividends / purchase price), and count of holdings that pay dividends.
+
+**Annual Income Bar Chart** -- Horizontal bars showing the estimated annual dividend income from each position in dollar terms. Taller bars represent higher-yielding positions. This identifies which holdings drive your income stream.
+
+**Cumulative Income Chart** -- A line chart tracking the running total of all dividends received over time, accounting for shares held. The slope of this curve reveals whether your income stream is accelerating (dividend increases) or flat.
+
+**Position-Level Table** -- Detailed per-ticker breakdown showing shares held, annual dividend per share, total annual income, yield on cost (dividends / purchase price), current yield (dividends / current price), and income growth rate (comparing first-half vs second-half dividends). This table helps identify positions where yield on cost has grown significantly above current yield, indicating capital appreciation alongside income.
+
+### 5. Optimization
+
+Portfolio construction and diversification analysis.
+
+**Efficient Frontier and CAL** -- The classic mean-variance plot. The blue curve traces all portfolios offering the highest return for each level of volatility. The gold dashed Capital Allocation Line connects the risk-free rate to the Optimal Risky Portfolio (ORP, marked with a red star), representing the best possible risk-return tradeoff when you can lend/borrow at the risk-free rate. Purple dots show where each individual asset sits in risk-return space.
+
+**ORP Weights** -- A horizontal bar chart of the Max-Sharpe portfolio weights. This shows how the optimizer allocates capital across assets to maximize the Sharpe ratio given the historical covariance structure. Zero-weight assets are those the optimizer finds dominated by combinations of other assets.
+
+**HRP Weights and Dendrogram** -- Side-by-side view of Hierarchical Risk Parity weights (bar chart) and the cluster dendrogram (tree structure). HRP is an alternative to mean-variance that avoids matrix inversion and is more stable with small sample sizes. The dendrogram shows how assets are grouped by correlation distance. Assets joined at lower heights are more similar. HRP allocates inversely to cluster variance, producing portfolios that are naturally diversified across correlation clusters.
+
+**Concentration Metrics** -- Compares Active vs ORP portfolios on three measures:
+- **HHI (Herfindahl-Hirschman Index)**: sum of squared weights. Ranges from 1/N (equal weight) to 1.0 (single asset). Lower is more diversified.
+- **Effective N Bets**: 1/HHI. Represents how many equally-weighted positions your portfolio effectively holds. A 5-stock portfolio with one 80% weight might have an Effective N of only 1.5.
+- **Top-3 Concentration**: sum of the three largest absolute weights. Shows how dependent the portfolio is on its biggest bets.
+
+**Weight Drift Chart** -- A stacked area chart tracking how portfolio weights drift from their initial targets over time due to differential price movements. In a buy-and-hold portfolio, winning positions grow larger and losing positions shrink, concentrating risk. This chart visualizes exactly how far your portfolio drifts from the intended allocation.
+
+**Rebalanced vs Buy-and-Hold** -- A comparison table showing annualized return, volatility, Sharpe, and max drawdown for the unrebalanced Active portfolio vs a quarterly-rebalanced version with the same target weights. Rebalancing systematically sells winners and buys losers, which can improve risk-adjusted returns through variance harvesting. The comparison quantifies whether rebalancing would have helped or hurt over the analysis period.
+
+**Turnover Table** -- Shows the total weight turnover at each quarterly rebalance point. Turnover is the sum of absolute weight changes required to reset to target weights. Higher turnover means more trading (and more transaction costs in practice).
+
+### 6. Forecast
+
+Forward-looking simulation and probability analysis.
+
+**Monte Carlo Fan Charts** -- Two simulation methods (Parametric and Bootstrap), each running 500 paths over a 3-year horizon. The fan chart shows percentile bands: P5-P95 (lightest), P10-P90, P25-P75 (darkest), with the median as a solid line. Parametric simulation assumes returns are normally distributed with the historical mean and variance. Bootstrap simulation resamples actual historical daily returns, preserving any non-normality (fat tails, skewness) present in the data.
+
+**Simulation Comparison Table** -- Side-by-side statistics for each simulation method: expected terminal value, median, standard deviation, probability of loss, and key percentiles. Differences between Parametric and Bootstrap results reveal whether the normal distribution assumption matters for your portfolio. If Bootstrap shows a higher probability of loss, your returns have fatter left tails than a normal distribution would predict.
+
+**Probability Analysis Cards** -- Per-method breakdown of expected value, probability of loss, median (P50), worst case (P5), and best case (P95). These translate the simulation distributions into actionable planning numbers.
+
+### 7. Data
+
+Raw data access and export.
+
+**Holdings Table** -- The foundational table showing each position's ticker, target weight, purchase price, shares bought, amount invested, and realized weight after rounding to whole shares. The difference between target and realized weight reflects the impact of discrete share purchases.
+
+**Run Configuration** -- Expandable JSON view of all parameters used for the analysis run: tickers, weights, dates, benchmark, risk-free rate, allocation bounds, and settings. This serves as an audit trail for reproducibility.
+
+**Downloads** -- ZIP file containing all generated outputs (CSVs, JSON summary). Individual CSV files are also available for direct download.
+
+---
+
+## Pipeline Architecture
+
+The analysis pipeline runs 14 steps sequentially. Each step has access to all results from previous steps and stores its outputs in the shared `AnalysisResults` dataclass.
+
 ```
+Step  0: Fetch price data          -- Downloads daily prices via yfinance with local parquet caching
+Step  1: Build active portfolio    -- Converts weights + capital into share counts, computes daily value series
+Step  2: Compute rebalance         -- Weight drift from targets, quarterly rebalanced backtest, turnover
+Step  3: Compute income            -- Fetches dividend history per ticker, builds income summary and cumulative series
+Step  4: Build passive portfolio   -- Buys benchmark units with same capital, tracks daily value
+Step  5: Optimize (ORP & HRP)     -- Max-Sharpe optimization, efficient frontier, HRP weights + dendrogram
+Step  6: Run CAPM regressions     -- Per-asset CAPM regression against benchmark
+Step  7: Compute risk metrics     -- VaR/CVaR, drawdown table, tail metrics, rolling correlation regime
+Step  8: Run stress tests         -- Portfolio & benchmark returns during 8 historical crisis periods
+Step  9: Build complete portfolio -- Blends ORP with risk-free at user-specified ratio
+Step 10: Run attribution          -- Brinson-Fachler decomposition (allocation, selection, interaction)
+Step 11: Compute exposures        -- Sector weights from yfinance, return-based factor tilts
+Step 12: Monte Carlo simulation   -- Parametric + bootstrap forward simulations (500 paths x 3 years)
+Step 13: Save outputs             -- Writes summary JSON, holdings CSV, stress test CSV to outputs/
+```
+
+Each step is wrapped in try/except. If one step fails (e.g., no dividend data for a ticker), the pipeline logs the error and continues. The UI gracefully hides sections where data is unavailable.
 
 ---
 
 ## Project Structure
 
-```text
-PORTFOLIO_ANALYZER/
-├── pycache/
-├── .venv/                   # virtual environment (ignored by git)
-├── outputs/                 # all generated outputs go here
-│   ├── active_portfolio_value.csv
-│   ├── passive_portfolio_value.csv
-│   ├── complete_portfolio_value.csv
-│   ├── orp_value_realized.csv
-│   ├── clean_prices.csv
-│   ├── holdings_table.csv
-│   ├── correlation_matrix.png
-│   ├── complete_portfolio_pie.png
-│   ├── performance_vs_benchmark.png
-│   ├── forward_scenarios.png
-│   └── report.md
-├── analytics.py
-├── build_active_portfolio_series.py
-├── build_passive_portfolio_series.py
-├── compute_active_stats.py
-├── config.json              # MAIN CONFIG — EDIT THIS TO RUN NEW ANALYSIS
-├── data_io.py
-├── generate_report.py
-├── main.py                  # ENTRY POINT — run the analysis
-├── make_additional_plots.py
-├── make_performance_plots.py
-├── plotting.py
-├── README.md
+```
+Portfolio_Analyzer/
+├── app.py                          # Streamlit UI (7 tabs, sidebar config, metric cards)
+├── src/
+│   ├── pipeline.py                 # 14-step orchestration pipeline + AnalysisResults dataclass
+│   ├── config/
+│   │   └── models.py               # Pydantic config validation (PortfolioConfig, BLConfig, etc.)
+│   ├── data/
+│   │   ├── fetcher.py              # yfinance data fetching with parquet caching
+│   │   └── transforms.py           # Return calculations, VaR/CVaR, drawdowns, Sharpe, etc.
+│   ├── analytics/
+│   │   ├── optimization.py         # Max-Sharpe, efficient frontier, min-variance
+│   │   ├── hrp.py                  # Hierarchical Risk Parity (linkage, quasi-diag, bisection)
+│   │   ├── regression.py           # CAPM and multi-factor regression
+│   │   ├── risk.py                 # Stress tests, risk contribution, rolling metrics, concentration
+│   │   ├── attribution.py          # Brinson-Fachler performance attribution
+│   │   ├── simulation.py           # Parametric and bootstrap Monte Carlo
+│   │   ├── rebalance.py            # Weight drift, rebalanced backtest, turnover
+│   │   ├── exposure.py             # Sector weights (yfinance), factor tilts (return-based)
+│   │   └── income.py               # Dividend fetching, income summary, cumulative income
+│   └── charts/
+│       └── plotly_charts.py        # 21 chart functions (dark theme, consistent styling)
+├── tests/
+│   └── test_portfolio.py           # 55 unit tests across 12 test classes
+├── config.json                     # Generated by UI on each run
 ├── requirements.txt
-├── simulate_forecasts.py
-├── style_analysis.py
-└── valuation.py
-```
-You usually only modify:
-
-`config.json` (portfolio, weights, dates, risk-free rate, etc.)
-
-
-Requirements:
-```
-Python 3.10+ (tested on Python 3.12)
-
-Internet connection (for Yahoo Finance)
-
-Git (optional)
+└── README.md
 ```
 
-Install Python packages:
-```python
-pip install -r requirements.txt
-```
-How to Run the Project
-
-1. Clone and open
-```python
-git clone https://github.com/ccharafeddine/Portfolio_Analyzer.git
-
-cd Portfolio_Analyzer
-```
-
-2. Create a virtual environment
-
-macOS / Linux:
-```python
-python3 -m venv .venv
-
-source .venv/bin/activate
-```
-Windows (PowerShell):
-```python
-python -m venv .venv
-
-.\.venv\Scripts\Activate.ps1
-```
-
-3. Install dependencies
-```python
-pip install -r requirements.txt
-```
-4. Run the analysis
-```python
-python main.py --config config.json
-```
-All outputs appear in the outputs/ directory.
-
-**<u>Editing config.json (The ONLY file needed for new analyses)</u>**
-
-Below is a clear, fully valid example.
-
-```json
-{
-  "tickers": ["AAPL", "MSFT", "GLD"],
-  "benchmark": "SPY",
-  "start": "2020-01-01",
-  "end": "2025-12-31",
-
-  "short_sales": false,
-  "max_allocation_bounds": [0, 1.5],
-  "risk_free_rate": 0.04,
-  "frontier_points": 50,
-
-  "active_portfolio": {
-    "capital": 1000000,
-    "tickers": ["AAPL", "MSFT", "GLD"],
-    "weights": {"AAPL":0.34,"MSFT":0.33,"GLD":0.33},
-    "start_date": "2020-01-01",
-    "end_date": "2025-12-31"
-  },
-
-  "passive_portfolio": {
-    "capital": 1000000,
-    "start_date": "2020-01-01"
-  },
-
-  "complete_portfolio": {"y": 0.80}
-}
-```
-The UI writes this, no need to edit it manually
-
-
-**<u>What Each Script Does</u>**
-
-**<u>main.py — Workflow Controller</u>**
-```
-Coordinates everything:
-
-Loads config
-
-Downloads data
-
-Builds portfolios
-
-Computes statistics
-
-Runs CAPM regression
-
-Simulations
-
-Generates plots
-
-Writes the final report
-
-Run this file to perform the full analysis.
-```
-**<u>data_io.py</u>**
-```
-Handles downloading and saving:
-
-Price data (Yahoo Finance)
-
-clean_prices.csv
-
-holdings_table.csv
-
-portfolio value series
-```
-**<u>build_active_portfolio_series.py</u>**
-```
-Computes share counts from weights.
-Generates:
-
-active_portfolio_value.csv
-
-holdings_table.csv
-```
-**<u>build_passive_portfolio_series.py</u>**
-```
-Buys benchmark at start.
-Generates:
-
-passive_portfolio_value.csv
-```
-**<u>compute_active_stats.py</u>**
-```
-Computes:
-
-Annual returns
-
-Volatility
-
-Sharpe
-
-Correlation matrix
-
-Efficient frontier
-
-Optimal Risky Portfolio (ORP)
-
-Creates:
-
-complete_portfolio_value.csv
-
-orp_value_realized.csv
-
-correlation_matrix.png
-
-complete_portfolio_pie.png
-```
-**<u>analytics.py</u>**
-```
-CAPM regression
-
-Excess returns
-
-Math/stat helpers
-```
-**<u>make_performance_plots.py</u>**
-```
-Creates charts comparing:
-
-Active
-
-Passive
-
-ORP
-
-Complete
-```
-**<u>make_additional_plots.py</u>**
-```
-Efficient frontier and additional visuals.
-```
-**<u>style_analysis.py</u>**
-```
-Multi-factor regression (can customize tickers)
-```
-**<u>simulate_forecasts.py</u>**
-```
-Monte Carlo-style forward simulations.
-
-Creates:
-
-forward_scenarios.png
-```
-**<u>plotting.py</u>**
-```
-Shared utilities for consistent plotting.
-```
-**<u>generate_report.py</u>**
-```
-Builds:
-
-report.md (always works)
-
-report.pdf (may fail if FPDF hits Unicode or space limits)
-```
-**<u>Outputs Generated</u>**
-
-Outputs (Ordered Automaticaly in Web App):
-```
-Download all outputs (ZIP)
-
-Report files (md, pdf)
-
-Holdings table
-
-CAPM summary table
-
-Efficient frontier
-
-ORP weights table (new!)
-
-CAL plot
-
-ORP vs expected chart
-
-Complete portfolio pie
-
-Growth chart
-
-Forward scenario simulations
-
-Additional charts
-
-CSV file downloads
-
-CAPM scatter plots (end)
-```
-
-**<u>Example Portfolio To Try</u>**
+Legacy v1 scripts (`main.py`, `analytics.py`, `data_io.py`, etc.) remain in the root directory for reference but are not used by the v2 app.
+
+---
+
+## Configuration
+
+All configuration happens through the Streamlit sidebar. The UI writes a `config.json` on each run for reproducibility. Key parameters:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Tickers | AAPL, MSFT, NVDA, GLD, TLT | One per line, any valid Yahoo Finance symbol |
+| Weights | Equal (1/N) | Per-ticker or equal-weight toggle |
+| Benchmark | SPY | Any single ticker for passive comparison |
+| Start / End Date | 2020-01-01 to 2025-12-31 | Analysis period |
+| Capital | $1,000,000 | Starting investment amount |
+| Risk-Free Rate | 4.0% | Annual risk-free rate for Sharpe, CAPM, Complete portfolio |
+| Allow Shorts | Off | If on, allocation bounds shift to [-max, +max] |
+| Max Weight Bound | 1.0 | Upper bound per asset in optimization |
+| Complete Portfolio % in ORP | 80% | Blend ratio between ORP and risk-free asset |
+
+### Example Tickers to Try
 
 ```
-AAPL
-MSFT
-NVDA
-GLD
-TLT
-XLF
-XLK
-BTC-USD
+AAPL    MSFT    NVDA    GLD    TLT       # Tech + hedges
+XLK     XLF     XLV     XLE    XLU       # Sector ETFs
+BTC-USD ETH-USD                           # Crypto
+VTI     BND     GLD     VNQ              # Classic 4-fund
 ```
 
+---
 
-**<u>Notes & Limitations</u>**
-```
-FMP free tier limits historical data depth
+## Testing
 
-Alpha Vantage handles BTC safely
+The test suite covers all analytics modules with 55 tests across 12 test classes:
 
-PDF generation may fail if Unicode-heavy
-
-Optimization uses historical returns—not predictive
+```bash
+python -m pytest tests/ -v
 ```
 
-**<u>Intended Use</u>**
-```
-Finance students (Sharpe, CAPM, frontier)
+| Test Class | Tests | Coverage |
+|------------|-------|----------|
+| TestPortfolioConfig | 8 | Pydantic validation, save/load, bounds |
+| TestTransforms | 8 | Returns, volatility, Sharpe, VaR, drawdown |
+| TestOptimization | 5 | Max-Sharpe, frontier shape, min-variance |
+| TestRegression | 2 | CAPM regression, edge cases |
+| TestRisk | 2 | Risk contribution, tail metrics |
+| TestSimulation | 3 | Path shapes, percentile ordering |
+| TestAttribution | 2 | Brinson-Fachler decomposition |
+| TestConcentration | 5 | HHI, effective N, concentration ratio |
+| TestCorrelationRegime | 2 | Rolling correlation shape, single-asset edge case |
+| TestHRP | 5 | Weights sum, positivity, linkage shape, 2-asset case |
+| TestRebalance | 5 | Drift sums, initial weights, backtest, turnover |
+| TestExposure | 4 | Factor tilts, effective N sectors, mock yfinance |
+| TestIncome | 4 | Dividend fetch, income summary, cumulative (mocked) |
 
-Wealth management trainees
+Tests that require yfinance calls use `unittest.mock.patch` to avoid network dependencies.
 
-Analysts comparing active vs passive
+---
 
-Quants testing workflow automation
+## Tech Stack
 
-Anyone wanting fast multi-asset portfolio analytics
-```
+| Layer | Technology |
+|-------|-----------|
+| UI Framework | Streamlit |
+| Charts | Plotly (dark theme, interactive) |
+| Data | yfinance + local parquet cache |
+| Config Validation | Pydantic |
+| Optimization | SciPy (minimize, SLSQP) |
+| Clustering | SciPy (hierarchical linkage, squareform) |
+| Statistics | NumPy, pandas, statsmodels (OLS) |
+| Testing | pytest |
+
+---
+
+## Limitations
+
+- **Historical returns are not predictive.** Mean-variance optimization uses backward-looking estimates. Future returns and correlations will differ.
+- **Dividend data depends on yfinance accuracy.** Some tickers may have incomplete or delayed dividend histories.
+- **Sector classification** relies on the `sector` field from yfinance's `.info` dictionary, which may be missing for ETFs, indices, or crypto.
+- **Transaction costs are not modeled.** Rebalancing turnover is measured but the performance impact of trading costs and taxes is not deducted.
+- **Factor tilts are return-based proxies**, not true Fama-French factor loadings. They use simple heuristics (vol for size, trailing return for momentum) rather than sorted portfolio returns.
+- **Monte Carlo simulations assume i.i.d. daily returns** (parametric) or stationary return distributions (bootstrap). Neither captures regime changes or structural breaks.
