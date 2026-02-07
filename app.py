@@ -185,10 +185,15 @@ st.markdown("""
         overflow: hidden;
     }
 
-    /* Hide Streamlit chrome */
+    /* Hide Streamlit chrome (keep sidebar toggle visible) */
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
-    header { visibility: hidden; }
+    header {
+        background: transparent !important;
+    }
+    header [data-testid="stDecoration"] {
+        display: none;
+    }
 
     /* Download buttons */
     .stDownloadButton > button {
