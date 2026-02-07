@@ -50,22 +50,21 @@ _BASE_LAYOUT = dict(
     paper_bgcolor=PAPER_COLOR,
     plot_bgcolor=BG_COLOR,
     font=dict(family="DM Sans, Helvetica, Arial, sans-serif", color=TEXT_COLOR, size=13),
-    margin=dict(l=60, r=30, t=50, b=50),
+    margin=dict(l=60, r=30, t=50, b=80),
     xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
     yaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
     legend=dict(
         bgcolor="rgba(0,0,0,0)",
         font=dict(size=12, color=MUTED_COLOR),
         orientation="h",
-        yanchor="bottom",
-        y=1.02,
-        xanchor="left",
-        x=0,
+        yanchor="top",
+        y=-0.15,
+        xanchor="center",
+        x=0.5,
     ),
     hoverlabel=dict(
         bgcolor="#1E293B",
-        font_size=13,
-        font_family="DM Sans, monospace",
+        font=dict(size=13, family="DM Sans, monospace"),
         bordercolor="#334155",
     ),
 )
@@ -350,8 +349,7 @@ def correlation_heatmap(corr: pd.DataFrame) -> go.Figure:
         textfont=dict(size=11, color=TEXT_COLOR),
         hovertemplate="%{x} vs %{y}<br>Correlation: %{z:.3f}<extra></extra>",
         colorbar=dict(
-            title="ρ",
-            titlefont=dict(color=MUTED_COLOR),
+            title=dict(text="ρ", font=dict(color=MUTED_COLOR)),
             tickfont=dict(color=MUTED_COLOR),
         ),
     ))

@@ -232,7 +232,7 @@ if "run_error" not in st.session_state:
 
 st.markdown("""
 <div class="app-header">
-    <h1>📊 Portfolio Analyzer</h1>
+    <h1>Portfolio Analyzer</h1>
     <span class="badge">v2.0</span>
 </div>
 """, unsafe_allow_html=True)
@@ -243,7 +243,7 @@ st.markdown("""
 # ══════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.markdown("### ⚙️ Configuration")
+    st.markdown("### Configuration")
 
     # ── Tickers ──
     st.markdown('<div class="section-label">Universe</div>', unsafe_allow_html=True)
@@ -331,7 +331,7 @@ if run_clicked and tickers and weights_dict:
 
         def on_progress(label: str, frac: float):
             progress_bar.progress(frac)
-            status_text.caption(f"⏳ {label}...")
+            status_text.caption(f"{label}...")
 
         pipeline = AnalysisPipeline(config, output_dir="outputs")
         results = pipeline.run(progress=on_progress)
@@ -341,7 +341,7 @@ if run_clicked and tickers and weights_dict:
         st.session_state.run_error = None
 
         progress_bar.progress(1.0)
-        status_text.caption("✅ Analysis complete")
+        status_text.caption("Analysis complete")
 
     except Exception as e:
         st.session_state.run_status = "error"
@@ -362,7 +362,6 @@ if results is None:
         padding: 80px 20px;
         color: #475569;
     ">
-        <p style="font-size: 3rem; margin-bottom: 12px;">📊</p>
         <p style="font-size: 1.1rem; font-weight: 500;">Configure your portfolio in the sidebar and click <b>Run Analysis</b></p>
         <p style="font-size: 0.85rem; margin-top: 8px;">
             Enter tickers, set weights, choose dates, and hit the button.
@@ -443,12 +442,12 @@ m6.metric(
 # ══════════════════════════════════════════════════════════════
 
 tab_overview, tab_risk, tab_attribution, tab_optimization, tab_forecast, tab_data = st.tabs([
-    "📈 Overview",
-    "🛡️ Risk",
-    "📊 Attribution",
-    "⚡ Optimization",
-    "🔮 Forecast",
-    "📋 Data",
+    "Overview",
+    "Risk",
+    "Attribution",
+    "Optimization",
+    "Forecast",
+    "Data",
 ])
 
 
@@ -586,7 +585,7 @@ with tab_risk:
             charts.stress_test_chart(results.stress_df),
             use_container_width=True,
         )
-        with st.expander("📋 Stress Test Details"):
+        with st.expander("Stress Test Details"):
             st.dataframe(results.stress_df, hide_index=True, use_container_width=True)
 
 
@@ -603,7 +602,7 @@ with tab_attribution:
             ),
             use_container_width=True,
         )
-        with st.expander("📋 Asset Attribution Data"):
+        with st.expander("Asset Attribution Data"):
             st.dataframe(results.asset_attribution, use_container_width=True)
     else:
         st.info("Asset-level attribution data not available for this run.")
@@ -616,7 +615,7 @@ with tab_attribution:
             ),
             use_container_width=True,
         )
-        with st.expander("📋 Sector Attribution Data"):
+        with st.expander("Sector Attribution Data"):
             st.dataframe(results.sector_attribution, use_container_width=True)
 
     # CAPM results
@@ -676,7 +675,7 @@ with tab_attribution:
                     charts.factor_loadings_chart(df, model_name),
                     use_container_width=True,
                 )
-                with st.expander(f"📋 {model_name} Data"):
+                with st.expander(f"{model_name} Data"):
                     st.dataframe(df, use_container_width=True)
             except Exception:
                 pass
@@ -825,7 +824,7 @@ with tab_data:
         st.dataframe(results.holdings, hide_index=True, use_container_width=True)
 
     # Config summary
-    with st.expander("📋 Run Configuration"):
+    with st.expander("Run Configuration"):
         st.json(results.config.model_dump(mode="json"), expanded=False)
 
     # CSV downloads
@@ -845,7 +844,7 @@ with tab_data:
             zip_buffer.seek(0)
 
             st.download_button(
-                "⬇️ Download All Outputs (ZIP)",
+                "Download All Outputs (ZIP)",
                 data=zip_buffer,
                 file_name="portfolio_analysis_outputs.zip",
                 mime="application/zip",
@@ -860,7 +859,7 @@ with tab_data:
                     with cols[i % 3]:
                         with open(f, "rb") as fh:
                             st.download_button(
-                                f"📄 {f.name}",
+                                f"{f.name}",
                                 data=fh.read(),
                                 file_name=f.name,
                                 mime="text/csv",
@@ -875,7 +874,7 @@ with tab_data:
                     mime = "application/pdf" if f.suffix == ".pdf" else "text/markdown"
                     with open(f, "rb") as fh:
                         st.download_button(
-                            f"📑 {f.name}",
+                            f"{f.name}",
                             data=fh.read(),
                             file_name=f.name,
                             mime=mime,
