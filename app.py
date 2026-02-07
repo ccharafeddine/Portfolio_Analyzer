@@ -26,6 +26,8 @@ from src.config.models import PortfolioConfig, BLView, BLConfig, CompletePortfol
 from src.pipeline import AnalysisPipeline, AnalysisResults
 from src.charts import plotly_charts as charts
 from src.data import transforms as T
+from src.reports.html_builder import build_html_report
+from src.reports.pdf_builder import build_pdf_report
 
 
 # ══════════════════════════════════════════════════════════════
@@ -385,10 +387,22 @@ def _fmt_dollar(v):
     return f"${v:,.0f}"
 
 def _delta_str(v):
-    """Format a delta value — return None if not meaningful."""
+    """Format a delta value -- return None if not meaningful."""
     if v is None or (isinstance(v, float) and np.isnan(v)):
         return None
     return f"{v*100:+.2f}%"
+
+
+def _interpretation_card(text: str) -> None:
+    """Render an interpretation card with styled HTML."""
+    if not text:
+        return
+    st.markdown(
+        f'<div style="background: #151D2E; border-left: 3px solid #3B82F6; '
+        f'padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 16px 0; '
+        f'color: #94A3B8; font-size: 0.9rem; line-height: 1.6;">{text}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 m1, m2, m3, m4, m5, m6 = st.columns(6)
@@ -457,6 +471,10 @@ tab_overview, tab_risk, tab_attribution, tab_income, tab_optimization, tab_forec
 # ──────────────────────────────────────────────────────────────
 
 with tab_overview:
+    # Interpretation card
+    if results.interpretations and "performance" in results.interpretations:
+        _interpretation_card(results.interpretations["performance"])
+
     # Growth chart
     growth_series = {}
     if results.active:
@@ -507,6 +525,10 @@ with tab_overview:
 # ──────────────────────────────────────────────────────────────
 
 with tab_risk:
+    # Interpretation card
+    if results.interpretations and "risk" in results.interpretations:
+        _interpretation_card(results.interpretations["risk"])
+
     # Drawdown chart
     dd_series = {}
     if results.active:
@@ -606,6 +628,10 @@ with tab_risk:
 # ──────────────────────────────────────────────────────────────
 
 with tab_attribution:
+    # Interpretation card
+    if results.interpretations and "capm" in results.interpretations:
+        _interpretation_card(results.interpretations["capm"])
+
     if results.asset_attribution is not None and not results.asset_attribution.empty:
         st.plotly_chart(
             charts.attribution_chart(
@@ -718,6 +744,10 @@ with tab_attribution:
 # ──────────────────────────────────────────────────────────────
 
 with tab_income:
+    # Interpretation card
+    if results.interpretations and "income" in results.interpretations:
+        _interpretation_card(results.interpretations["income"])
+
     if results.income_metrics is not None:
         im = results.income_metrics
         col_i1, col_i2, col_i3, col_i4 = st.columns(4)
@@ -753,6 +783,10 @@ with tab_income:
 # ──────────────────────────────────────────────────────────────
 
 with tab_optimization:
+    # Interpretation card
+    if results.interpretations and "optimization" in results.interpretations:
+        _interpretation_card(results.interpretations["optimization"])
+
     orp_opt = results.orp_optimization
 
     if orp_opt is not None:
@@ -892,6 +926,10 @@ with tab_optimization:
 # ──────────────────────────────────────────────────────────────
 
 with tab_forecast:
+    # Interpretation card
+    if results.interpretations and "simulation" in results.interpretations:
+        _interpretation_card(results.interpretations["simulation"])
+
     if results.simulations:
         for sim in results.simulations:
             st.plotly_chart(
@@ -941,6 +979,83 @@ with tab_forecast:
 # ──────────────────────────────────────────────────────────────
 
 with tab_data:
+    # Executive summary interpretation
+    if results.interpretations and "executive_summary" in results.interpretations:
+        _interpretation_card(results.interpretations["executive_summary"])
+
+    # ── Report Downloads (prominent) ──
+    st.markdown("#### Reports")
+    col_rpt1, col_rpt2 = st.columns(2)
+
+    # Build chart figures dict for report embedding
+    _report_charts = {}
+    try:
+        growth_series_rpt = {}
+        if results.active:
+            growth_series_rpt["Active"] = results.active.values
+        if results.passive:
+            growth_series_rpt["Passive"] = results.passive.values
+        if results.orp:
+            growth_series_rpt["ORP"] = results.orp.values
+        if growth_series_rpt:
+            _report_charts["growth"] = charts.growth_chart(growth_series_rpt, results.config.capital)
+
+        dd_rpt = {}
+        if results.active:
+            dd_rpt["Active"] = results.active.values
+        if results.passive:
+            dd_rpt["Passive"] = results.passive.values
+        if dd_rpt:
+            _report_charts["drawdown"] = charts.drawdown_chart(dd_rpt)
+
+        if results.correlation_matrix is not None:
+            _report_charts["correlation"] = charts.correlation_heatmap(results.correlation_matrix)
+
+        orp_opt_rpt = results.orp_optimization
+        if orp_opt_rpt:
+            rets_m_rpt = results.monthly_returns
+            asset_cols_rpt = [t for t in results.config.tickers if t in rets_m_rpt.columns and t != results.config.benchmark]
+            asset_mu_rpt = ((1 + rets_m_rpt[asset_cols_rpt].mean()) ** 12 - 1) if asset_cols_rpt else None
+            asset_vol_rpt = (rets_m_rpt[asset_cols_rpt].std() * np.sqrt(12)) if asset_cols_rpt else None
+            _report_charts["frontier"] = charts.efficient_frontier_chart(
+                orp_opt_rpt.frontier_vols, orp_opt_rpt.frontier_returns,
+                orp_opt_rpt.expected_vol, orp_opt_rpt.expected_return,
+                results.config.risk_free_rate,
+                asset_vols=asset_vol_rpt, asset_returns=asset_mu_rpt,
+            )
+    except Exception:
+        pass
+
+    with col_rpt1:
+        try:
+            html_report = build_html_report(results, chart_figures=_report_charts)
+            st.download_button(
+                "Download HTML Report",
+                data=html_report.encode("utf-8"),
+                file_name="portfolio_report.html",
+                mime="text/html",
+                use_container_width=True,
+                type="primary",
+            )
+        except Exception as e:
+            st.caption(f"HTML report unavailable: {e}")
+
+    with col_rpt2:
+        try:
+            pdf_bytes = build_pdf_report(results, chart_figures=_report_charts)
+            st.download_button(
+                "Download PDF Report",
+                data=pdf_bytes,
+                file_name="portfolio_report.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary",
+            )
+        except Exception as e:
+            st.caption(f"PDF report unavailable: {e}")
+
+    st.markdown("---")
+
     # Holdings
     if results.holdings is not None:
         st.markdown("#### Holdings")
@@ -951,7 +1066,7 @@ with tab_data:
         st.json(results.config.model_dump(mode="json"), expanded=False)
 
     # CSV downloads
-    st.markdown("#### Downloads")
+    st.markdown("#### Data Exports")
 
     output_dir = Path("outputs")
     if output_dir.exists():
@@ -988,18 +1103,3 @@ with tab_data:
                                 mime="text/csv",
                                 key=f"dl_{f.name}",
                             )
-
-            # Report files
-            report_files = [f for f in data_files if f.suffix in (".pdf", ".md")]
-            if report_files:
-                st.markdown("#### Reports")
-                for f in report_files:
-                    mime = "application/pdf" if f.suffix == ".pdf" else "text/markdown"
-                    with open(f, "rb") as fh:
-                        st.download_button(
-                            f"{f.name}",
-                            data=fh.read(),
-                            file_name=f.name,
-                            mime=mime,
-                            key=f"dl_report_{f.name}",
-                        )
