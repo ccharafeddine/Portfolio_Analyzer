@@ -317,6 +317,12 @@ def efficient_frontier_chart(
         xaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat=".0%", title="Annualized Volatility"),
         yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat=".0%", title="Annualized Return"),
         height=520,
+        margin=dict(l=60, r=30, t=50, b=70),
+        legend=dict(
+            x=0.98, y=0.98, xanchor="right", yanchor="top",
+            bgcolor="rgba(11,17,32,0.8)", bordercolor="#1E293B", borderwidth=1,
+            orientation="v",
+        ),
     )
 
     return fig
@@ -527,6 +533,10 @@ def capm_scatter(
         xaxis=dict(gridcolor=GRID_COLOR, zeroline=True, zerolinecolor=MUTED_COLOR, tickformat=".1%", title="Market Excess Return"),
         yaxis=dict(gridcolor=GRID_COLOR, zeroline=True, zerolinecolor=MUTED_COLOR, tickformat=".1%", title=f"{ticker} Excess Return"),
         height=400,
+        legend=dict(
+            x=0.02, y=0.98, xanchor="left", yanchor="top",
+            bgcolor="rgba(11,17,32,0.8)", bordercolor="#1E293B", borderwidth=1,
+        ),
     )
 
     return fig
@@ -629,6 +639,10 @@ def rolling_metrics_chart(
         height=600,
         title=dict(text=f"Rolling {window}-Month Risk Analytics", font=dict(size=16, color=TEXT_COLOR)),
     )
+    fig.update_layout(legend=dict(
+        x=0.5, y=1.02, xanchor="center", yanchor="bottom",
+        orientation="h", bgcolor="rgba(0,0,0,0)",
+    ))
     fig.update_yaxes(tickformat=".0%", gridcolor=GRID_COLOR, row=1, col=1)
     fig.update_yaxes(gridcolor=GRID_COLOR, row=2, col=1)
     fig.update_xaxes(gridcolor=GRID_COLOR)
@@ -838,6 +852,10 @@ def simulation_fan_chart(
         xaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Months Forward"),
         yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat="$,.0f", title="Portfolio Value"),
         height=480,
+        legend=dict(
+            x=0.02, y=0.98, xanchor="left", yanchor="top",
+            bgcolor="rgba(11,17,32,0.8)", bordercolor="#1E293B", borderwidth=1,
+        ),
     )
 
     return fig
@@ -1202,6 +1220,11 @@ def stress_test_chart(stress_df: pd.DataFrame) -> go.Figure:
         xaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat=".0%", title="Total Return"),
         yaxis=dict(gridcolor="rgba(0,0,0,0)"),
         height=max(350, len(df) * 55 + 120),
+        legend=dict(
+            x=0.98, y=0.98, xanchor="right", yanchor="top",
+            bgcolor="rgba(11,17,32,0.8)", bordercolor="#1E293B", borderwidth=1,
+            orientation="v",
+        ),
     )
 
     return fig
