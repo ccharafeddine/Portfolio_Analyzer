@@ -441,10 +441,11 @@ m6.metric(
 # Tabs
 # ══════════════════════════════════════════════════════════════
 
-tab_overview, tab_risk, tab_attribution, tab_optimization, tab_forecast, tab_data = st.tabs([
+tab_overview, tab_risk, tab_attribution, tab_income, tab_optimization, tab_forecast, tab_data = st.tabs([
     "Overview",
     "Risk",
     "Attribution",
+    "Income",
     "Optimization",
     "Forecast",
     "Data",
@@ -464,6 +465,10 @@ with tab_overview:
         growth_series["Passive"] = results.passive.values
     if results.orp:
         growth_series["ORP"] = results.orp.values
+    if results.hrp:
+        growth_series["HRP"] = results.hrp.values
+    if results.rebalanced:
+        growth_series["Rebalanced"] = results.rebalanced.values
     if results.complete:
         growth_series["Complete"] = results.complete.values
 
@@ -484,7 +489,7 @@ with tab_overview:
     if results.active and results.passive:
         st.markdown("#### Performance Summary")
         summary_data = []
-        for ps in [results.active, results.passive, results.orp, results.complete]:
+        for ps in [results.active, results.passive, results.orp, results.hrp, results.rebalanced, results.complete]:
             if ps is None:
                 continue
             summary_data.append({
@@ -540,6 +545,13 @@ with tab_risk:
                 charts.correlation_heatmap(results.correlation_matrix),
                 use_container_width=True,
             )
+
+    # Correlation regime detection
+    if results.correlation_regime is not None and not results.correlation_regime.empty:
+        st.plotly_chart(
+            charts.correlation_regime_chart(results.correlation_regime),
+            use_container_width=True,
+        )
 
     # Rolling metrics
     if not results.monthly_returns.empty:
@@ -618,6 +630,26 @@ with tab_attribution:
         with st.expander("Sector Attribution Data"):
             st.dataframe(results.sector_attribution, use_container_width=True)
 
+    # Sector & Factor Exposure
+    if results.sector_weights is not None or results.factor_tilts is not None:
+        st.markdown("#### Sector & Factor Exposure")
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            if results.sector_weights is not None and not results.sector_weights.empty:
+                st.plotly_chart(
+                    charts.sector_donut_chart(results.sector_weights),
+                    use_container_width=True,
+                )
+                from src.analytics.exposure import effective_n_sectors
+                eff_n = effective_n_sectors(results.sector_weights)
+                st.metric("Effective N Sectors", f"{eff_n:.1f}")
+        with col_exp2:
+            if results.factor_tilts is not None and not results.factor_tilts.empty:
+                st.plotly_chart(
+                    charts.factor_tilts_chart(results.factor_tilts),
+                    use_container_width=True,
+                )
+
     # CAPM results
     if results.capm_results:
         st.markdown("#### CAPM Regression Results")
@@ -682,6 +714,41 @@ with tab_attribution:
 
 
 # ──────────────────────────────────────────────────────────────
+# TAB: Income
+# ──────────────────────────────────────────────────────────────
+
+with tab_income:
+    if results.income_metrics is not None:
+        im = results.income_metrics
+        col_i1, col_i2, col_i3, col_i4 = st.columns(4)
+        col_i1.metric("Annual Income", f"${im.get('total_annual_income', 0):,.2f}")
+        col_i2.metric("Portfolio Yield", f"{im.get('portfolio_yield', 0):.2%}")
+        col_i3.metric("Avg Yield on Cost", f"{im.get('avg_yield_on_cost', 0):.2%}")
+        col_i4.metric("Dividend Payers", f"{im.get('n_payers', 0)}")
+
+    if results.income_summary is not None and not results.income_summary.empty:
+        col_ic1, col_ic2 = st.columns(2)
+        with col_ic1:
+            st.plotly_chart(
+                charts.income_bar_chart(results.income_summary),
+                use_container_width=True,
+            )
+        with col_ic2:
+            if results.cumulative_income is not None and not results.cumulative_income.empty:
+                st.plotly_chart(
+                    charts.cumulative_income_chart(results.cumulative_income),
+                    use_container_width=True,
+                )
+
+        st.markdown("#### Dividend Income by Position")
+        display_cols = ["Ticker", "Shares", "AnnualDividendPerShare", "AnnualIncome", "YieldOnCost", "CurrentYield", "IncomeGrowthRate"]
+        available_cols = [c for c in display_cols if c in results.income_summary.columns]
+        st.dataframe(results.income_summary[available_cols], hide_index=True, use_container_width=True)
+    else:
+        st.info("Dividend income data not available. Run analysis to compute income analytics.")
+
+
+# ──────────────────────────────────────────────────────────────
 # TAB: Optimization
 # ──────────────────────────────────────────────────────────────
 
@@ -735,12 +802,68 @@ with tab_optimization:
                     use_container_width=True,
                 )
 
-        # HRP weights
+        # HRP weights side-by-side with ORP
         if results.hrp_weights is not None:
+            col_h1, col_h2 = st.columns(2)
+            with col_h1:
+                st.plotly_chart(
+                    charts.weights_bar(results.hrp_weights, "HRP Weights"),
+                    use_container_width=True,
+                )
+            with col_h2:
+                if results.hrp_linkage is not None:
+                    asset_cols = [t for t in results.config.tickers if t in results.monthly_returns.columns and t != results.config.benchmark]
+                    st.plotly_chart(
+                        charts.dendrogram_chart(results.hrp_linkage, asset_cols),
+                        use_container_width=True,
+                    )
+
+        # Concentration metrics
+        from src.analytics.risk import herfindahl_index, effective_n_bets, concentration_ratio
+        st.markdown("#### Concentration Metrics")
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            st.markdown("**Active Portfolio**")
+            if results.holdings is not None:
+                active_w = results.holdings["RealizedWeight"].values
+                c1, c2, c3 = st.columns(3)
+                c1.metric("HHI", f"{herfindahl_index(active_w):.4f}")
+                c2.metric("Eff. N Bets", f"{effective_n_bets(active_w):.1f}")
+                c3.metric("Top-3 Conc.", f"{concentration_ratio(active_w, 3):.2%}")
+        with col_c2:
+            st.markdown("**ORP**")
+            if orp_opt is not None:
+                orp_w = orp_opt.weights.values
+                c4, c5, c6 = st.columns(3)
+                c4.metric("HHI", f"{herfindahl_index(orp_w):.4f}")
+                c5.metric("Eff. N Bets", f"{effective_n_bets(orp_w):.1f}")
+                c6.metric("Top-3 Conc.", f"{concentration_ratio(orp_w, 3):.2%}")
+
+        # Weight drift chart
+        if results.weight_drift is not None and not results.weight_drift.empty:
             st.plotly_chart(
-                charts.weights_bar(results.hrp_weights, "HRP Weights"),
+                charts.weight_drift_chart(results.weight_drift),
                 use_container_width=True,
             )
+
+        # Rebalanced vs unrebalanced comparison
+        if results.rebalanced is not None and results.active is not None:
+            st.markdown("#### Rebalanced vs Buy-and-Hold")
+            rebal_data = []
+            for ps in [results.active, results.rebalanced]:
+                rebal_data.append({
+                    "Strategy": ps.name,
+                    "Ann. Return": f"{ps.ann_return:.2%}" if not np.isnan(ps.ann_return) else "--",
+                    "Ann. Volatility": f"{ps.ann_vol:.2%}" if not np.isnan(ps.ann_vol) else "--",
+                    "Sharpe": f"{ps.sharpe:.2f}" if not np.isnan(ps.sharpe) else "--",
+                    "Max Drawdown": f"{ps.max_dd:.2%}" if not np.isnan(ps.max_dd) else "--",
+                })
+            st.dataframe(pd.DataFrame(rebal_data), hide_index=True, use_container_width=True)
+
+        # Turnover
+        if results.turnover_table is not None and not results.turnover_table.empty:
+            with st.expander("Quarterly Turnover"):
+                st.dataframe(results.turnover_table, hide_index=True, use_container_width=True)
 
         # ORP stats
         st.markdown("#### Optimal Risky Portfolio Statistics")

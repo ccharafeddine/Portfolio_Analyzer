@@ -37,7 +37,23 @@ from src.analytics.risk import (
     marginal_risk_contribution,
     risk_contribution_pct,
     tail_metrics,
+    rolling_correlation,
     StressResult,
+)
+from src.analytics.hrp import hrp_weights, hrp_linkage_matrix
+from src.analytics.rebalance import (
+    drift_from_target,
+    rebalanced_backtest,
+    compute_turnover,
+)
+from src.analytics.exposure import (
+    get_sector_weights,
+    get_factor_tilts,
+)
+from src.analytics.income import (
+    compute_income_summary,
+    portfolio_income_metrics,
+    cumulative_income_series,
 )
 from src.analytics.simulation import (
     run_all_simulations,
@@ -125,8 +141,27 @@ class AnalysisResults:
     asset_attribution: Optional[pd.DataFrame] = None
     sector_attribution: Optional[pd.DataFrame] = None
 
-    # HRP (placeholder for future integration)
+    # HRP
+    hrp: Optional[PortfolioSeries] = None
     hrp_weights: Optional[pd.Series] = None
+    hrp_linkage: Optional[np.ndarray] = None
+
+    # Rebalancing
+    rebalanced: Optional[PortfolioSeries] = None
+    weight_drift: Optional[pd.DataFrame] = None
+    turnover_table: Optional[pd.DataFrame] = None
+
+    # Correlation regime
+    correlation_regime: Optional[pd.DataFrame] = None
+
+    # Sector & factor exposure
+    sector_weights: Optional[pd.DataFrame] = None
+    factor_tilts: Optional[pd.DataFrame] = None
+
+    # Income
+    income_summary: Optional[pd.DataFrame] = None
+    income_metrics: Optional[dict] = None
+    cumulative_income: Optional[pd.Series] = None
 
     # Monte Carlo
     simulations: list[SimulationResult] = field(default_factory=list)
@@ -168,6 +203,8 @@ class AnalysisPipeline:
         steps: list[tuple[str, Callable]] = [
             ("Fetching price data", self._fetch_data),
             ("Building active portfolio", self._build_active),
+            ("Computing rebalance analysis", self._compute_rebalance),
+            ("Computing income analytics", self._compute_income),
             ("Building passive portfolio", self._build_passive),
             ("Optimizing (ORP & frontier)", self._optimize),
             ("Running CAPM regressions", self._run_capm),
@@ -175,6 +212,7 @@ class AnalysisPipeline:
             ("Running stress tests", self._run_stress_tests),
             ("Building complete portfolio", self._build_complete),
             ("Running attribution", self._run_attribution),
+            ("Computing exposures", self._compute_exposure),
             ("Monte Carlo simulation", self._simulate),
             ("Saving outputs", self._save_outputs),
         ]
@@ -364,6 +402,31 @@ class AnalysisPipeline:
                     self.results.orp = PortfolioSeries("ORP", orp_values)
                     self.results.orp.compute_sharpe(self.config.risk_free_rate)
 
+        # HRP weights
+        try:
+            hrp_w = hrp_weights(asset_rets)
+            self.results.hrp_weights = hrp_w
+            self.results.hrp_linkage = hrp_linkage_matrix(asset_rets)
+
+            # Build realized HRP value series
+            if self.results.active is not None:
+                active_start = self.results.active.values.index[0]
+                prices_hrp = self.results.prices[asset_cols].loc[active_start:].dropna(how="all")
+                if not prices_hrp.empty:
+                    nonzero_hrp = hrp_w[hrp_w.abs() > 1e-8]
+                    available_hrp = [t for t in nonzero_hrp.index if t in prices_hrp.columns]
+                    if available_hrp:
+                        alloc_hrp = nonzero_hrp[available_hrp] * self.config.capital
+                        initial_hrp = prices_hrp[available_hrp].iloc[0]
+                        shares_hrp = alloc_hrp / initial_hrp
+                        hrp_values = (prices_hrp[available_hrp] * shares_hrp).sum(axis=1)
+                        hrp_values.name = "HRP"
+
+                        self.results.hrp = PortfolioSeries("HRP", hrp_values)
+                        self.results.hrp.compute_sharpe(self.config.risk_free_rate)
+        except Exception as e:
+            print(f"[pipeline] HRP failed: {e}")
+
     def _run_capm(self) -> None:
         rets_m = self.results.monthly_returns
         self.results.capm_results = run_capm_all(
@@ -399,6 +462,21 @@ class AnalysisPipeline:
 
         if self.results.active:
             self.results.tail_risk = tail_metrics(self.results.active.daily_returns)
+
+        # Correlation regime detection
+        try:
+            asset_cols = [
+                t for t in self.config.tickers
+                if t in self.results.prices.columns
+            ]
+            if len(asset_cols) >= 2:
+                daily_rets = self.results.prices[asset_cols].pct_change().dropna()
+                if len(daily_rets) > 63:
+                    self.results.correlation_regime = rolling_correlation(
+                        daily_rets, window=63
+                    )
+        except Exception as e:
+            print(f"[pipeline] Correlation regime failed: {e}")
 
     def _run_stress_tests(self) -> None:
         if self.results.active is None or self.results.passive is None:
@@ -440,6 +518,87 @@ class AnalysisPipeline:
             )
         except Exception as e:
             print(f"[pipeline] Attribution failed: {e}")
+
+    def _compute_rebalance(self) -> None:
+        if self.results.holdings is None or self.results.prices.empty:
+            return
+
+        try:
+            weights = self.config.weights
+            tickers = [t for t in weights if t in self.results.prices.columns]
+            if not tickers:
+                return
+
+            purchase_date = self.results.active.values.index[0] if self.results.active else self.config.start_date
+
+            self.results.weight_drift = drift_from_target(
+                self.results.prices, weights, purchase_date,
+            )
+
+            rebal_values = rebalanced_backtest(
+                self.results.prices.loc[self.results.prices.index >= pd.Timestamp(purchase_date)],
+                weights, self.config.capital,
+                frequency="quarterly",
+            )
+            if not rebal_values.empty:
+                self.results.rebalanced = PortfolioSeries("Rebalanced", rebal_values)
+                self.results.rebalanced.compute_sharpe(self.config.risk_free_rate)
+
+            if self.results.weight_drift is not None and not self.results.weight_drift.empty:
+                self.results.turnover_table = compute_turnover(
+                    self.results.weight_drift, frequency="quarterly",
+                )
+        except Exception as e:
+            print(f"[pipeline] Rebalance analysis failed: {e}")
+
+    def _compute_income(self) -> None:
+        if self.results.holdings is None:
+            return
+
+        try:
+            self.results.income_summary = compute_income_summary(
+                self.results.holdings,
+                self.config.start_date,
+                self.config.end_date,
+            )
+
+            total_invested = float(self.results.holdings["Invested"].sum())
+            if self.results.income_summary is not None:
+                self.results.income_metrics = portfolio_income_metrics(
+                    self.results.income_summary, total_invested,
+                )
+
+            self.results.cumulative_income = cumulative_income_series(
+                self.results.holdings,
+                self.config.start_date,
+                self.config.end_date,
+            )
+        except Exception as e:
+            print(f"[pipeline] Income analytics failed: {e}")
+
+    def _compute_exposure(self) -> None:
+        if self.results.holdings is None:
+            return
+
+        try:
+            self.results.sector_weights = get_sector_weights(self.results.holdings)
+        except Exception as e:
+            print(f"[pipeline] Sector weights failed: {e}")
+
+        try:
+            rets_m = self.results.monthly_returns
+            benchmark = self.config.benchmark
+            asset_cols = [
+                t for t in self.config.tickers
+                if t in rets_m.columns and t != benchmark
+            ]
+            if asset_cols and benchmark in rets_m.columns:
+                self.results.factor_tilts = get_factor_tilts(
+                    rets_m[asset_cols],
+                    rets_m[benchmark],
+                )
+        except Exception as e:
+            print(f"[pipeline] Factor tilts failed: {e}")
 
     def _simulate(self) -> None:
         if self.results.active is None:

@@ -309,3 +309,32 @@ def tail_metrics(returns: pd.Series) -> dict[str, float]:
         "Worst_Day": float(r.min()),
         "Best_Day": float(r.max()),
     }
+
+
+# ──────────────────────────────────────────────────────────────
+# Concentration metrics
+# ──────────────────────────────────────────────────────────────
+
+
+def herfindahl_index(weights: np.ndarray | pd.Series) -> float:
+    """Herfindahl-Hirschman Index: sum of squared weights."""
+    w = weights.values if isinstance(weights, pd.Series) else np.asarray(weights)
+    return float(np.sum(w ** 2))
+
+
+def effective_n_bets(weights: np.ndarray | pd.Series) -> float:
+    """Effective number of bets = 1 / HHI."""
+    hhi = herfindahl_index(weights)
+    if hhi < 1e-12:
+        return 0.0
+    return 1.0 / hhi
+
+
+def concentration_ratio(
+    weights: np.ndarray | pd.Series,
+    top_n: int = 3,
+) -> float:
+    """Sum of the top N absolute weights."""
+    w = weights.values if isinstance(weights, pd.Series) else np.asarray(weights)
+    sorted_abs = np.sort(np.abs(w))[::-1]
+    return float(sorted_abs[:top_n].sum())

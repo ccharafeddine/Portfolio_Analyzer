@@ -37,6 +37,10 @@ from src.analytics.risk import (
     marginal_risk_contribution,
     risk_contribution_pct,
     tail_metrics,
+    rolling_correlation,
+    herfindahl_index,
+    effective_n_bets,
+    concentration_ratio,
 )
 from src.analytics.simulation import (
     parametric_simulation,
@@ -373,3 +377,281 @@ class TestAttribution:
         port_ret = (active_w * r).sum()
         bench_ret = (bench_w * r).sum()
         assert df["Total"].sum() == pytest.approx(port_ret - bench_ret, abs=1e-10)
+
+
+# ======================================================================
+# Concentration metrics tests
+# ======================================================================
+
+
+class TestConcentration:
+    def test_herfindahl_equal_weights(self):
+        w = np.array([0.25, 0.25, 0.25, 0.25])
+        hhi = herfindahl_index(w)
+        assert hhi == pytest.approx(0.25, abs=1e-6)
+
+    def test_herfindahl_concentrated(self):
+        w = np.array([1.0, 0.0, 0.0])
+        hhi = herfindahl_index(w)
+        assert hhi == pytest.approx(1.0, abs=1e-6)
+
+    def test_effective_n_bets_equal(self):
+        w = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
+        n = effective_n_bets(w)
+        assert n == pytest.approx(5.0, abs=1e-6)
+
+    def test_concentration_ratio_top3(self):
+        w = np.array([0.5, 0.3, 0.1, 0.05, 0.05])
+        cr = concentration_ratio(w, top_n=3)
+        assert cr == pytest.approx(0.9, abs=1e-6)
+
+    def test_concentration_with_series(self):
+        w = pd.Series([0.5, 0.5], index=["A", "B"])
+        hhi = herfindahl_index(w)
+        assert hhi == pytest.approx(0.5, abs=1e-6)
+
+
+# ======================================================================
+# Correlation regime detection tests
+# ======================================================================
+
+
+class TestCorrelationRegime:
+    def test_rolling_correlation_shape(self):
+        np.random.seed(42)
+        rets = pd.DataFrame(
+            np.random.normal(0, 0.01, (200, 3)),
+            columns=["A", "B", "C"],
+        )
+        result = rolling_correlation(rets, window=63)
+        assert not result.empty
+        assert "AvgCorrelation" in result.columns
+        assert len(result) == 200 - 63
+
+    def test_rolling_correlation_single_asset(self):
+        np.random.seed(42)
+        rets = pd.DataFrame(
+            np.random.normal(0, 0.01, (100, 1)),
+            columns=["A"],
+        )
+        result = rolling_correlation(rets, window=20)
+        assert result.empty
+
+
+# ======================================================================
+# HRP tests
+# ======================================================================
+
+
+class TestHRP:
+    @pytest.fixture
+    def sample_returns(self):
+        np.random.seed(42)
+        return pd.DataFrame(
+            np.random.normal(0, 0.01, (252, 4)),
+            columns=["A", "B", "C", "D"],
+        )
+
+    def test_hrp_weights_sum_to_one(self, sample_returns):
+        from src.analytics.hrp import hrp_weights
+        w = hrp_weights(sample_returns)
+        assert abs(w.sum() - 1.0) < 1e-6
+
+    def test_hrp_weights_all_positive(self, sample_returns):
+        from src.analytics.hrp import hrp_weights
+        w = hrp_weights(sample_returns)
+        assert all(w >= 0)
+
+    def test_hrp_weights_correct_index(self, sample_returns):
+        from src.analytics.hrp import hrp_weights
+        w = hrp_weights(sample_returns)
+        assert list(w.index) == ["A", "B", "C", "D"]
+
+    def test_hrp_linkage_shape(self, sample_returns):
+        from src.analytics.hrp import hrp_linkage_matrix
+        link = hrp_linkage_matrix(sample_returns)
+        # Linkage matrix has (n-1, 4) shape
+        assert link.shape == (3, 4)
+
+    def test_hrp_two_assets(self):
+        from src.analytics.hrp import hrp_weights
+        np.random.seed(42)
+        rets = pd.DataFrame(
+            np.random.normal(0, 0.01, (100, 2)),
+            columns=["X", "Y"],
+        )
+        w = hrp_weights(rets)
+        assert abs(w.sum() - 1.0) < 1e-6
+        assert len(w) == 2
+
+
+# ======================================================================
+# Rebalancing tests
+# ======================================================================
+
+
+class TestRebalance:
+    @pytest.fixture
+    def simple_prices(self):
+        dates = pd.date_range("2020-01-01", periods=252, freq="B")
+        np.random.seed(42)
+        prices = pd.DataFrame({
+            "A": 100 * (1 + np.random.normal(0.001, 0.02, 252)).cumprod(),
+            "B": 50 * (1 + np.random.normal(0.0005, 0.01, 252)).cumprod(),
+        }, index=dates)
+        return prices
+
+    def test_drift_sums_to_one(self, simple_prices):
+        from src.analytics.rebalance import drift_from_target
+        drift = drift_from_target(simple_prices, {"A": 0.6, "B": 0.4}, simple_prices.index[0])
+        row_sums = drift.sum(axis=1)
+        assert all(abs(s - 1.0) < 1e-8 for s in row_sums)
+
+    def test_drift_initial_matches_target(self, simple_prices):
+        from src.analytics.rebalance import drift_from_target
+        drift = drift_from_target(simple_prices, {"A": 0.6, "B": 0.4}, simple_prices.index[0])
+        assert drift.iloc[0]["A"] == pytest.approx(0.6, abs=1e-6)
+        assert drift.iloc[0]["B"] == pytest.approx(0.4, abs=1e-6)
+
+    def test_rebalanced_backtest_length(self, simple_prices):
+        from src.analytics.rebalance import rebalanced_backtest
+        result = rebalanced_backtest(simple_prices, {"A": 0.6, "B": 0.4}, 100000)
+        assert len(result) == len(simple_prices)
+
+    def test_rebalanced_starts_at_capital(self, simple_prices):
+        from src.analytics.rebalance import rebalanced_backtest
+        result = rebalanced_backtest(simple_prices, {"A": 0.6, "B": 0.4}, 100000)
+        assert result.iloc[0] == pytest.approx(100000, rel=0.01)
+
+    def test_turnover_nonneg(self, simple_prices):
+        from src.analytics.rebalance import drift_from_target, compute_turnover
+        drift = drift_from_target(simple_prices, {"A": 0.6, "B": 0.4}, simple_prices.index[0])
+        turnover = compute_turnover(drift, frequency="quarterly")
+        if not turnover.empty:
+            assert all(turnover["Turnover"] >= 0)
+
+
+# ======================================================================
+# Sector & Factor exposure tests
+# ======================================================================
+
+
+class TestExposure:
+    def test_factor_tilts_columns(self):
+        from src.analytics.exposure import get_factor_tilts
+        np.random.seed(42)
+        rets = pd.DataFrame(
+            np.random.normal(0.005, 0.04, (60, 3)),
+            columns=["A", "B", "C"],
+        )
+        mkt = pd.Series(np.random.normal(0.006, 0.04, 60))
+        result = get_factor_tilts(rets, mkt)
+        assert "Asset" in result.columns
+        assert "Beta" in result.columns
+        assert "Size" in result.columns
+        assert "Momentum" in result.columns
+        assert "Quality" in result.columns
+        assert len(result) == 3
+
+    def test_effective_n_sectors_equal(self):
+        from src.analytics.exposure import effective_n_sectors
+        df = pd.DataFrame({"Sector": ["Tech", "Health", "Finance"], "Weight": [1/3, 1/3, 1/3]})
+        n = effective_n_sectors(df)
+        assert n == pytest.approx(3.0, abs=0.01)
+
+    def test_effective_n_sectors_concentrated(self):
+        from src.analytics.exposure import effective_n_sectors
+        df = pd.DataFrame({"Sector": ["Tech", "Health"], "Weight": [0.99, 0.01]})
+        n = effective_n_sectors(df)
+        assert n < 1.1  # Heavily concentrated
+
+    def test_sector_weights_with_mock(self):
+        from unittest.mock import patch, MagicMock
+        from src.analytics.exposure import get_sector_weights
+        holdings = pd.DataFrame({
+            "Ticker": ["AAPL", "MSFT"],
+            "RealizedWeight": [0.6, 0.4],
+        })
+        mock_info = {"sector": "Technology"}
+        with patch("src.analytics.exposure.yf") as mock_yf:
+            mock_ticker = MagicMock()
+            mock_ticker.info = mock_info
+            mock_yf.Ticker.return_value = mock_ticker
+            result = get_sector_weights(holdings)
+            assert not result.empty
+            assert result["Weight"].sum() == pytest.approx(1.0, abs=0.01)
+
+
+# ======================================================================
+# Income tests
+# ======================================================================
+
+
+class TestIncome:
+    def test_fetch_dividends_mock(self):
+        from unittest.mock import patch, MagicMock
+        from src.analytics.income import fetch_dividends
+        mock_divs = pd.Series(
+            [0.25, 0.25, 0.30],
+            index=pd.to_datetime(["2021-03-15", "2021-06-15", "2021-09-15"]),
+        )
+        with patch("src.analytics.income.yf") as mock_yf:
+            mock_ticker = MagicMock()
+            mock_ticker.dividends = mock_divs
+            mock_yf.Ticker.return_value = mock_ticker
+            result = fetch_dividends("AAPL", "2021-01-01", "2021-12-31")
+            assert len(result) == 3
+
+    def test_income_summary_mock(self):
+        from unittest.mock import patch, MagicMock
+        from src.analytics.income import compute_income_summary
+        holdings = pd.DataFrame({
+            "Ticker": ["AAPL"],
+            "Shares": [100.0],
+            "PurchasePrice": [150.0],
+        })
+        mock_divs = pd.Series(
+            [0.22, 0.23],
+            index=pd.to_datetime(["2021-06-01", "2021-12-01"]),
+        )
+        with patch("src.analytics.income.yf") as mock_yf:
+            mock_ticker = MagicMock()
+            mock_ticker.dividends = mock_divs
+            mock_ticker.info = {"regularMarketPrice": 170.0}
+            mock_yf.Ticker.return_value = mock_ticker
+            result = compute_income_summary(holdings, "2021-01-01", "2021-12-31")
+            assert len(result) == 1
+            assert result["AnnualIncome"].iloc[0] > 0
+
+    def test_portfolio_income_metrics(self):
+        from src.analytics.income import portfolio_income_metrics
+        summary = pd.DataFrame({
+            "Ticker": ["AAPL", "MSFT"],
+            "AnnualIncome": [500.0, 300.0],
+            "YieldOnCost": [0.02, 0.015],
+        })
+        metrics = portfolio_income_metrics(summary, 50000.0)
+        assert metrics["total_annual_income"] == 800.0
+        assert metrics["n_payers"] == 2
+        assert metrics["portfolio_yield"] > 0
+
+    def test_cumulative_income_mock(self):
+        from unittest.mock import patch, MagicMock
+        from src.analytics.income import cumulative_income_series
+        holdings = pd.DataFrame({
+            "Ticker": ["AAPL"],
+            "Shares": [100.0],
+            "PurchasePrice": [150.0],
+        })
+        mock_divs = pd.Series(
+            [0.22, 0.23, 0.24],
+            index=pd.to_datetime(["2021-03-01", "2021-06-01", "2021-09-01"]),
+        )
+        with patch("src.analytics.income.yf") as mock_yf:
+            mock_ticker = MagicMock()
+            mock_ticker.dividends = mock_divs
+            mock_yf.Ticker.return_value = mock_ticker
+            result = cumulative_income_series(holdings, "2021-01-01", "2021-12-31")
+            assert not result.empty
+            # Cumulative should be increasing
+            assert result.iloc[-1] >= result.iloc[0]

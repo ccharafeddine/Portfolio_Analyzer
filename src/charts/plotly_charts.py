@@ -883,6 +883,282 @@ def risk_contribution_chart(
 # ──────────────────────────────────────────────────────────────
 
 
+def correlation_regime_chart(corr_df: pd.DataFrame) -> go.Figure:
+    """
+    Line chart of average pairwise correlation over time.
+
+    Highlights periods where correlation exceeds mean + 1 std (regime stress).
+    """
+    if corr_df.empty or "AvgCorrelation" not in corr_df.columns:
+        return go.Figure()
+
+    avg = corr_df["AvgCorrelation"]
+    mean_val = float(avg.mean())
+    std_val = float(avg.std())
+    upper = mean_val + std_val
+    lower = mean_val - std_val
+
+    fig = go.Figure()
+
+    # Band for mean +/- 1 std
+    fig.add_trace(go.Scatter(
+        x=list(avg.index) + list(avg.index[::-1]),
+        y=[upper] * len(avg) + [lower] * len(avg),
+        fill="toself",
+        fillcolor="rgba(148, 163, 184, 0.08)",
+        line=dict(width=0),
+        name="Mean +/- 1 Std",
+        hoverinfo="skip",
+    ))
+
+    # Mean line
+    fig.add_hline(
+        y=mean_val, line_dash="dot", line_color=MUTED_COLOR, opacity=0.5,
+    )
+
+    # Color segments: red when above threshold, blue otherwise
+    colors = ["#EF4444" if v > upper else "#3B82F6" for v in avg.values]
+
+    # Main line
+    fig.add_trace(go.Scatter(
+        x=avg.index,
+        y=avg.values,
+        mode="lines",
+        name="Avg Pairwise Correlation",
+        line=dict(color="#3B82F6", width=2),
+        hovertemplate="Date: %{x|%b %d, %Y}<br>Avg Corr: %{y:.3f}<extra></extra>",
+    ))
+
+    # Overlay red segments where stressed
+    stressed = avg.copy()
+    stressed[stressed <= upper] = np.nan
+    if stressed.notna().any():
+        fig.add_trace(go.Scatter(
+            x=stressed.index,
+            y=stressed.values,
+            mode="lines",
+            name="High Correlation Regime",
+            line=dict(color="#EF4444", width=2.5),
+            hovertemplate="Date: %{x|%b %d, %Y}<br>Avg Corr: %{y:.3f}<extra></extra>",
+            connectgaps=False,
+        ))
+
+    _apply_layout(
+        fig,
+        title=dict(text="Correlation Regime Detection", font=dict(size=16, color=TEXT_COLOR)),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Avg Pairwise Correlation"),
+        xaxis_title="",
+        height=400,
+    )
+
+    return fig
+
+
+def dendrogram_chart(
+    linkage_matrix: np.ndarray,
+    labels: list[str],
+) -> go.Figure:
+    """
+    Render a dendrogram from a scipy linkage matrix using Plotly.
+
+    Uses scipy.cluster.hierarchy.dendrogram for coordinates,
+    then draws with go.Scatter.
+    """
+    from scipy.cluster.hierarchy import dendrogram as scipy_dend
+
+    dend = scipy_dend(linkage_matrix, labels=labels, no_plot=True)
+
+    fig = go.Figure()
+
+    # Draw each U-shaped link
+    icoord = dend["icoord"]
+    dcoord = dend["dcoord"]
+
+    for i, (xs, ys) in enumerate(zip(icoord, dcoord)):
+        color = COLORS[i % len(COLORS)]
+        fig.add_trace(go.Scatter(
+            x=xs,
+            y=ys,
+            mode="lines",
+            line=dict(color=color, width=2),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    # X-axis labels
+    tick_positions = list(range(5, len(labels) * 10 + 1, 10))
+    reordered_labels = dend["ivl"]
+
+    _apply_layout(
+        fig,
+        title=dict(text="HRP Cluster Dendrogram", font=dict(size=16, color=TEXT_COLOR)),
+        xaxis=dict(
+            tickmode="array",
+            tickvals=tick_positions[:len(reordered_labels)],
+            ticktext=reordered_labels,
+            gridcolor="rgba(0,0,0,0)",
+        ),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Distance"),
+        showlegend=False,
+        height=400,
+    )
+
+    return fig
+
+
+def weight_drift_chart(drift_df: pd.DataFrame) -> go.Figure:
+    """Stacked area chart of portfolio weight drift over time."""
+    if drift_df.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+
+    for i, col in enumerate(drift_df.columns):
+        color = COLORS[i % len(COLORS)]
+        fig.add_trace(go.Scatter(
+            x=drift_df.index,
+            y=drift_df[col].values,
+            name=col,
+            stackgroup="one",
+            line=dict(width=0.5, color=color),
+            fillcolor=color.replace(")", ", 0.6)").replace("rgb", "rgba")
+            if "rgb" in color
+            else f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.6)",
+            hovertemplate=f"<b>{col}</b><br>Date: %{{x|%b %d, %Y}}<br>Weight: %{{y:.2%}}<extra></extra>",
+        ))
+
+    _apply_layout(
+        fig,
+        title=dict(text="Portfolio Weight Drift Over Time", font=dict(size=16, color=TEXT_COLOR)),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat=".0%", title="Weight"),
+        xaxis_title="",
+        height=450,
+    )
+
+    return fig
+
+
+def sector_donut_chart(sector_df: pd.DataFrame) -> go.Figure:
+    """Donut chart of sector weights."""
+    if sector_df.empty:
+        return go.Figure()
+
+    labels = sector_df["Sector"].tolist()
+    values = sector_df["Weight"].tolist()
+
+    fig = go.Figure(go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.55,
+        marker=dict(colors=COLORS[:len(labels)], line=dict(color=BG_COLOR, width=2)),
+        textinfo="label+percent",
+        textfont=dict(size=12, color=TEXT_COLOR),
+        hovertemplate="<b>%{label}</b><br>Weight: %{percent}<extra></extra>",
+    ))
+
+    _apply_layout(
+        fig,
+        title=dict(text="Sector Allocation", font=dict(size=16, color=TEXT_COLOR)),
+        height=450,
+        showlegend=True,
+        legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05),
+    )
+
+    return fig
+
+
+def factor_tilts_chart(factor_df: pd.DataFrame) -> go.Figure:
+    """Grouped bar chart of factor tilts per asset."""
+    if factor_df.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+    assets = factor_df["Asset"].tolist()
+
+    for i, factor in enumerate(["Beta", "Size", "Momentum", "Quality"]):
+        if factor not in factor_df.columns:
+            continue
+        fig.add_trace(go.Bar(
+            x=assets,
+            y=factor_df[factor].values,
+            name=factor,
+            marker=dict(color=COLORS[i % len(COLORS)]),
+            hovertemplate=f"<b>%{{x}}</b><br>{factor}: %{{y:.3f}}<extra></extra>",
+        ))
+
+    fig.add_hline(y=0, line_color=MUTED_COLOR, opacity=0.3)
+
+    _apply_layout(
+        fig,
+        title=dict(text="Factor Tilts by Asset", font=dict(size=16, color=TEXT_COLOR)),
+        barmode="group",
+        xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Factor Loading"),
+        height=450,
+    )
+
+    return fig
+
+
+def income_bar_chart(income_df: pd.DataFrame) -> go.Figure:
+    """Bar chart of annual dividend income per holding."""
+    if income_df.empty or "AnnualIncome" not in income_df.columns:
+        return go.Figure()
+
+    df = income_df.sort_values("AnnualIncome", ascending=True)
+
+    fig = go.Figure(go.Bar(
+        y=df["Ticker"],
+        x=df["AnnualIncome"],
+        orientation="h",
+        marker=dict(
+            color=[COLORS[i % len(COLORS)] for i in range(len(df))],
+            line=dict(width=0),
+        ),
+        hovertemplate="<b>%{y}</b>: $%{x:,.2f}/yr<extra></extra>",
+    ))
+
+    _apply_layout(
+        fig,
+        title=dict(text="Annual Dividend Income by Holding", font=dict(size=16, color=TEXT_COLOR)),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat="$,.0f", title="Annual Income"),
+        yaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        showlegend=False,
+        height=max(300, len(df) * 40 + 100),
+    )
+
+    return fig
+
+
+def cumulative_income_chart(cum_income: pd.Series) -> go.Figure:
+    """Line chart of cumulative dividend income over time."""
+    if cum_income.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=cum_income.index,
+        y=cum_income.values,
+        mode="lines",
+        name="Cumulative Income",
+        line=dict(color="#10B981", width=2.5),
+        fill="tozeroy",
+        fillcolor="rgba(16, 185, 129, 0.1)",
+        hovertemplate="Date: %{x|%b %d, %Y}<br>Cumulative: $%{y:,.2f}<extra></extra>",
+    ))
+
+    _apply_layout(
+        fig,
+        title=dict(text="Cumulative Dividend Income", font=dict(size=16, color=TEXT_COLOR)),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat="$,.0f", title="Cumulative Income ($)"),
+        xaxis_title="",
+        height=400,
+    )
+
+    return fig
+
+
 def stress_test_chart(stress_df: pd.DataFrame) -> go.Figure:
     """Horizontal bar chart comparing portfolio vs benchmark during stress events."""
     if stress_df.empty:
