@@ -1,864 +1,852 @@
-import streamlit as st
-import json
-import subprocess
-import os
-import sys
-from datetime import datetime
+"""
+Portfolio Analyzer v2 - Streamlit App
+Bloomberg-style dark theme with tabbed layout.
+Calls src/pipeline.py directly (no subprocess).
+"""
+
 import io
+import os
+import json
 import zipfile
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
+import streamlit as st
 
-CONFIG_PATH = "config.json"
-OUTPUT_DIR = "outputs"
+from src.config.models import PortfolioConfig, BLConfig, BLView, CompletePortfolioConfig
+from src.pipeline import AnalysisPipeline, AnalysisResults
+from src.data import transforms as T
 
+# ─────────────────────────────────────────────────────────────
+# Page config (must be first Streamlit call)
+# ─────────────────────────────────────────────────────────────
 
-def load_config():
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    with open(CONFIG_PATH, "r") as f:
-        return json.load(f)
-
-
-def save_config(cfg):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=4)
-    return True
-
-
-def clear_output_dir():
-    if os.path.exists(OUTPUT_DIR):
-        for fname in os.listdir(OUTPUT_DIR):
-            fpath = os.path.join(OUTPUT_DIR, fname)
-            if os.path.isfile(fpath):
-                os.remove(fpath)
-
-
-st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
-st.title("Portfolio Analyzer App")
-
-cfg = load_config()
-ap = cfg.get("active_portfolio", {}) or {}
-
-# -------------------------
-# Session state for run status
-# -------------------------
-if "run_status" not in st.session_state:
-    st.session_state["run_status"] = None
-if "run_error" not in st.session_state:
-    st.session_state["run_error"] = None
-
-tickers: list[str] = []
-
-# =========================
-# Sidebar: Global Settings
-# =========================
-st.sidebar.header("⚙️ Global Settings")
-
-initial_capital = st.sidebar.number_input(
-    "Initial Capital",
-    min_value=1000,
-    value=int(ap.get("capital", cfg.get("initial_capital", 1_000_000))),
+st.set_page_config(
+    page_title="Portfolio Analyzer",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
+# ─────────────────────────────────────────────────────────────
+# Bloomberg-style dark theme CSS
+# ─────────────────────────────────────────────────────────────
+
+st.markdown("""
+<style>
+    /* Main background */
+    .stApp { background-color: #0B1120; }
+
+    /* Metric cards */
+    div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, #151D2E 0%, #1A2438 100%);
+        border: 1px solid #2D3A50;
+        border-radius: 12px;
+        padding: 16px 20px;
+    }
+    div[data-testid="stMetric"] label {
+        color: #94A3B8 !important;
+        font-size: 0.85rem !important;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #F1F5F9 !important;
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+    }
+
+    /* Positive/negative delta colors */
+    div[data-testid="stMetricDelta"] svg { display: none; }
+    div[data-testid="stMetricDelta"] div {
+        font-weight: 600 !important;
+    }
+
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #0B1120;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #151D2E;
+        border-radius: 8px;
+        padding: 8px 16px;
+        color: #94A3B8;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1E3A5F;
+        color: #3B82F6;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #0D1526;
+        border-right: 1px solid #1E293B;
+    }
+
+    /* Tables */
+    .stDataFrame { border-radius: 8px; overflow: hidden; }
+
+    /* Hide Streamlit branding */
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+    header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# Constants
+# ─────────────────────────────────────────────────────────────
+
+CONFIG_PATH = Path("config.json")
+OUTPUT_DIR = Path("outputs")
+
+
+# ─────────────────────────────────────────────────────────────
+# Helper: format numbers
+# ─────────────────────────────────────────────────────────────
+
+def fmt_pct(val, decimals=2):
+    """Format a decimal as percentage string."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return "N/A"
+    return f"{val * 100:.{decimals}f}%"
+
+
+def fmt_dollar(val, decimals=0):
+    """Format a number as dollar string."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return "N/A"
+    return f"${val:,.{decimals}f}"
+
+
+def fmt_ratio(val, decimals=2):
+    """Format a ratio."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return "N/A"
+    return f"{val:.{decimals}f}"
+
+
+# ─────────────────────────────────────────────────────────────
+# Title
+# ─────────────────────────────────────────────────────────────
+
+st.markdown(
+    '<h1 style="color: #F1F5F9; margin-bottom: 0;">📊 Portfolio Analyzer</h1>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    '<p style="color: #64748B; margin-top: 0;">Advanced portfolio optimization & risk analytics</p>',
+    unsafe_allow_html=True,
+)
+
+# ─────────────────────────────────────────────────────────────
+# Sidebar: Configuration
+# ─────────────────────────────────────────────────────────────
+
+# Load legacy config for defaults
+legacy_cfg = {}
+if CONFIG_PATH.exists():
+    with open(CONFIG_PATH) as f:
+        legacy_cfg = json.load(f)
+
+ap = legacy_cfg.get("active_portfolio", {}) or {}
+
+st.sidebar.markdown("## Configuration")
+
+# -- Tickers --
+st.sidebar.markdown("### Tickers")
+default_tickers = legacy_cfg.get("tickers", ap.get("tickers", ["AAPL", "MSFT"]))
+tickers_text = st.sidebar.text_area(
+    "Enter tickers (one per line)",
+    value="\n".join(default_tickers),
+    height=120,
+)
+tickers = [t.strip().upper() for t in tickers_text.split("\n") if t.strip()]
+
+# -- Weights --
+st.sidebar.markdown("### Weights")
+equal_weights = st.sidebar.checkbox("Equal Weights", value=True)
+
+weights_dict = {}
+if tickers:
+    if equal_weights:
+        w = round(1.0 / len(tickers), 6)
+        weights_dict = {t: w for t in tickers}
+        # Adjust last ticker to ensure sum = 1.0
+        remainder = 1.0 - w * (len(tickers) - 1)
+        weights_dict[tickers[-1]] = round(remainder, 6)
+    else:
+        default_w = round(1.0 / len(tickers), 4)
+        for t in tickers:
+            old_w = ap.get("weights", {}).get(t, default_w)
+            weights_dict[t] = st.sidebar.number_input(
+                f"{t} weight",
+                min_value=-2.0,
+                max_value=2.0,
+                value=float(old_w),
+                step=0.01,
+                format="%.4f",
+                key=f"weight_{t}",
+            )
+
+    wt_sum = sum(weights_dict.values())
+    if abs(wt_sum - 1.0) > 0.01:
+        st.sidebar.error(f"Weights sum to {wt_sum:.4f} (must be ~1.0)")
+
+st.sidebar.markdown("---")
+
+# -- Dates --
+st.sidebar.markdown("### Date Range")
 start_default = (
-    cfg.get("start")
-    or cfg.get("start_date")
+    legacy_cfg.get("start")
+    or legacy_cfg.get("start_date")
     or ap.get("start_date")
     or "2020-01-01"
 )
 end_default = (
-    cfg.get("end")
-    or cfg.get("end_date")
+    legacy_cfg.get("end")
+    or legacy_cfg.get("end_date")
     or ap.get("end_date")
     or "2025-12-31"
 )
 
 start_date = st.sidebar.date_input(
-    "Start Date", datetime.fromisoformat(str(start_default))
+    "Start Date",
+    pd.to_datetime(str(start_default)),
 )
 end_date = st.sidebar.date_input(
-    "End Date", datetime.fromisoformat(str(end_default))
+    "End Date",
+    pd.to_datetime(str(end_default)),
+)
+
+# -- Capital & Risk-Free Rate --
+st.sidebar.markdown("### Capital & Risk")
+capital = st.sidebar.number_input(
+    "Initial Capital ($)",
+    min_value=1000,
+    value=int(ap.get("capital", legacy_cfg.get("initial_capital", 1_000_000))),
+    step=10000,
 )
 
 benchmark = st.sidebar.text_input(
     "Benchmark Ticker",
-    value=cfg.get("benchmark") or cfg.get("passive_benchmark", "SPY"),
+    value=legacy_cfg.get("benchmark") or legacy_cfg.get("passive_benchmark", "SPY"),
 )
 
 rf_rate = st.sidebar.number_input(
-    "Risk-free rate (annual, e.g. 0.04 for 4%)",
-    value=float(cfg.get("risk_free_rate", 0.04)),
+    "Risk-Free Rate (annual)",
+    min_value=0.0,
+    max_value=0.25,
+    value=float(legacy_cfg.get("risk_free_rate", 0.04)),
     step=0.005,
     format="%.4f",
 )
 
-include_orp = st.sidebar.checkbox(
-    "Include ORP (Optimal Risky Portfolio)",
-    value=cfg.get("include_orp", True),
+st.sidebar.markdown("---")
+
+# -- Optimization Settings --
+st.sidebar.markdown("### Optimization")
+allow_shorts = st.sidebar.checkbox(
+    "Allow Short Sales",
+    value=bool(legacy_cfg.get("short_sales", False)),
 )
 
-include_complete = st.sidebar.checkbox(
-    "Include Complete Portfolio (ORP + Treasuries)",
-    value=cfg.get("include_complete", True),
+max_bound = st.sidebar.slider(
+    "Max Weight Bound",
+    min_value=0.5,
+    max_value=2.0,
+    value=1.0,
+    step=0.1,
 )
 
 y_cp = st.sidebar.slider(
-    "Complete Portfolio: ORP % (Rest goes to Treasuries)",
+    "Complete Portfolio: Risky %",
     min_value=0.0,
     max_value=1.0,
-    value=float(cfg.get("complete_portfolio", {}).get("y", cfg.get("y_cp", 0.8))),
+    value=float(
+        legacy_cfg.get("complete_portfolio", {}).get(
+            "y", legacy_cfg.get("y_cp", 0.8)
+        )
+    ),
+    step=0.05,
 )
 
-# -------------------------
-# Black-Litterman (optional)
-# -------------------------
-bl_cfg = cfg.get("black_litterman", {}) or {}
+st.sidebar.markdown("---")
+
+# -- Black-Litterman --
+st.sidebar.markdown("### Black-Litterman")
+bl_cfg = legacy_cfg.get("black_litterman", {}) or {}
 bl_enabled = st.sidebar.checkbox(
-    "Enable Black-Litterman Model",
+    "Enable BL Model",
     value=bool(bl_cfg.get("enabled", False)),
 )
+
+bl_tau = 0.05
+bl_views_list = []
+
 if bl_enabled:
-    tau = st.sidebar.number_input(
-        "Black-Litterman τ (model uncertainty)",
+    bl_tau = st.sidebar.number_input(
+        "Tau (model uncertainty)",
         min_value=0.001,
         max_value=1.0,
         value=float(bl_cfg.get("tau", 0.05)),
         step=0.005,
         format="%.3f",
-        help="Controls how much weight is placed on the prior vs your views. "
-        "Smaller τ = more weight on views.",
-    )
-else:
-    tau = float(bl_cfg.get("tau", 0.05))
-
-# ------------------------------------------------------------------
-# PER-ASSET BOUND DEFAULTS
-# ------------------------------------------------------------------
-DEFAULT_MAX_BOUND = 1.0
-
-# =========================
-# Active Portfolio
-# =========================
-st.subheader("📈 Active Portfolio")
-
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    st.markdown("### Tickers (one per line)")
-    tickers_text = st.text_area(
-        "Tickers (one per line)",
-        value="",
-        height=200,
-        label_visibility="collapsed",
     )
 
-tickers = [t.strip().upper() for t in tickers_text.split("\n") if t.strip()]
+    existing_views = bl_cfg.get("views", []) or []
+    max_views = 3
 
-with col2:
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    for i in range(max_views):
+        prior = existing_views[i] if i < len(existing_views) else {}
+        with st.sidebar.expander(f"View {i + 1}", expanded=bool(prior)):
+            enabled_this = st.sidebar.checkbox(
+                "Enable",
+                value=bool(prior),
+                key=f"bl_v_enable_{i}",
+            )
+            if not enabled_this:
+                continue
 
-    equal_weights = st.checkbox(
-        "Use Equal Weights",
-        value=True,
-    )
-    use_dividends = st.checkbox(
-        "Use Dividends",
-        value=ap.get("use_dividends", False),
-    )
-
-    allow_shorts_initial = ap.get("allow_shorts", cfg.get("short_sales", False))
-    allow_shorts = st.checkbox(
-        "Allow Shorting",
-        value=allow_shorts_initial,
-    )
-
-    max_bound = st.slider(
-        "Per-asset weight bound (|wᵢ| ≤ ...)",
-        min_value=0.5,
-        max_value=1.5,
-        value=DEFAULT_MAX_BOUND,
-        step=0.1,
-        help=(
-            "Sets the maximum absolute position per asset.\n\n"
-            "• 1.0 = no asset can exceed 100% of portfolio value.\n"
-            "• Values above 1.0 allow leverage."
-        ),
-    )
-
-    if max_bound > 1.0:
-        st.warning(
-            "Per-asset bound is above 1.0 — you’re now allowing **leverage**.\n\n"
-            "This means a single position can be larger than your total capital "
-            "(or a short position can be more than 100% of the portfolio). "
-            "Make sure this is intentional."
-        )
-
-# =========================
-# Weights
-# =========================
-weights_list: list[float] = []
-
-if not tickers:
-    st.warning("Please enter at least one ticker.")
-    st.stop()
-
-if equal_weights:
-    weights_list = [1.0 / len(tickers)] * len(tickers)
-else:
-    st.markdown("### Weights")
-
-    weight_cols = st.columns(3)
-    default_weights = [1.0 / len(tickers)] * len(tickers) if tickers else []
-
-    for idx, t in enumerate(tickers):
-        col = weight_cols[idx % 3]
-        default_val = float(default_weights[idx]) if idx < len(default_weights) else (
-            1.0 / len(tickers) if tickers else 0.0
-        )
-
-        w = col.number_input(
-            f"{t} weight",
-            min_value=-max_bound if allow_shorts else 0.0,
-            max_value=max_bound,
-            value=default_val,
-            step=0.01,
-            format="%.4f",
-        )
-        weights_list.append(float(w))
-
-if equal_weights and not weights_list:
-    weights_list = [1.0 / len(tickers)] * len(tickers)
-
-weights_dict = {t: w for t, w in zip(tickers, weights_list)}
-
-weights_sum = sum(weights_list) if weights_list else 0.0
-weights_invalid = (not equal_weights) and (abs(weights_sum - 1.0) > 1e-6)
-
-if not equal_weights:
-    st.markdown(
-        f"**Total custom weight (must equal 1.0000):** {weights_sum:.4f}"
-    )
-    if weights_invalid:
-        st.error(
-            "Custom weights must sum to 1.0000. "
-            f"Current total is {weights_sum:.4f}. "
-            "Please adjust one or more weights."
-        )
-
-# ----- Leverage health bar -----
-gross_exposure = sum(abs(w) for w in weights_list) if weights_list else 0.0
-
-st.markdown("### Leverage Health")
-st.markdown(f"**Gross exposure:** {gross_exposure:.2f}×")
-
-if gross_exposure <= 1.0 + 1e-6:
-    st.success("Conservative: gross exposure ≤ 1.0× (no leverage).")
-elif gross_exposure <= 1.5 + 1e-6:
-    st.info(
-        "Aggressive: gross exposure between 1.0× and 1.5×. "
-        "You are using some leverage; expect higher volatility."
-    )
-elif gross_exposure <= 2.0 + 1e-6:
-    st.warning(
-        "High leverage: gross exposure between 1.5× and 2.0×. "
-        "Large swings and deep drawdowns are likely."
-    )
-else:
-    st.error(
-        "Extreme leverage: gross exposure above 2.0×. "
-        "Portfolios at this level can blow up quickly; proceed with caution."
-    )
-
-# =========================
-# Black-Litterman Views
-# =========================
-bl_views: list[dict] = []
-
-if bl_enabled:
-    st.subheader("🧠 Black-Litterman Views (optional)")
-
-    if not tickers:
-        st.info("Enter tickers above to define Black-Litterman views.")
-    else:
-        existing_views = []
-        if isinstance(bl_cfg, dict):
-            existing_views = bl_cfg.get("views", []) or []
-
-        max_views = 3
-        conf_index_map = {"low": 0, "medium": 1, "high": 2}
-
-        for i in range(max_views):
-            prior = existing_views[i] if i < len(existing_views) else {}
-
-            with st.expander(f"View {i + 1}", expanded=(i == 0 and not existing_views)):
-                enabled_this = st.checkbox(
-                    "Enable this view",
-                    value=bool(prior),
-                    key=f"bl_view_enable_{i}",
-                )
-                if not enabled_this:
-                    continue
-
-                prior_type = str(prior.get("type", "absolute")).lower()
-                vtype = st.selectbox(
-                    "View type",
-                    options=["absolute", "relative"],
-                    index=0 if prior_type == "absolute" else 1,
-                    key=f"bl_view_type_{i}",
-                )
-
-                prior_conf = str(prior.get("confidence", "medium")).lower()
-                conf_idx = conf_index_map.get(prior_conf, 1)
-                confidence = st.selectbox(
-                    "Confidence",
-                    options=["low", "medium", "high"],
-                    index=conf_idx,
-                    key=f"bl_view_conf_{i}",
-                )
-
-                if vtype == "absolute":
-                    default_asset = prior.get("asset", tickers[0])
-                    try:
-                        default_idx = tickers.index(default_asset)
-                    except ValueError:
-                        default_idx = 0
-
-                    asset = st.selectbox(
-                        "Asset",
-                        options=tickers,
-                        index=default_idx,
-                        key=f"bl_view_asset_{i}",
-                    )
-
-                    q_val = float(prior.get("q", 0.0))
-                    q = st.number_input(
-                        "Expected annual excess return (decimal, e.g. 0.08 = 8%)",
-                        value=q_val,
-                        step=0.01,
-                        format="%.4f",
-                        key=f"bl_view_q_abs_{i}",
-                    )
-
-                    bl_views.append(
-                        {
-                            "type": "absolute",
-                            "asset": asset,
-                            "q": float(q),
-                            "confidence": confidence,
-                        }
-                    )
-                else:
-                    default_long = prior.get("asset_long", tickers[0])
-                    try:
-                        long_idx = tickers.index(default_long)
-                    except ValueError:
-                        long_idx = 0
-
-                    default_short = prior.get(
-                        "asset_short",
-                        tickers[1] if len(tickers) > 1 else tickers[0],
-                    )
-                    try:
-                        short_idx = tickers.index(default_short)
-                    except ValueError:
-                        short_idx = 1 if len(tickers) > 1 else 0
-
-                    asset_long = st.selectbox(
-                        "Asset (long)",
-                        options=tickers,
-                        index=long_idx,
-                        key=f"bl_view_long_{i}",
-                    )
-                    asset_short = st.selectbox(
-                        "Asset (short)",
-                        options=tickers,
-                        index=short_idx,
-                        key=f"bl_view_short_{i}",
-                    )
-
-                    q_val = float(prior.get("q", 0.0))
-                    q = st.number_input(
-                        "Expected outperformance of long vs short (decimal, e.g. 0.03 = 3%)",
-                        value=q_val,
-                        step=0.01,
-                        format="%.4f",
-                        key=f"bl_view_q_rel_{i}",
-                    )
-
-                    bl_views.append(
-                        {
-                            "type": "relative",
-                            "asset_long": asset_long,
-                            "asset_short": asset_short,
-                            "q": float(q),
-                            "confidence": confidence,
-                        }
-                    )
-
-# =========================
-# Build config.json
-# =========================
-cfg["tickers"] = tickers
-cfg["benchmark"] = benchmark
-
-cfg["start"] = str(start_date)
-cfg["end"] = str(end_date)
-
-cfg["risk_free_rate"] = float(rf_rate)
-
-cfg["short_sales"] = bool(allow_shorts)
-if allow_shorts:
-    cfg["max_allocation_bounds"] = [-max_bound, max_bound]
-else:
-    cfg["max_allocation_bounds"] = [0.0, max_bound]
-
-cfg["frontier_points"] = int(cfg.get("frontier_points", 50))
-
-cfg["include_orp"] = include_orp
-cfg["include_complete"] = include_complete
-
-ap["tickers"] = tickers
-ap["weights"] = weights_dict
-ap["use_dividends"] = use_dividends
-ap["allow_shorts"] = allow_shorts
-ap["capital"] = float(initial_capital)
-ap["start_date"] = str(start_date)
-ap["end_date"] = str(end_date)
-cfg["active_portfolio"] = ap
-cfg["tickers"] = tickers
-
-cfg["passive_portfolio"] = {
-    "capital": float(initial_capital),
-    "start_date": str(start_date),
-}
-
-cfg["complete_portfolio"] = {"y": float(y_cp)}
-
-bl_cfg_out = {"enabled": bool(bl_enabled)}
-if bl_enabled and tickers:
-    bl_cfg_out["tau"] = float(tau)
-    bl_cfg_out["views"] = bl_views
-cfg["black_litterman"] = bl_cfg_out
-
-# -------------------------
-# Run button & status
-# -------------------------
-status = st.session_state.get("run_status")
-error_msg = st.session_state.get("run_error")
-
-if st.button("💾 Save Config 💾"):
-    if weights_invalid:
-        st.error(
-            "Cannot save config: custom weights must sum to exactly 1. "
-            "Please adjust them first."
-        )
-    else:
-        save_config(cfg)
-        st.success("Configuration saved to config.json")
-
-st.markdown("## 🏃 Run Analysis")
-
-if st.button("▶️ Run Portfolio Analysis ▶️"):
-    if weights_invalid:
-        st.error(
-            "Cannot run analysis: custom weights must sum to exactly 1. "
-            "Please adjust them first."
-        )
-    else:
-        st.session_state["run_status"] = "running"
-        st.session_state["run_error"] = None
-
-        clear_output_dir()
-
-        python_exec = sys.executable
-
-        with st.spinner("Running portfolio analysis... this may take a moment ⏳"):
-            result = subprocess.run(
-                [python_exec, "main.py", "--config", "config.json"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=".",
+            vtype = st.sidebar.selectbox(
+                "Type",
+                ["absolute", "relative"],
+                index=0 if prior.get("type", "absolute") == "absolute" else 1,
+                key=f"bl_v_type_{i}",
             )
 
-        if result.returncode != 0:
-            st.session_state["run_status"] = "error"
-            st.session_state["run_error"] = result.stderr
-        else:
-            st.session_state["run_status"] = "ok"
+            confidence = st.sidebar.selectbox(
+                "Confidence",
+                ["low", "medium", "high"],
+                index=["low", "medium", "high"].index(
+                    prior.get("confidence", "medium")
+                ),
+                key=f"bl_v_conf_{i}",
+            )
 
-status = st.session_state.get("run_status")
-error_msg = st.session_state.get("run_error")
+            if vtype == "absolute" and tickers:
+                asset = st.sidebar.selectbox(
+                    "Asset",
+                    tickers,
+                    index=min(
+                        tickers.index(prior["asset"]) if prior.get("asset") in tickers else 0,
+                        len(tickers) - 1,
+                    ),
+                    key=f"bl_v_asset_{i}",
+                )
+                q = st.sidebar.number_input(
+                    "Expected excess return",
+                    value=float(prior.get("q", 0.0)),
+                    step=0.01,
+                    format="%.4f",
+                    key=f"bl_v_q_{i}",
+                )
+                bl_views_list.append({
+                    "type": "absolute",
+                    "asset": asset,
+                    "q": float(q),
+                    "confidence": confidence,
+                })
+            elif vtype == "relative" and len(tickers) >= 2:
+                asset_long = st.sidebar.selectbox(
+                    "Long Asset",
+                    tickers,
+                    index=0,
+                    key=f"bl_v_long_{i}",
+                )
+                asset_short = st.sidebar.selectbox(
+                    "Short Asset",
+                    tickers,
+                    index=min(1, len(tickers) - 1),
+                    key=f"bl_v_short_{i}",
+                )
+                q = st.sidebar.number_input(
+                    "Expected outperformance",
+                    value=float(prior.get("q", 0.0)),
+                    step=0.01,
+                    format="%.4f",
+                    key=f"bl_v_qr_{i}",
+                )
+                bl_views_list.append({
+                    "type": "relative",
+                    "asset_long": asset_long,
+                    "asset_short": asset_short,
+                    "q": float(q),
+                    "confidence": confidence,
+                })
 
-if status == "running":
-    st.info("Running analysis… please wait…")
-elif status == "ok":
-    st.success("Analysis complete!")
-elif status == "error":
-    st.error(f"Error running analyzer:\n\n{error_msg}")
+st.sidebar.markdown("---")
 
-# =========================
-# Outputs & Stats (ordered)
-# =========================
-if os.path.exists(OUTPUT_DIR) and st.session_state.get("run_status") == "ok":
-    all_files = sorted(os.listdir(OUTPUT_DIR))
-    st.write("### Output Files")
+# ─────────────────────────────────────────────────────────────
+# Build PortfolioConfig from sidebar inputs
+# ─────────────────────────────────────────────────────────────
 
-    # ---------- ZIP of everything ----------
-    if all_files:
+
+def build_config() -> PortfolioConfig:
+    """Build a validated PortfolioConfig from the sidebar state."""
+    bl_config = BLConfig(
+        enabled=bl_enabled,
+        tau=bl_tau,
+        views=[BLView(**v) for v in bl_views_list] if bl_views_list else [],
+    )
+
+    return PortfolioConfig(
+        tickers=tickers,
+        weights=weights_dict,
+        benchmark=benchmark.strip().upper(),
+        start_date=str(start_date),
+        end_date=str(end_date),
+        capital=float(capital),
+        risk_free_rate=float(rf_rate),
+        short_sales=allow_shorts,
+        max_weight_bound=max_bound,
+        frontier_points=50,
+        include_orp=True,
+        include_complete=True,
+        use_dividends=False,
+        complete_portfolio=CompletePortfolioConfig(y=y_cp),
+        black_litterman=bl_config,
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# Run button
+# ─────────────────────────────────────────────────────────────
+
+run_clicked = st.sidebar.button("Run Analysis", type="primary", use_container_width=True)
+
+# Save config button
+if st.sidebar.button("Save Config", use_container_width=True):
+    try:
+        cfg = build_config()
+        cfg.save(CONFIG_PATH)
+        st.sidebar.success("Config saved")
+    except Exception as e:
+        st.sidebar.error(f"Invalid config: {e}")
+
+
+# ─────────────────────────────────────────────────────────────
+# Run pipeline
+# ─────────────────────────────────────────────────────────────
+
+if run_clicked:
+    if not tickers:
+        st.error("Enter at least one ticker in the sidebar.")
+        st.stop()
+
+    try:
+        config = build_config()
+    except Exception as e:
+        st.error(f"Configuration error: {e}")
+        st.stop()
+
+    # Save config so legacy modules (attribution, factors) can read it
+    config.save(CONFIG_PATH)
+
+    # Clear old outputs
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    for f in OUTPUT_DIR.iterdir():
+        if f.is_file():
+            f.unlink()
+
+    # Run pipeline with progress bar
+    progress_bar = st.progress(0, text="Initializing...")
+
+    def on_progress(label: str, fraction: float):
+        progress_bar.progress(fraction, text=label)
+
+    pipeline = AnalysisPipeline(config, output_dir=str(OUTPUT_DIR))
+    results = pipeline.run(progress=on_progress)
+
+    progress_bar.progress(1.0, text="Complete")
+
+    # Store results in session state
+    st.session_state["results"] = results
+    st.session_state["run_complete"] = True
+    st.rerun()
+
+
+# ─────────────────────────────────────────────────────────────
+# Display results (if available)
+# ─────────────────────────────────────────────────────────────
+
+if not st.session_state.get("run_complete"):
+    st.info("Configure your portfolio in the sidebar and click **Run Analysis**.")
+    st.stop()
+
+results: AnalysisResults = st.session_state["results"]
+
+# ─────────────────────────────────────────────────────────────
+# Metric Cards Row
+# ─────────────────────────────────────────────────────────────
+
+st.markdown("---")
+
+mc1, mc2, mc3, mc4, mc5, mc6 = st.columns(6)
+
+active = results.active
+passive = results.passive
+orp_opt = results.orp_optimization
+
+with mc1:
+    val = active.ann_return if active else None
+    st.metric(
+        "Total Return (Ann.)",
+        fmt_pct(val),
+        delta=fmt_pct(val - passive.ann_return) + " vs bench" if active and passive else None,
+    )
+
+with mc2:
+    st.metric(
+        "Annualized Vol",
+        fmt_pct(active.ann_vol if active else None),
+    )
+
+with mc3:
+    st.metric(
+        "Sharpe Ratio",
+        fmt_ratio(active.sharpe if active else None),
+        delta=fmt_ratio(
+            active.sharpe - passive.sharpe
+        ) + " vs bench" if active and passive and not np.isnan(passive.sharpe) else None,
+    )
+
+with mc4:
+    st.metric(
+        "Max Drawdown",
+        fmt_pct(active.max_dd if active else None),
+    )
+
+with mc5:
+    if results.capm_results:
+        avg_alpha = np.mean([r.alpha for r in results.capm_results])
+        st.metric("Avg Alpha (monthly)", fmt_pct(avg_alpha, 4))
+    else:
+        st.metric("Avg Alpha", "N/A")
+
+with mc6:
+    if results.capm_results:
+        avg_beta = np.mean([r.beta for r in results.capm_results])
+        st.metric("Avg Beta", fmt_ratio(avg_beta))
+    else:
+        st.metric("Avg Beta", "N/A")
+
+
+# ─────────────────────────────────────────────────────────────
+# Tabs
+# ─────────────────────────────────────────────────────────────
+
+tab_overview, tab_risk, tab_attribution, tab_optimization, tab_forecast, tab_data = st.tabs([
+    "Overview",
+    "Risk",
+    "Attribution",
+    "Optimization",
+    "Forecast",
+    "Data",
+])
+
+
+# ─────────────────────────────────────────────────────────────
+# Helper: show an image from outputs if it exists
+# ─────────────────────────────────────────────────────────────
+
+def show_image(filename, caption=None):
+    """Display an output image if it exists."""
+    path = OUTPUT_DIR / filename
+    if path.exists():
+        st.image(str(path), caption=caption or filename, use_container_width=True)
+        return True
+    return False
+
+
+# ═════════════════════════════════════════════════════════════
+# OVERVIEW TAB
+# ═════════════════════════════════════════════════════════════
+
+with tab_overview:
+    st.markdown("### Portfolio Growth")
+    show_image("growth_active_vs_passive.png", "Growth: Active vs Passive")
+    show_image("growth_all_portfolios.png", "Growth: All Portfolios")
+
+    st.markdown("### Cumulative Outperformance")
+    show_image("active_minus_passive_cumulative.png", "Active minus Passive (cumulative)")
+
+    # Summary stats table
+    if active and passive:
+        st.markdown("### Performance Summary")
+        summary_data = {
+            "Metric": [
+                "Annualized Return",
+                "Annualized Volatility",
+                "Sharpe Ratio",
+                "Max Drawdown",
+            ],
+            "Active": [
+                fmt_pct(active.ann_return),
+                fmt_pct(active.ann_vol),
+                fmt_ratio(active.sharpe),
+                fmt_pct(active.max_dd),
+            ],
+            "Passive (Benchmark)": [
+                fmt_pct(passive.ann_return),
+                fmt_pct(passive.ann_vol),
+                fmt_ratio(passive.sharpe),
+                fmt_pct(passive.max_dd),
+            ],
+        }
+        if results.orp:
+            summary_data["ORP"] = [
+                fmt_pct(results.orp.ann_return),
+                fmt_pct(results.orp.ann_vol),
+                fmt_ratio(results.orp.sharpe),
+                fmt_pct(results.orp.max_dd),
+            ]
+        st.dataframe(pd.DataFrame(summary_data), use_container_width=True, hide_index=True)
+
+
+# ═════════════════════════════════════════════════════════════
+# RISK TAB
+# ═════════════════════════════════════════════════════════════
+
+with tab_risk:
+    st.markdown("### Drawdown")
+    show_image("drawdown_curves.png", "Portfolio Drawdown Curves")
+
+    st.markdown("### Value-at-Risk Distribution")
+    show_image("loss_histogram_active.png", "Daily Return Distribution with VaR/CVaR")
+
+    # Risk metrics table
+    if results.drawdown_metrics is not None and not results.drawdown_metrics.empty:
+        st.markdown("### Risk Metrics")
+        st.dataframe(results.drawdown_metrics, use_container_width=True, hide_index=True)
+
+    st.markdown("### Rolling Risk Analytics")
+    show_image("rolling_metrics.png", "Rolling Volatility, Sharpe, Beta")
+
+    # Rolling correlation GIF
+    corr_gif = OUTPUT_DIR / "rolling_corr_heatmap.gif"
+    if corr_gif.exists():
+        st.image(str(corr_gif), caption="Rolling Correlation Heatmap")
+
+    st.markdown("### Correlation Matrix")
+    show_image("correlation_matrix.png", "Asset Correlation Matrix")
+
+    # CAPM scatter plots
+    capm_pngs = sorted(OUTPUT_DIR.glob("capm_*.png"))
+    if capm_pngs:
+        st.markdown("### CAPM Scatter Plots")
+        cols = st.columns(min(len(capm_pngs), 3))
+        for idx, p in enumerate(capm_pngs):
+            with cols[idx % 3]:
+                st.image(str(p), caption=p.stem, use_container_width=True)
+
+    # CAPM results table
+    if results.capm_results:
+        st.markdown("### CAPM Regression Results")
+        capm_rows = [
+            {
+                "Ticker": r.ticker,
+                "Alpha": f"{r.alpha:.6f}",
+                "Beta": f"{r.beta:.4f}",
+                "t(Alpha)": f"{r.t_alpha:.3f}",
+                "t(Beta)": f"{r.t_beta:.3f}",
+                "R-squared": f"{r.r_squared:.4f}",
+            }
+            for r in results.capm_results
+        ]
+        st.dataframe(pd.DataFrame(capm_rows), use_container_width=True, hide_index=True)
+
+
+# ═════════════════════════════════════════════════════════════
+# ATTRIBUTION TAB
+# ═════════════════════════════════════════════════════════════
+
+with tab_attribution:
+    st.markdown("### Asset-Level Attribution (Brinson-Fachler)")
+    show_image("performance_attribution.png", "Allocation, Selection, Interaction Effects")
+
+    if results.asset_attribution is not None and not results.asset_attribution.empty:
+        st.dataframe(results.asset_attribution, use_container_width=True, hide_index=True)
+
+    st.markdown("### Sector-Level Attribution")
+    show_image("performance_attribution_sector.png", "Sector Attribution")
+
+    if results.sector_attribution is not None and not results.sector_attribution.empty:
+        st.dataframe(results.sector_attribution, use_container_width=True, hide_index=True)
+
+    # Factor regressions
+    factor_models = {
+        "Fama-French 3-Factor": "factor_regression_ff3.csv",
+        "Carhart 4-Factor": "factor_regression_carhart4.csv",
+        "Fama-French 5-Factor": "factor_regression_ff5.csv",
+        "Quality & Low-Vol": "factor_regression_quality_lowvol.csv",
+    }
+
+    has_factors = False
+    for title, fname in factor_models.items():
+        fpath = OUTPUT_DIR / fname
+        if fpath.exists():
+            if not has_factors:
+                st.markdown("### Multi-Factor Regressions")
+                has_factors = True
+            st.markdown(f"**{title}**")
+            try:
+                st.dataframe(pd.read_csv(fpath), use_container_width=True, hide_index=True)
+            except Exception:
+                pass
+
+    # Factor beta charts
+    factor_chart_dir = OUTPUT_DIR / "factor_charts"
+    if factor_chart_dir.exists():
+        factor_pngs = sorted(factor_chart_dir.rglob("*.png"))
+        if factor_pngs:
+            st.markdown("### Factor Beta Charts")
+            cols = st.columns(min(len(factor_pngs), 3))
+            for idx, p in enumerate(factor_pngs):
+                with cols[idx % 3]:
+                    st.image(str(p), caption=p.stem, use_container_width=True)
+
+
+# ═════════════════════════════════════════════════════════════
+# OPTIMIZATION TAB
+# ═════════════════════════════════════════════════════════════
+
+with tab_optimization:
+    st.markdown("### Efficient Frontier")
+    show_image("efficient_frontier.png", "Mean-Variance Efficient Frontier with ORP")
+
+    st.markdown("### Capital Allocation Line")
+    show_image("CAL.png", "Capital Allocation Line")
+
+    # ORP Weights
+    if orp_opt is not None:
+        st.markdown("### ORP Weights (Max-Sharpe)")
+        orp_w = orp_opt.weights.copy()
+        orp_df = pd.DataFrame({
+            "Ticker": orp_w.index,
+            "Weight": orp_w.values,
+            "Weight %": (orp_w.values * 100).round(2),
+        }).sort_values("Weight", ascending=False)
+        st.dataframe(orp_df, use_container_width=True, hide_index=True)
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("ORP Expected Return", fmt_pct(orp_opt.expected_return))
+        with col_b:
+            st.metric("ORP Expected Vol", fmt_pct(orp_opt.expected_vol))
+        with col_c:
+            st.metric("ORP Sharpe", fmt_ratio(orp_opt.sharpe))
+
+    show_image("orp_real_vs_expected.png", "ORP: Realized vs Expected Return")
+
+    # HRP
+    st.markdown("### Hierarchical Risk Parity")
+    show_image("hrp_cluster_tree.png", "HRP Cluster Dendrogram")
+
+    hrp_path = OUTPUT_DIR / "hrp_weights.csv"
+    if hrp_path.exists():
+        try:
+            hrp_df = pd.read_csv(hrp_path, index_col=0)
+            st.dataframe(hrp_df, use_container_width=True)
+        except Exception:
+            pass
+
+    # Black-Litterman
+    st.markdown("### Black-Litterman")
+    show_image("black_litterman_efficient_frontier.png", "BL Efficient Frontier")
+
+    bl_path = OUTPUT_DIR / "black_litterman_weights.csv"
+    if bl_path.exists():
+        try:
+            bl_df = pd.read_csv(bl_path, index_col=0)
+            st.markdown("**BL Optimal Weights**")
+            st.dataframe(bl_df, use_container_width=True)
+        except Exception:
+            pass
+
+    # Complete Portfolio
+    st.markdown("### Complete Portfolio")
+    show_image("complete_portfolio_pie.png", "Complete Portfolio Allocation")
+
+
+# ═════════════════════════════════════════════════════════════
+# FORECAST TAB
+# ═════════════════════════════════════════════════════════════
+
+with tab_forecast:
+    st.markdown("### Monte Carlo Forward Simulation")
+    show_image("forward_scenarios.png", "Forward Scenarios (Monte Carlo)")
+
+    # Style analysis
+    style_path = OUTPUT_DIR / "style_regression_summary.csv"
+    if style_path.exists():
+        st.markdown("### Style Analysis")
+        try:
+            st.dataframe(pd.read_csv(style_path), use_container_width=True, hide_index=True)
+        except Exception:
+            pass
+
+
+# ═════════════════════════════════════════════════════════════
+# DATA TAB
+# ═════════════════════════════════════════════════════════════
+
+with tab_data:
+    # Holdings
+    if results.holdings is not None and not results.holdings.empty:
+        st.markdown("### Holdings")
+        st.dataframe(results.holdings, use_container_width=True, hide_index=True)
+
+    # Summary JSON
+    summary_path = OUTPUT_DIR / "summary.json"
+    if summary_path.exists():
+        st.markdown("### Summary Metrics")
+        with open(summary_path) as f:
+            summary = json.load(f)
+        st.json(summary)
+
+    # CSV Downloads
+    st.markdown("### Download Data Files")
+    csv_files = sorted(OUTPUT_DIR.glob("*.csv"))
+    if csv_files:
+        for csv_file in csv_files:
+            with open(csv_file, "rb") as f:
+                st.download_button(
+                    label=f"Download {csv_file.name}",
+                    data=f.read(),
+                    file_name=csv_file.name,
+                    mime="text/csv",
+                    key=f"dl_{csv_file.name}",
+                )
+
+    # Reports
+    st.markdown("### Reports")
+    for ext in ["*.md", "*.pdf"]:
+        for report_file in sorted(OUTPUT_DIR.glob(ext)):
+            mime = "text/markdown" if report_file.suffix == ".md" else "application/pdf"
+            with open(report_file, "rb") as f:
+                st.download_button(
+                    label=f"Download {report_file.name}",
+                    data=f.read(),
+                    file_name=report_file.name,
+                    mime=mime,
+                    key=f"dl_{report_file.name}",
+                )
+
+    # ZIP of everything
+    st.markdown("### Download All Outputs")
+    all_output_files = [f for f in OUTPUT_DIR.iterdir() if f.is_file()]
+    if all_output_files:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for f in all_files:
-                full_path = os.path.join(OUTPUT_DIR, f)
-                if os.path.isfile(full_path):
-                    zf.write(full_path, arcname=f)
+            for f in all_output_files:
+                zf.write(f, arcname=f.name)
         zip_buffer.seek(0)
 
         st.download_button(
-            label="⬇️ Download all outputs as ZIP ⬇️",
+            label="Download All Outputs (ZIP)",
             data=zip_buffer,
-            file_name="outputs.zip",
+            file_name="portfolio_analysis_outputs.zip",
             mime="application/zip",
-            key="download_all_zip",
+            key="dl_all_zip",
         )
-
-    # ---------- Categorize files ----------
-    reports = []
-    priority_pngs = {}
-    capm_pngs = []
-    other_pngs = []
-    csv_files = []
-    other_files = []
-    gif_files = []
-
-    rolling_metrics_path = None
-    rolling_corr_name = None
-    rolling_corr_path = None
-    drawdown_curves_path = None
-    loss_histogram_path = None
-
-    attribution_png_path = None
-    attribution_csv_path = None
-    sector_attribution_png_path = None    # noqa: E501
-    sector_attribution_csv_path = None
-
-    priority_order = [
-        "correlation_matrix.png",
-        "efficient_frontier.png",
-        "black_litterman_efficient_frontier.png",
-        "cal.png",
-        "hrp_cluster_tree.png",  # NEW: HRP cluster tree
-        "orp_real_vs_expected.png",
-        "complete_portfolio_pie.png",
-        "growth_all_portfolios.png",
-        "forward_scenarios.png",
-    ]
-
-    for f in all_files:
-        full_path = os.path.join(OUTPUT_DIR, f)
-        if not os.path.isfile(full_path):
-            continue
-
-        lower = f.lower()
-
-        if lower.endswith(".png"):
-            if lower in priority_order:
-                priority_pngs[lower] = full_path
-            elif lower == "rolling_metrics.png":
-                rolling_metrics_path = full_path
-            elif lower == "drawdown_curves.png":
-                drawdown_curves_path = full_path
-            elif lower == "loss_histogram_active.png":
-                loss_histogram_path = full_path
-            elif lower == "performance_attribution.png":
-                attribution_png_path = full_path
-            elif lower == "performance_attribution_sector.png":
-                sector_attribution_png_path = full_path
-            elif lower.startswith("capm_"):
-                capm_pngs.append((f, full_path))
-            else:
-                other_pngs.append((f, full_path))
-        elif lower.endswith(".gif"):
-            gif_files.append((f, full_path))
-        elif lower.endswith(".csv"):
-            if lower == "performance_attribution.csv":
-                attribution_csv_path = full_path
-                csv_files.append((f, full_path))
-            elif lower == "performance_attribution_sector.csv":
-                sector_attribution_csv_path = full_path
-                csv_files.append((f, full_path))
-            else:
-                csv_files.append((f, full_path))
-        elif lower.endswith(".pdf") or lower.endswith(".md"):
-            if "report" in lower:
-                reports.append((f, full_path))
-            else:
-                other_files.append((f, full_path))
-        else:
-            other_files.append((f, full_path))
-
-    def pop_gif_by_name(target_name: str):
-        target_name = target_name.lower()
-        for idx, (gf, gpath) in enumerate(gif_files):
-            if gf.lower() == target_name:
-                gif_files.pop(idx)
-                return gf, gpath
-        return None, None
-
-    for candidate in ["rolling_corr_heatmap.gif", "rolling_cor_heatmap.gif"]:
-        gf, gpath = pop_gif_by_name(candidate)
-        if gpath:
-            rolling_corr_name, rolling_corr_path = gf, gpath
-            break
-
-    # 1) Reports
-    if reports:
-        st.write("### Report Files")
-        for f, full_path in reports:
-            if f.lower().endswith(".pdf"):
-                mime = "application/pdf"
-            elif f.lower().endswith(".md"):
-                mime = "text/markdown"
-            else:
-                mime = "application/octet-stream"
-
-            with open(full_path, "rb") as fh:
-                data = fh.read()
-
-            st.download_button(
-                label=f"Download {f}",
-                data=data,
-                file_name=f,
-                mime=mime,
-                key=f"download_report_{f}",
-            )
-
-    # 2) Holdings + CAPM summary
-    holdings_path = os.path.join(OUTPUT_DIR, "holdings_table.csv")
-    capm_path = os.path.join(OUTPUT_DIR, "capm_summary.csv")
-
-    if os.path.exists(holdings_path):
-        st.write("### Holdings Table")
-        df_hold = pd.read_csv(holdings_path, index_col=0)
-        st.dataframe(df_hold)
-
-    if os.path.exists(capm_path):
-        st.write("### CAPM Regression Results")
-        df_capm = pd.read_csv(capm_path, index_col=0)
-        st.dataframe(df_capm)
-
-    # ORP, BL, HRP weights from summary / CSV
-    orp_df = None
-    bl_df = None
-    hrp_df = None
-
-    summary_path = os.path.join(OUTPUT_DIR, "summary.json")
-    if os.path.exists(summary_path):
-        try:
-            with open(summary_path, "r") as f:
-                summary = json.load(f)
-            w_dict = summary.get("max_sharpe_weights", {})
-            if isinstance(w_dict, dict) and w_dict:
-                orp_df = (
-                    pd.Series(w_dict, name="weight")
-                    .to_frame()
-                    .assign(weight_pct=lambda df: df["weight"] * 100)
-                    .sort_values("weight", ascending=False)
-                )
-                orp_df["weight"] = orp_df["weight"].round(4)
-                orp_df["weight_pct"] = orp_df["weight_pct"].round(2)
-
-            bl_info = summary.get("black_litterman")
-            if isinstance(bl_info, dict) and bl_info.get("enabled"):
-                w_bl = bl_info.get("weights", {})
-                if isinstance(w_bl, dict) and w_bl:
-                    bl_df = (
-                        pd.Series(w_bl, name="weight")
-                        .to_frame()
-                        .assign(weight_pct=lambda df: df["weight"] * 100)
-                        .sort_values("weight", ascending=False)
-                    )
-                    bl_df["weight"] = bl_df["weight"].round(4)
-                    bl_df["weight_pct"] = bl_df["weight_pct"].round(2)
-
-        except Exception:
-            orp_df = None
-            bl_df = None
-
-    # HRP weights (from hrp_weights.csv)
-    hrp_path = os.path.join(OUTPUT_DIR, "hrp_weights.csv")
-    if os.path.exists(hrp_path):
-        try:
-            hrp_df = pd.read_csv(hrp_path, index_col=0)
-            if "weight" in hrp_df.columns:
-                if "weight_pct" not in hrp_df.columns:
-                    hrp_df["weight_pct"] = hrp_df["weight"] * 100.0
-                hrp_df["weight"] = hrp_df["weight"].round(4)
-                hrp_df["weight_pct"] = hrp_df["weight_pct"].round(2)
-                hrp_df = hrp_df.sort_values("weight", ascending=False)
-        except Exception:
-            hrp_df = None
-
-    # 3) Key Charts
-    st.write("### Key Charts")
-    for name in priority_order:
-        if name in priority_pngs:
-            if name == "efficient_frontier.png":
-                caption = "Efficient Frontier (ORP universe)"
-            elif name == "black_litterman_efficient_frontier.png":
-                caption = "Black-Litterman Efficient Frontier"
-            elif name == "cal.png":
-                caption = "Capital Allocation Line (CAL)"
-            elif name == "hrp_cluster_tree.png":
-                caption = "HRP Cluster Tree"
-            else:
-                caption = name
-
-            st.image(priority_pngs[name], caption=caption)
-
-            if name == "efficient_frontier.png" and orp_df is not None:
-                st.write("### ORP (Optimal Risky Portfolio) Weights")
-                st.dataframe(orp_df)
-
-            if name == "black_litterman_efficient_frontier.png" and bl_df is not None:
-                st.write("### Black-Litterman Portfolio Weights")
-                st.dataframe(bl_df)
-
-    # 4) Optimization Models (ORP, HRP & BL)
-    if orp_df is not None or hrp_df is not None or bl_df is not None:
-        st.write("### Optimization Models (ORP, HRP & Black-Litterman)")
-        if orp_df is not None:
-            st.write("**ORP (Optimal Risky Portfolio) Weights**")
-            st.dataframe(orp_df)
-        if hrp_df is not None:
-            st.write("**HRP (Hierarchical Risk Parity) Weights**")
-            st.dataframe(hrp_df)
-        if bl_df is not None:
-            st.write("**Black-Litterman Portfolio Weights**")
-            st.dataframe(bl_df)
-
-    # 5) Drawdown & Tail Risk
-    if drawdown_curves_path is not None or loss_histogram_path is not None:
-        st.write("### Drawdown & Tail Risk")
-        if drawdown_curves_path is not None:
-            st.image(
-                drawdown_curves_path,
-                caption="Portfolio drawdown curves",
-            )
-        if loss_histogram_path is not None:
-            st.image(
-                loss_histogram_path,
-                caption="Daily return distribution with VaR/CVaR",
-            )
-        metrics_path = os.path.join(OUTPUT_DIR, "drawdown_tail_metrics.csv")
-        if os.path.exists(metrics_path):
-            try:
-                dd_metrics_df = pd.read_csv(metrics_path)
-                st.dataframe(dd_metrics_df)
-            except Exception as e:
-                st.caption(f"Could not load drawdown_tail_metrics.csv: {e}")
-
-    # 6) Rolling Risk Analytics
-    if rolling_corr_path is not None or rolling_metrics_path is not None:
-        st.write("### Rolling Risk Analytics")
-        if rolling_corr_path is not None:
-            st.image(
-                rolling_corr_path,
-                caption=rolling_corr_name or "rolling_corr_heatmap.gif",
-            )
-        if rolling_metrics_path is not None:
-            st.image(rolling_metrics_path, caption="rolling_metrics.png")
-
-    # 7) Performance Attribution (Brinson–Fachler)
-    if (
-        attribution_png_path is not None
-        or attribution_csv_path is not None
-        or sector_attribution_png_path is not None
-        or sector_attribution_csv_path is not None
-    ):
-        st.write("### Performance Attribution (Brinson–Fachler)")
-
-        if attribution_png_path is not None:
-            st.image(
-                attribution_png_path,
-                caption="Allocation, Selection, and Interaction Effects (Assets)",
-            )
-        if attribution_csv_path is not None:
-            try:
-                attr_df = pd.read_csv(attribution_csv_path)
-                st.dataframe(attr_df)
-            except Exception as e:
-                st.caption(f"Could not load performance_attribution.csv: {e}")
-
-        if sector_attribution_png_path is not None or sector_attribution_csv_path is not None:
-            st.write("#### Sector-level Attribution")
-            if sector_attribution_png_path is not None:
-                st.image(
-                    sector_attribution_png_path,
-                    caption=(
-                        "Allocation, Selection, and Interaction Effects "
-                        "(Sectors)"
-                    ),
-                )
-            if sector_attribution_csv_path is not None:
-                try:
-                    sec_attr_df = pd.read_csv(sector_attribution_csv_path)
-                    st.dataframe(sec_attr_df)
-                except Exception as e:
-                    st.caption(
-                        f"Could not load performance_attribution_sector.csv: {e}"
-                    )
-
-    # 8) Additional charts
-    if other_pngs:
-        st.write("### Additional Charts")
-        for f, full_path in other_pngs:
-            st.image(full_path, caption=f)
-
-    if gif_files:
-        st.write("### Animated Charts")
-        for f, full_path in gif_files:
-            st.image(full_path, caption=f)
-
-    # 9) Multi-factor regression tables
-    mf_files = {
-        "Fama-French 3-Factor (FF3)": "factor_regression_ff3.csv",
-        "Carhart 4-Factor (Carhart4)": "factor_regression_carhart4.csv",
-        "Fama-French 5-Factor (FF5)": "factor_regression_ff5.csv",
-        "Quality & Low-Volatility": "factor_regression_quality_lowvol.csv",
-    }
-
-    first_mf = True
-    for title, fname in mf_files.items():
-        fpath = os.path.join(OUTPUT_DIR, fname)
-        if os.path.exists(fpath):
-            if first_mf:
-                st.write("### Multi-Factor Regression Tables")
-                first_mf = False
-            st.write(f"**{title}**")
-            try:
-                df_mf = pd.read_csv(fpath)
-                st.dataframe(df_mf)
-            except Exception as e:
-                st.write(f"*(Could not load {fname}: {e})*")
-
-    # 10) CAPM PNGs
-    if capm_pngs:
-        st.write("### CAPM Scatter Plots")
-        for f, full_path in capm_pngs:
-            st.image(full_path, caption=f)
-
-    # 11) CSV downloads
-    if csv_files:
-        st.write("### CSV Data Files")
-        for f, full_path in csv_files:
-            with open(full_path, "rb") as fh:
-                data = fh.read()
-
-            st.download_button(
-                label=f"Download {f}",
-                data=data,
-                file_name=f,
-                mime="text/csv",
-                key=f"download_csv_{f}",
-            )
