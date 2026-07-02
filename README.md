@@ -452,7 +452,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 - [x] Time-series, benchmark-relative attribution — per-holding contribution to active return, point-in-time and cumulative over time.
 
 **Platform & polish**
-- [ ] Auto-update — check GitHub Releases and prompt to download (the "Check for Updates…" menu item is currently a stub).
-- [ ] Code-signing + notarization to remove the SmartScreen / Gatekeeper warnings on unsigned builds.
-- [ ] Scheduled / automated report generation.
+- [x] Auto-update — Settings → Check for Updates… queries GitHub Releases and prompts to download; installed builds auto-check on launch.
+- [x] Scheduled / automated report generation — Settings → Scheduled Reports… (in-app interval + Generate Now), plus a headless CLI (`--generate-report --all`) for OS-level scheduling.
 - [x] First-run sample portfolios (seeded on first launch; File → Open Sample).
+- [ ] Code-signing + notarization (deferred — requires an Apple Developer ID and a Windows code-signing certificate).

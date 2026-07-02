@@ -106,6 +106,39 @@ class FundamentalsWorker(QObject):
             self.failed.emit(str(e))
 
 
+class ReportGenWorker(QObject):
+    """Generates reports for a list of (name, PortfolioConfig) off the UI thread."""
+
+    progress = Signal(str, float)
+    done = Signal(object)   # list[str] of written file paths
+    failed = Signal(str)
+
+    def __init__(self, named_configs, out_dir, formats) -> None:
+        super().__init__()
+        self._named_configs = named_configs
+        self._out_dir = out_dir
+        self._formats = tuple(formats)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.reports.generate import generate_report
+
+            written: list[str] = []
+            n = max(1, len(self._named_configs))
+            for i, (name, cfg) in enumerate(self._named_configs):
+                self.progress.emit(f"Report: {name}…", i / n)
+                try:
+                    for w in generate_report(cfg, self._out_dir,
+                                             formats=self._formats, name=name):
+                        written.append(str(w))
+                except Exception:
+                    pass  # skip this one, keep going
+            self.done.emit(written)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class ComparisonWorker(QObject):
     """Runs the fast multi-portfolio comparison off the UI thread.
 

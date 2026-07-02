@@ -64,6 +64,9 @@ class MainWindow(QMainWindow):
         self._upd_thread = None
         self._upd_worker = None
         self._upd_silent = True
+        self._rep_thread = None
+        self._rep_worker = None
+        self._report_timer = None
 
         # Seed sample portfolios on first launch so a new user has something to explore.
         try:
@@ -89,6 +92,9 @@ class MainWindow(QMainWindow):
             "check_updates_on_startup", True, type=bool
         ):
             QTimer.singleShot(1800, lambda: self._start_update_check(silent=True))
+
+        # Configure the scheduled-reports timer (and run once if set to "On app launch").
+        QTimer.singleShot(2500, self._configure_report_schedule)
 
     # ── Menubar ──
     def _build_menubar(self) -> None:
@@ -184,6 +190,9 @@ class MainWindow(QMainWindow):
         self.act_updates.triggered.connect(self._on_check_updates)
         settings_menu.addAction(self.act_updates)
         settings_menu.addSeparator()
+        self.act_sched_reports = QAction("Scheduled Reports…", self)
+        self.act_sched_reports.triggered.connect(self._show_scheduled_reports)
+        settings_menu.addAction(self.act_sched_reports)
         self.act_settings = QAction("Preferences…", self)
         self.act_settings.triggered.connect(self._show_settings)
         settings_menu.addAction(self.act_settings)
@@ -532,6 +541,95 @@ class MainWindow(QMainWindow):
         if box.clickedButton() is download_btn:
             url = release.get("download_url") or release.get("url")
             QDesktopServices.openUrl(QUrl(url))
+
+    # ── Scheduled / automated reports ──
+    def _show_scheduled_reports(self) -> None:
+        from .scheduled_reports_dialog import ScheduledReportsDialog
+
+        dlg = ScheduledReportsDialog(self)
+        dlg.generateNowRequested.connect(self._run_reports)
+        dlg.exec()
+        self._configure_report_schedule()
+
+    def _configure_report_schedule(self) -> None:
+        """Start/stop the in-app report timer from saved settings."""
+        s = self._settings
+        enabled = s.value("report_sched_enabled", False, type=bool)
+        interval = s.value("report_sched_interval", "Daily", type=str)
+        if self._report_timer is not None:
+            self._report_timer.stop()
+            self._report_timer = None
+        if not enabled:
+            return
+        if interval == "On app launch":
+            self._run_reports()  # once, now
+            return
+        ms = {"Hourly": 3_600_000, "Every 6 hours": 21_600_000,
+              "Daily": 86_400_000}.get(interval, 86_400_000)
+        self._report_timer = QTimer(self)
+        self._report_timer.setInterval(ms)
+        self._report_timer.timeout.connect(self._run_reports)
+        self._report_timer.start()
+
+    def _run_reports(self, out_dir: str = "", formats=None) -> None:
+        if getattr(self, "_rep_thread", None) is not None:
+            return  # a batch is already running
+        from . import paths
+
+        s = self._settings
+        out_dir = out_dir or s.value(
+            "report_sched_outdir", str(paths.documents_export_dir()), type=str
+        )
+        if not formats:
+            formats = s.value("report_sched_formats", "pdf", type=str).split(",")
+        try:
+            files = sorted(paths.portfolios_dir().glob("*.json"))
+        except Exception:
+            files = []
+        if not files:
+            self._status("Scheduled reports: no saved portfolios to generate")
+            return
+
+        from src.config.models import PortfolioConfig
+
+        named = []
+        for f in files:
+            try:
+                named.append((f.stem, PortfolioConfig.load(str(f))))
+            except Exception:
+                pass
+        if not named:
+            return
+
+        from .worker import ReportGenWorker
+
+        self._status(f"Generating {len(named)} report(s) in the background…")
+        self._rep_thread = QThread(self)
+        self._rep_worker = ReportGenWorker(named, out_dir, formats)
+        self._rep_worker.moveToThread(self._rep_thread)
+        self._rep_thread.started.connect(self._rep_worker.run)
+        self._rep_worker.progress.connect(lambda label, _f: self._status(label))
+        self._rep_worker.done.connect(self._on_reports_done)
+        self._rep_worker.failed.connect(self._on_reports_failed)
+        self._rep_worker.done.connect(self._rep_thread.quit)
+        self._rep_worker.failed.connect(self._rep_thread.quit)
+        self._rep_thread.finished.connect(self._cleanup_report_thread)
+        self._rep_thread.start()
+
+    def _cleanup_report_thread(self) -> None:
+        if getattr(self, "_rep_worker", None) is not None:
+            self._rep_worker.deleteLater()
+        if getattr(self, "_rep_thread", None) is not None:
+            self._rep_thread.deleteLater()
+        self._rep_worker = None
+        self._rep_thread = None
+
+    def _on_reports_done(self, written) -> None:
+        n = len(written or [])
+        self._status(f"Scheduled reports: wrote {n} file(s)")
+
+    def _on_reports_failed(self, message: str) -> None:
+        self._status(f"Scheduled reports failed: {message}")
 
     # ── Beginner mode & onboarding ──
     def _on_beginner_toggled(self, enabled: bool) -> None:

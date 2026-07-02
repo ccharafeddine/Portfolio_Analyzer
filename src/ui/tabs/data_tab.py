@@ -115,42 +115,11 @@ class DataTab(BaseTab):
             erow.addStretch(1)
             self.add_widget(exp)
 
-    # ── Report figure set (mirrors app.py's _report_charts) ──
+    # ── Report figure set (shared with the headless/scheduled generator) ──
     def _report_figures(self) -> dict:
-        results = self._results
-        figs: dict = {}
-        try:
-            growth = {}
-            for k, ps in (("Active", results.active), ("Passive", results.passive), ("ORP", results.orp)):
-                if ps is not None:
-                    growth[k] = ps.values
-            if growth:
-                figs["growth"] = charts.growth_chart(growth, results.config.capital)
+        from src.reports.generate import report_figures
 
-            dd = {}
-            for k, ps in (("Active", results.active), ("Passive", results.passive)):
-                if ps is not None:
-                    dd[k] = ps.values
-            if dd:
-                figs["drawdown"] = charts.drawdown_chart(dd)
-
-            if results.correlation_matrix is not None:
-                figs["correlation"] = charts.correlation_heatmap(results.correlation_matrix)
-
-            orp = results.orp_optimization
-            if orp:
-                rets_m = results.monthly_returns
-                cols = [t for t in results.config.tickers if t in rets_m.columns and t != results.config.benchmark]
-                mu = ((1 + rets_m[cols].mean()) ** 12 - 1) if cols else None
-                vol = (rets_m[cols].std() * np.sqrt(12)) if cols else None
-                figs["frontier"] = charts.efficient_frontier_chart(
-                    orp.frontier_vols, orp.frontier_returns, orp.expected_vol,
-                    orp.expected_return, results.config.risk_free_rate,
-                    asset_vols=vol, asset_returns=mu,
-                )
-        except Exception:
-            pass
-        return figs
+        return report_figures(self._results)
 
     # ── Export handlers ──
     def _default_path(self, name: str) -> str:

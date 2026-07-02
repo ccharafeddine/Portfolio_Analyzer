@@ -67,4 +67,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Headless report mode (for schedulers): PortfolioAnalyzer.exe --generate-report ...
+    if "--generate-report" in sys.argv:
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from src.report_cli import main as report_main
+
+        args = [a for a in sys.argv[1:] if a != "--generate-report"]
+        raise SystemExit(report_main(args))
     raise SystemExit(main())
