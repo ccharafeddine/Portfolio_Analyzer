@@ -737,6 +737,63 @@ def return_distribution_chart(
 # ──────────────────────────────────────────────────────────────
 
 
+def contribution_bar_chart(
+    totals: pd.Series, title: str = "Contribution to Active Return by Holding"
+) -> go.Figure:
+    """Per-holding total contribution to active return (green add / red drag)."""
+    if totals is None or len(totals) == 0:
+        return go.Figure()
+    s = totals.sort_values(ascending=False)
+    colors = ["#3fb950" if v >= 0 else "#f85149" for v in s.values]
+    fig = go.Figure(go.Bar(
+        x=[str(i) for i in s.index],
+        y=(s.values * 100).tolist(),
+        marker=dict(color=colors),
+        hovertemplate="%{x}: %{y:.2f}%<extra></extra>",
+        cliponaxis=False,
+    ))
+    fig.add_hline(y=0, line_color=MUTED_COLOR, opacity=0.4)
+    _apply_layout(
+        fig,
+        title=dict(text=title, font=dict(size=16, color=TEXT_COLOR)),
+        yaxis=dict(title="Contribution to active return (%)", gridcolor=GRID_COLOR,
+                   zeroline=False),
+        xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        height=360,
+    )
+    return fig
+
+
+def attribution_timeseries_chart(contrib: pd.DataFrame) -> go.Figure:
+    """Cumulative contribution of each holding to active return over time (+ total)."""
+    if contrib is None or contrib.empty:
+        return go.Figure()
+    cum = contrib.cumsum()
+    fig = go.Figure()
+    for i, col in enumerate(cum.columns):
+        fig.add_trace(go.Scatter(
+            x=cum.index, y=(cum[col] * 100).tolist(), name=str(col), mode="lines",
+            line=dict(color=COLORS[i % len(COLORS)], width=1.5),
+            hovertemplate=f"{col}: %{{y:.2f}}%<extra></extra>",
+        ))
+    total = (cum.sum(axis=1) * 100).tolist()
+    fig.add_trace(go.Scatter(
+        x=cum.index, y=total, name="Total active", mode="lines",
+        line=dict(color=TEXT_COLOR, width=2.6),
+        hovertemplate="Total: %{y:.2f}%<extra></extra>",
+    ))
+    fig.add_hline(y=0, line_color=MUTED_COLOR, opacity=0.3)
+    _apply_layout(
+        fig,
+        title=dict(text="Cumulative Contribution to Active Return",
+                   font=dict(size=16, color=TEXT_COLOR)),
+        yaxis=dict(title="Cumulative contribution (%)", gridcolor=GRID_COLOR, zeroline=False),
+        xaxis=dict(gridcolor=GRID_COLOR),
+        height=400,
+    )
+    return fig
+
+
 def trade_chart(df: pd.DataFrame, title: str = "Trades to Rebalance") -> go.Figure:
     """Per-ticker buy (green) / sell (red) dollar trades."""
     if df is None or df.empty:

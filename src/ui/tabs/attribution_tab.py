@@ -26,26 +26,24 @@ class AttributionTab(WebTab):
         interp = results.interpretations or {}
         self.add_interpretation(interp.get("capm"))
 
-        # Asset & sector attribution
-        if results.asset_attribution is not None and not results.asset_attribution.empty:
+        # Benchmark-relative attribution by holding — point-in-time totals + over time.
+        # (A single-ticker benchmark can't support true per-asset Brinson-Fachler, so we
+        # decompose active return directly: weight × excess return vs the benchmark.)
+        ts = getattr(results, "ts_attribution", None)
+        if ts is not None and not ts.empty:
+            totals = ts.sum().sort_values(ascending=False)
             self.add_chart(
-                charts.attribution_chart(
-                    results.asset_attribution, title="Brinson–Fachler Attribution (Assets)"
-                ),
-                height=380,
-                explain="attribution_assets",
+                charts.contribution_bar_chart(totals), height=360,
+                explain="attribution_contribution",
             )
-            self.add_table(results.asset_attribution, show_index=True)
-
-        if results.sector_attribution is not None and not results.sector_attribution.empty:
+            self.add_table(pd.DataFrame({
+                "Holding": totals.index.tolist(),
+                "Contribution to Active Return": [f"{v:+.2%}" for v in totals.values],
+            }))
             self.add_chart(
-                charts.attribution_chart(
-                    results.sector_attribution, title="Brinson–Fachler Attribution (Sectors)"
-                ),
-                height=380,
-                explain="attribution_sectors",
+                charts.attribution_timeseries_chart(ts), height=400,
+                explain="attribution_timeseries",
             )
-            self.add_table(results.sector_attribution, show_index=True)
 
         # Sector & factor exposure (each chart carries its own title + '?')
         exposure_figs, exposure_keys = [], []

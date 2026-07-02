@@ -135,6 +135,18 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Bars show the direction and size of each lean versus a neutral market.",
         "why": "Much of long-run return and risk comes from factor exposures, often without investors realizing it.",
     },
+    "attribution_contribution": {
+        "title": "Contribution to Active Return by Holding",
+        "what": "Each holding's total contribution to your out- or under-performance versus the benchmark over the whole period.",
+        "how": "Contribution = the holding's weight × its excess return vs the benchmark. Green added to active return, red dragged; the bars sum to your total active return.",
+        "why": "Pinpoints which positions actually earned your edge over the benchmark — or quietly cost you.",
+    },
+    "attribution_timeseries": {
+        "title": "Contribution to Active Return Over Time",
+        "what": "How each holding drove your out- or under-performance versus the benchmark as it accumulated over the period.",
+        "how": "Each line is a holding's running contribution (its weight times its excess return vs the benchmark); the bold line is total active return. Rising = adding to outperformance, falling = dragging.",
+        "why": "A single point-in-time number hides the journey — this shows which holdings earned (or lost) the active return, and when.",
+    },
     "capm_scatter": {
         "title": "CAPM Scatter Plots",
         "what": "Each holding's returns plotted against the benchmark's returns, with a fitted line.",

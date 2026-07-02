@@ -449,7 +449,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 **Analytics**
 - [x] Rebalancing / trade recommendations — concrete buy/sell orders (to your target and to the ORP) in the Optimization tab.
 - [x] Scenario builder — interactive what-if shocks (macro factors + holdings) with live impact, in the Risk tab.
-- [ ] Time-series, benchmark-relative attribution (not just point-in-time).
+- [x] Time-series, benchmark-relative attribution — per-holding contribution to active return, point-in-time and cumulative over time.
 
 **Platform & polish**
 - [ ] Auto-update — check GitHub Releases and prompt to download (the "Check for Updates…" menu item is currently a stub).

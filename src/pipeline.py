@@ -30,7 +30,10 @@ from src.analytics.regression import (
     run_capm_all,
     RegressionResult,
 )
-from src.analytics.attribution import simple_attribution_from_holdings
+from src.analytics.attribution import (
+    simple_attribution_from_holdings,
+    time_series_attribution,
+)
 from src.analytics.risk import (
     run_stress_tests,
     stress_results_to_df,
@@ -145,6 +148,8 @@ class AnalysisResults:
     # Attribution
     asset_attribution: Optional[pd.DataFrame] = None
     sector_attribution: Optional[pd.DataFrame] = None
+    # Per-period contribution of each holding to active return (time series)
+    ts_attribution: Optional[pd.DataFrame] = None
 
     # HRP
     hrp: Optional[PortfolioSeries] = None
@@ -654,6 +659,13 @@ class AnalysisPipeline:
             )
         except Exception as e:
             print(f"[pipeline] Attribution failed: {e}")
+
+        try:
+            self.results.ts_attribution = time_series_attribution(
+                self.results.monthly_returns, self.config.weights, self._bench_label,
+            )
+        except Exception as e:
+            print(f"[pipeline] Time-series attribution failed: {e}")
 
     def _compute_rebalance(self) -> None:
         if self.results.holdings is None or self.results.prices.empty:

@@ -110,6 +110,29 @@ def multi_period_attribution(
     return total_alloc
 
 
+def time_series_attribution(
+    monthly_returns: pd.DataFrame,
+    weights: dict[str, float],
+    benchmark: str,
+) -> pd.DataFrame:
+    """Per-period contribution of each holding to active return (vs the benchmark).
+
+    For each period, contribution_i = w_i * (r_i - r_benchmark), using the portfolio's
+    target weights. These sum across holdings to the (policy) active return each period,
+    so cumulating each column shows how each holding drove out/under-performance over
+    time. Returns a DataFrame indexed by period with one column per holding.
+    """
+    cols = [t for t in weights if t in monthly_returns.columns and t != benchmark]
+    if not cols or benchmark not in monthly_returns.columns:
+        return pd.DataFrame()
+
+    total = sum(float(weights[t]) for t in cols if weights[t]) or 1.0
+    w = pd.Series({t: float(weights[t]) / total for t in cols})
+    excess = monthly_returns[cols].sub(monthly_returns[benchmark], axis=0)
+    contrib = excess.mul(w, axis=1)
+    return contrib.dropna(how="all")
+
+
 def simple_attribution_from_holdings(
     holdings: pd.DataFrame,
     monthly_returns: pd.DataFrame,
