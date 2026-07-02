@@ -11,6 +11,7 @@ Design:
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -23,7 +24,13 @@ import yfinance as yf
 # Cache config
 # ──────────────────────────────────────────────────────────────
 
-DEFAULT_CACHE_DIR = Path.home() / ".portfolio_analyzer_cache"
+# The desktop app sets PORTFOLIO_ANALYZER_CACHE_DIR (via src.ui.paths) so the
+# GUI and CLI share one cache location. Falls back to the original home-dir
+# location when unset, keeping standalone/CLI behavior unchanged.
+DEFAULT_CACHE_DIR = Path(
+    os.getenv("PORTFOLIO_ANALYZER_CACHE_DIR")
+    or (Path.home() / ".portfolio_analyzer_cache")
+)
 CACHE_TTL_DAYS = 1  # Re-fetch if data is older than this
 
 

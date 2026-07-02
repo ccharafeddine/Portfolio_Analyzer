@@ -45,29 +45,50 @@ TEXT_COLOR = "#E2E8F0"
 MUTED_COLOR = "#94A3B8"
 CARD_BG = "#151D2E"
 
-_BASE_LAYOUT = dict(
-    template="plotly_dark",
-    paper_bgcolor=PAPER_COLOR,
-    plot_bgcolor=BG_COLOR,
-    font=dict(family="DM Sans, Helvetica, Arial, sans-serif", color=TEXT_COLOR, size=13),
-    margin=dict(l=60, r=30, t=50, b=80),
-    xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
-    yaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
-    legend=dict(
-        bgcolor="rgba(0,0,0,0)",
-        font=dict(size=12, color=MUTED_COLOR),
-        orientation="h",
-        yanchor="top",
-        y=-0.15,
-        xanchor="center",
-        x=0.5,
-    ),
-    hoverlabel=dict(
-        bgcolor="#1E293B",
-        font=dict(size=13, family="DM Sans, monospace"),
-        bordercolor="#334155",
-    ),
-)
+def _make_base_layout() -> dict:
+    """Build the shared layout dict from the current module palette."""
+    return dict(
+        template="plotly_dark",
+        paper_bgcolor=PAPER_COLOR,
+        plot_bgcolor=BG_COLOR,
+        font=dict(family="DM Sans, Helvetica, Arial, sans-serif", color=TEXT_COLOR, size=13),
+        margin=dict(l=60, r=30, t=50, b=80),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        legend=dict(
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=12, color=MUTED_COLOR),
+            orientation="h",
+            yanchor="top",
+            y=-0.15,
+            xanchor="center",
+            x=0.5,
+        ),
+        hoverlabel=dict(
+            bgcolor=CARD_BG,
+            font=dict(size=13, family="DM Sans, monospace"),
+            bordercolor="#334155",
+        ),
+    )
+
+
+_BASE_LAYOUT = _make_base_layout()
+
+
+def apply_palette(bg: str, paper: str, grid: str, text: str, muted: str) -> None:
+    """Retint the charts to match the active UI theme.
+
+    Reassigns the module palette and rebuilds the shared base layout. Charts
+    created after this call use the new colors (existing figures are not
+    mutated — re-render them). Defaults are preserved if never called.
+    """
+    global BG_COLOR, PAPER_COLOR, GRID_COLOR, TEXT_COLOR, MUTED_COLOR, _BASE_LAYOUT
+    BG_COLOR = bg
+    PAPER_COLOR = paper
+    GRID_COLOR = grid
+    TEXT_COLOR = text
+    MUTED_COLOR = muted
+    _BASE_LAYOUT = _make_base_layout()
 
 
 def _apply_layout(fig: go.Figure, **overrides) -> go.Figure:
@@ -206,7 +227,12 @@ def outperformance_chart(
             text="Active vs Passive: Cumulative Outperformance",
             font=dict(size=16, color=TEXT_COLOR),
         ),
-        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat="$,.0f"),
+        yaxis=dict(
+            gridcolor=GRID_COLOR,
+            zeroline=False,
+            tickformat="$,.0f",
+            title=dict(text="Cumulative $ vs benchmark (starts at $0)"),
+        ),
         showlegend=False,
         height=380,
     )
@@ -1227,4 +1253,153 @@ def stress_test_chart(stress_df: pd.DataFrame) -> go.Figure:
         ),
     )
 
+    return fig
+
+
+# ──────────────────────────────────────────────────────────────
+# Performance suite (Phase 2)
+# ──────────────────────────────────────────────────────────────
+
+
+def capture_chart(cap: dict) -> go.Figure:
+    """Up vs down capture ratios (100% = matches the benchmark)."""
+    up = cap.get("up_capture")
+    down = cap.get("down_capture")
+    labels = ["Up Capture", "Down Capture"]
+    vals = [
+        (up * 100) if up is not None and not np.isnan(up) else 0.0,
+        (down * 100) if down is not None and not np.isnan(down) else 0.0,
+    ]
+    # Good = capture more upside (green) and less downside (green when < 100).
+    colors = [
+        "#10B981" if vals[0] >= 100 else "#F59E0B",
+        "#10B981" if vals[1] <= 100 else "#EF4444",
+    ]
+    fig = go.Figure(
+        go.Bar(
+            x=labels, y=vals, marker_color=colors,
+            text=[f"{v:.0f}%" for v in vals], textposition="outside",
+            hovertemplate="%{x}: %{y:.1f}%<extra></extra>",
+        )
+    )
+    fig.add_hline(y=100, line_dash="dot", line_color=MUTED_COLOR, opacity=0.6)
+    _apply_layout(
+        fig,
+        title=dict(text="Up / Down Capture vs Benchmark", font=dict(size=16, color=TEXT_COLOR)),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, ticksuffix="%", title="% of benchmark move"),
+        showlegend=False,
+        height=340,
+    )
+    return fig
+
+
+def rolling_alpha_beta_chart(df: pd.DataFrame) -> go.Figure:
+    """Two-panel rolling annualized alpha (top) and beta (bottom)."""
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
+        subplot_titles=("Rolling Alpha (annualized)", "Rolling Beta"),
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df.index, y=df["Alpha"], name="Alpha",
+            line=dict(color=COLORS[0], width=2),
+            hovertemplate="%{x|%b %Y}<br>Alpha: %{y:.2%}<extra></extra>",
+        ),
+        row=1, col=1,
+    )
+    fig.add_hline(y=0, line_dash="dot", line_color=MUTED_COLOR, opacity=0.5, row=1, col=1)
+    fig.add_trace(
+        go.Scatter(
+            x=df.index, y=df["Beta"], name="Beta",
+            line=dict(color=COLORS[6], width=2),
+            hovertemplate="%{x|%b %Y}<br>Beta: %{y:.2f}<extra></extra>",
+        ),
+        row=2, col=1,
+    )
+    fig.add_hline(y=1, line_dash="dot", line_color=MUTED_COLOR, opacity=0.5, row=2, col=1)
+    _apply_layout(fig, showlegend=False, height=460)
+    fig.update_yaxes(tickformat=".1%", gridcolor=GRID_COLOR, row=1, col=1)
+    fig.update_yaxes(gridcolor=GRID_COLOR, row=2, col=1)
+    return fig
+
+
+def coverage_timeline_chart(coverage: dict, end_date) -> go.Figure:
+    """Per-asset data availability: when each holding entered the backtest."""
+    end = pd.Timestamp(end_date)
+    tickers = sorted(coverage.keys(), key=lambda t: coverage[t])
+    fig = go.Figure()
+    for i, t in enumerate(tickers):
+        start = pd.Timestamp(coverage[t])
+        fig.add_trace(
+            go.Scatter(
+                x=[start, end], y=[t, t], mode="lines",
+                line=dict(color=COLORS[i % len(COLORS)], width=10),
+                hovertemplate=f"{t}<br>available from {start:%b %d, %Y}<extra></extra>",
+                showlegend=False,
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[start], y=[t], mode="markers",
+                marker=dict(color="#E8EEF6", size=9, line=dict(color=COLORS[i % len(COLORS)], width=2)),
+                hoverinfo="skip", showlegend=False,
+            )
+        )
+    _apply_layout(
+        fig,
+        title=dict(text="Data Coverage by Holding", font=dict(size=16, color=TEXT_COLOR)),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, automargin=True),
+        showlegend=False,
+        height=max(220, 60 + 34 * len(tickers)),
+    )
+    return fig
+
+
+# ──────────────────────────────────────────────────────────────
+# Macro / rates (News & Macro tab)
+# ──────────────────────────────────────────────────────────────
+
+def treasury_curve_chart(curve: dict) -> go.Figure:
+    """Yield vs tenor for the current Treasury curve. ``curve`` maps tenor
+    labels (e.g. '3M', '2Y', '10Y', '30Y') to yields in percent."""
+    order = ["1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"]
+    tenors = [t for t in order if t in curve] or list(curve.keys())
+    yields = [curve[t] for t in tenors]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=tenors, y=yields, mode="lines+markers",
+        line=dict(color=COLORS[0], width=2.5),
+        marker=dict(size=8, color=COLORS[0]),
+        hovertemplate="%{x}: %{y:.2f}%<extra></extra>",
+    ))
+    _apply_layout(
+        fig,
+        title=dict(text="U.S. Treasury Yield Curve", font=dict(size=16, color=TEXT_COLOR)),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Maturity"),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Yield (%)", ticksuffix="%"),
+        showlegend=False,
+    )
+    return fig
+
+
+def rate_history_chart(series: dict, title: str = "Key Rates") -> go.Figure:
+    """Multi-line history of a few macro series. ``series`` maps a display
+    label to a pandas Series indexed by date (values in percent)."""
+    fig = go.Figure()
+    for i, (label, s) in enumerate(series.items()):
+        if s is None or len(s) == 0:
+            continue
+        fig.add_trace(go.Scatter(
+            x=list(s.index), y=list(s.values), mode="lines",
+            name=label, line=dict(color=COLORS[i % len(COLORS)], width=2),
+            hovertemplate="%{x|%b %Y}: %{y:.2f}%<extra>" + label + "</extra>",
+        ))
+    _apply_layout(
+        fig,
+        title=dict(text=title, font=dict(size=16, color=TEXT_COLOR)),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Percent", ticksuffix="%"),
+    )
     return fig

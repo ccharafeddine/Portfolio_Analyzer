@@ -62,6 +62,41 @@ class CompletePortfolioConfig(BaseModel):
     y: float = Field(0.8, ge=0.0, le=1.0, description="Fraction in risky (ORP)")
 
 
+class TaxConfig(BaseModel):
+    """Tax rates for the tax-aware analysis (simple average-cost tier)."""
+
+    enabled: bool = True
+    short_term_rate: float = Field(0.35, ge=0.0, le=0.6)
+    long_term_rate: float = Field(0.15, ge=0.0, le=0.4)
+    state_rate: float = Field(0.0, ge=0.0, le=0.15)
+
+
+class PlanConfig(BaseModel):
+    """Retirement / withdrawal planning inputs."""
+
+    enabled: bool = True
+    horizon_years: int = Field(30, ge=1, le=60)
+    annual_contribution: float = Field(0.0, ge=0.0)
+    annual_withdrawal: float = Field(0.0, ge=0.0)
+    goal_amount: float = Field(0.0, ge=0.0)
+    inflation: float = Field(0.025, ge=0.0, le=0.15)
+    # Long-run expected annual return the projection recenters to (keeps the
+    # portfolio's historical volatility). Avoids extrapolating a short hot streak.
+    expected_return: float = Field(0.07, ge=0.0, le=0.30)
+
+
+class BacktestConfig(BaseModel):
+    """How the portfolio's daily value series is simulated."""
+
+    # How to treat assets that don't cover the full window (e.g. a recent IPO):
+    #   "rescale" — hold available assets at rescaled weights; rebalance new ones in
+    #   "cash"    — reserve the unavailable weight in cash until the asset exists
+    inception_mode: Literal["rescale", "cash"] = "rescale"
+    # Calendar rebalancing (on top of asset-entry events). "none" = buy-and-hold.
+    rebalance_frequency: Literal["none", "monthly", "quarterly", "semiannual", "annual"] = "none"
+    transaction_cost_bps: float = Field(0.0, ge=0.0, le=100.0)
+
+
 # ──────────────────────────────────────────────────────────────
 # Main config
 # ──────────────────────────────────────────────────────────────
@@ -97,11 +132,17 @@ class PortfolioConfig(BaseModel):
     include_complete: bool = True
     use_dividends: bool = False
 
+    # ── Cost basis (per-ticker average cost per share; empty = infer from purchase) ──
+    cost_basis: dict[str, float] = Field(default_factory=dict)
+
     # ── Sub-configs ──
     complete_portfolio: CompletePortfolioConfig = Field(
         default_factory=CompletePortfolioConfig
     )
     black_litterman: BLConfig = Field(default_factory=BLConfig)
+    backtest: BacktestConfig = Field(default_factory=BacktestConfig)
+    tax: TaxConfig = Field(default_factory=TaxConfig)
+    plan: PlanConfig = Field(default_factory=PlanConfig)
 
     # ── Validators ──
 
@@ -254,6 +295,10 @@ class PortfolioConfig(BaseModel):
             include_orp=bool(old.get("include_orp", True)),
             include_complete=bool(old.get("include_complete", True)),
             use_dividends=bool(ap.get("use_dividends", False)),
+            cost_basis=old.get("cost_basis", {}) or {},
             complete_portfolio=CompletePortfolioConfig(y=y_val),
             black_litterman=bl_config,
+            backtest=BacktestConfig(**(old.get("backtest") or {})),
+            tax=TaxConfig(**(old.get("tax") or {})),
+            plan=PlanConfig(**(old.get("plan") or {})),
         )

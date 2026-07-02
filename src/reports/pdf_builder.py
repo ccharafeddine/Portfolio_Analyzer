@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from src.pipeline import AnalysisResults
 
 from src.reports.interpreter import generate_full_interpretation
+from src.reports.html_builder import DISCLOSURES
 
 
 # ---------------------------------------------------------------
@@ -179,6 +180,18 @@ def _dollar(v):
     return f"${v:,.0f}"
 
 
+def _shares(v):
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return "N/A"
+    return f"{v:,.0f}" if abs(v - round(v)) < 1e-6 else f"{v:,.4f}"
+
+
+def _ratio(v, d=2):
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return "N/A"
+    return f"{v:.{d}f}"
+
+
 # ---------------------------------------------------------------
 # PDF builder
 # ---------------------------------------------------------------
@@ -246,8 +259,14 @@ def build_pdf_report(
         "8. Income Analysis",
         "9. Correlation & Diversification",
         "10. Monte Carlo Simulation",
-        "11. Holdings Detail",
+        "11. Performance Measurement",
     ]
+    if results.tax_metrics:
+        toc_items.append("Tax Analysis")
+    if results.plan_result is not None:
+        toc_items.append("Retirement Planning")
+    toc_items.append("Holdings Detail")
+    toc_items.append("Important Disclosures")
     for item in toc_items:
         elements.append(Paragraph(item, styles["BodyText2"]))
     elements.append(PageBreak())
@@ -452,8 +471,81 @@ def build_pdf_report(
         )
         elements.append(t)
 
-    # ── 11. Holdings ──
-    elements.append(Paragraph("11. Holdings Detail", styles["SectionTitle"]))
+    # ── 11. Performance Measurement ──
+    elements.append(Paragraph("11. Performance Measurement", styles["SectionTitle"]))
+    elements.append(Paragraph(
+        "Benchmark-relative measures on the active portfolio: how much of the market's "
+        "up and down moves it captured, and how consistently it beat the benchmark.",
+        styles["InterpText"],
+    ))
+    cap = results.capture_metrics
+    if cap:
+        cap_rows = [
+            ["Up Capture", _pct(cap.get("up_capture"))],
+            ["Down Capture", _pct(cap.get("down_capture"))],
+            ["Capture Ratio", _ratio(cap.get("capture_ratio"))],
+            ["Batting Average", _pct(cap.get("batting_avg"))],
+        ]
+        elements.append(_make_table(["Measure", "Value"], cap_rows,
+                                    col_widths=[3.5 * inch, 3.5 * inch]))
+
+    # ── Tax Analysis ──
+    if results.tax_metrics:
+        tm = results.tax_metrics
+        elements.append(Paragraph("Tax Analysis", styles["SectionTitle"]))
+        elements.append(Paragraph(
+            "Unrealized gains/losses on current holdings, tax-loss-harvesting candidates, "
+            "and estimated tax on gains realized by rebalancing (simple average-cost basis).",
+            styles["InterpText"],
+        ))
+        tax_rows = [
+            ["Unrealized Gain", _dollar(tm.get("unrealized_gain", 0))],
+            ["Harvestable Losses", _dollar(tm.get("harvest_potential", 0))],
+            ["Loss Candidates", str(tm.get("n_harvest", 0))],
+            ["Est. Tax (realized)", _dollar(tm.get("estimated_tax", 0))],
+        ]
+        elements.append(_make_table(["Metric", "Value"], tax_rows,
+                                    col_widths=[3.5 * inch, 3.5 * inch]))
+        td = results.tax_detail
+        if td is not None and not td.empty:
+            det_rows = []
+            for _, r in td.iterrows():
+                det_rows.append([
+                    r["Ticker"],
+                    _shares(r["Shares"]),
+                    f"${r['AvgCost']:,.2f}" if r["AvgCost"] == r["AvgCost"] else "—",
+                    f"${r['CurrentPrice']:,.2f}" if r["CurrentPrice"] == r["CurrentPrice"] else "—",
+                    _dollar(r["MarketValue"]),
+                    _dollar(r["UnrealizedGain"]) if r["UnrealizedGain"] == r["UnrealizedGain"] else "—",
+                ])
+            elements.append(Spacer(1, 6))
+            elements.append(_make_table(
+                ["Ticker", "Shares", "Avg Cost", "Price", "Mkt Value", "Unrealized"], det_rows))
+
+    # ── Retirement Planning ──
+    plan = results.plan_result
+    if plan is not None:
+        elements.append(Paragraph("Retirement Planning", styles["SectionTitle"]))
+        elements.append(Paragraph(
+            f"Monte Carlo projection over a {plan.horizon_years}-year horizon, including any "
+            "planned contributions and withdrawals.",
+            styles["InterpText"],
+        ))
+        plan_rows = [
+            ["Success Probability", f"{plan.success_prob:.0%}"],
+            ["Depletion Risk", f"{plan.depletion_prob:.0%}"],
+            ["Median Ending", _dollar(plan.median_terminal)],
+            ["Worst Case (P5)", _dollar(plan.percentiles.get("P5"))],
+        ]
+        if plan.safe_withdrawal_rate is not None:
+            plan_rows.append(["Safe Withdrawal Rate", f"{plan.safe_withdrawal_rate:.1%}"])
+        if plan.goal_amount:
+            plan_rows.append(["Goal Probability", f"{plan.goal_prob:.0%}"])
+        elements.append(_make_table(["Metric", "Value"], plan_rows,
+                                    col_widths=[3.5 * inch, 3.5 * inch]))
+
+    # ── Holdings ──
+    elements.append(Paragraph("Holdings Detail", styles["SectionTitle"]))
 
     if results.holdings is not None:
         h_rows = []
@@ -462,7 +554,7 @@ def build_pdf_report(
                 r["Ticker"],
                 _pct(r.get("TargetWeight", 0)),
                 _pct(r.get("RealizedWeight", 0)),
-                f"{r['Shares']:.0f}",
+                _shares(r["Shares"]),
                 f"${r['PurchasePrice']:.2f}",
                 _dollar(r["Invested"]),
             ])
@@ -472,10 +564,14 @@ def build_pdf_report(
         )
         elements.append(t)
 
+    # ── Important Disclosures ──
+    elements.append(Paragraph("Important Disclosures", styles["SectionTitle"]))
+    elements.append(Paragraph(DISCLOSURES, styles["InterpText"]))
+
     # Footer
     elements.append(Spacer(1, 24))
     elements.append(Paragraph(
-        f"Portfolio Analyzer v2 | Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Portfolio Analyzer | Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         ParagraphStyle("Footer", parent=styles["Normal"], fontSize=8, textColor=MUTED, alignment=1),
     ))
 

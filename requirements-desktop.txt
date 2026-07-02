@@ -1,0 +1,31 @@
+# Desktop app dependencies (PySide6 native build).
+# Kept separate from requirements.txt so the CI test env stays lean and
+# streamlit is not pulled into the packaged app.
+
+# ── Core compute layer (shared with the analytics engine) ──
+yfinance>=0.2.54
+pandas==2.2.3
+numpy>=2.0.2
+scipy>=1.16.2
+statsmodels>=0.14.4
+pydantic==2.8.2
+python-dotenv==1.0.1
+pyarrow>=15.0.0
+requests>=2.31.0
+
+# ── Charts & reports ──
+plotly>=5.18.0
+jinja2==3.1.4
+markdown==3.7
+reportlab==4.2.5
+python-pptx>=1.0            # client-facing PowerPoint export
+# kaleido renders Plotly charts to PNG for the PowerPoint (and optional PDF/HTML
+# chart images). It ships its own Chromium (~100 MB) — the largest single dep.
+kaleido==0.2.1
+
+# ── Desktop UI ──
+PySide6>=6.10
+platformdirs>=4.0
+
+# ── Build tooling (dev only) ──
+pyinstaller>=6.6
