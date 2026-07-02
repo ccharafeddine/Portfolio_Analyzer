@@ -1,5 +1,7 @@
 # Portfolio Analyzer
 
+[![CI](https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml)
+
 A native desktop portfolio-analytics application built with Python and PySide6 (Qt6). It runs an 18-step analysis pipeline covering an inception-aware backtest engine, portfolio optimization, performance measurement, risk decomposition, factor and sector attribution, income tracking, tax-aware analysis, retirement/withdrawal planning, and Monte Carlo forecasting — plus a live News & Macro tab for market context — all rendered as interactive Plotly charts in a switchable, Bloomberg-style dark UI, with client-ready HTML, PDF, and PowerPoint reports plus a full CSV data pack.
 
 Every result is paired with a plain-English explanation, so the app is usable by advisors and analysts as well as non-finance retail investors.
@@ -349,6 +351,32 @@ python -m pytest -q
 | `test_desktop_paths.py` | 6 | Cross-platform cache/output/export directory resolution |
 
 Tests that would call yfinance use `unittest.mock.patch` to avoid network dependencies.
+
+### Continuous Integration
+
+`.github/workflows/ci.yml` runs on every push and pull request to `main`, on **Ubuntu and Windows** (Python 3.13): a critical-error lint (ruff), a compile check, and the full test suite (headless via `QT_QPA_PLATFORM=offscreen`).
+
+---
+
+## Building & Releases
+
+The app is packaged with **PyInstaller** into a one-directory build (a Windows `PortfolioAnalyzer.exe` folder and a macOS `.app`), using `packaging/PortfolioAnalyzer.spec`.
+
+**Build locally** (from the repo root, with `requirements-desktop.txt` installed):
+
+```bash
+pyinstaller packaging/PortfolioAnalyzer.spec --noconfirm
+# output in dist/PortfolioAnalyzer/  (Windows)  or  dist/Portfolio Analyzer.app  (macOS)
+```
+
+**Cut a release:** push a version tag and `.github/workflows/release.yml` builds both platforms, zips them, and attaches the archives to a **draft GitHub Release** (review and publish it manually):
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` (report chart export), and QtWebEngine. The Windows executable icon comes from `src/ui/assets/app.ico`; a macOS `app.icns` can be dropped alongside it to set the `.app` icon.
 
 ---
 

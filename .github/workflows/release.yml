@@ -1,0 +1,65 @@
+name: Release
+
+# Push a version tag to build installers and publish a GitHub Release, e.g.:
+#     git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}  # allow manual runs for testing
+
+permissions:
+  contents: write  # required to create the Release and upload assets
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: PortfolioAnalyzer-windows
+          - os: macos-latest
+            artifact: PortfolioAnalyzer-macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-desktop.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller packaging/PortfolioAnalyzer.spec --noconfirm
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path dist/PortfolioAnalyzer/* -DestinationPath ${{ matrix.artifact }}.zip
+        shell: pwsh
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -ry ../${{ matrix.artifact }}.zip "Portfolio Analyzer.app"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}.zip
+          draft: true
+          generate_release_notes: true

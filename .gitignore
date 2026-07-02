@@ -18,3 +18,8 @@ outputs/
 
 # Claude Code local settings
 .claude/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec.bak
