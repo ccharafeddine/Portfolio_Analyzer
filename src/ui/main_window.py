@@ -65,6 +65,14 @@ class MainWindow(QMainWindow):
         self._upd_worker = None
         self._upd_silent = True
 
+        # Seed sample portfolios on first launch so a new user has something to explore.
+        try:
+            from .samples import seed_sample_portfolios
+
+            seed_sample_portfolios(self._settings)
+        except Exception:
+            pass
+
         self._build_menubar()
         self._build_central()
         self._build_statusbar()
@@ -101,6 +109,14 @@ class MainWindow(QMainWindow):
         self.act_quit.triggered.connect(self.close)
         for a in (self.act_new, self.act_open, self.act_save):
             file_menu.addAction(a)
+        # Ready-made sample portfolios for quick exploration.
+        from .samples import SAMPLE_SPECS
+
+        sample_menu = file_menu.addMenu("Open Sample")
+        for name in SAMPLE_SPECS:
+            act = QAction(name, self)
+            act.triggered.connect(lambda _=False, n=name: self._on_open_sample(n))
+            sample_menu.addAction(act)
         file_menu.addSeparator()
         file_menu.addAction(self.act_import_csv)
         file_menu.addAction(self.act_export)
@@ -354,6 +370,17 @@ class MainWindow(QMainWindow):
         self.config_panel.load_config(config)
         self._current_portfolio_path = path
         self._status(f"Opened {Path(path).name}")
+
+    def _on_open_sample(self, name: str) -> None:
+        from .samples import build_sample_config
+
+        try:
+            self.config_panel.load_config(build_sample_config(name))
+        except Exception as e:
+            QMessageBox.warning(self, "Open Sample", f"Could not load sample:\n{e}")
+            return
+        self._current_portfolio_path = None
+        self._status(f"Loaded sample: {name} — click Run Analysis")
 
     def _on_save_portfolio(self) -> None:
         from pathlib import Path

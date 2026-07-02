@@ -455,4 +455,4 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 - [ ] Auto-update — check GitHub Releases and prompt to download (the "Check for Updates…" menu item is currently a stub).
 - [ ] Code-signing + notarization to remove the SmartScreen / Gatekeeper warnings on unsigned builds.
 - [ ] Scheduled / automated report generation.
-- [ ] First-run sample portfolios for onboarding.
+- [x] First-run sample portfolios (seeded on first launch; File → Open Sample).
