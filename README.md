@@ -22,9 +22,11 @@ Every result is paired with a plain-English explanation, so the app is usable by
   - [Income](#5-income)
   - [Optimization](#6-optimization)
   - [Forecast](#7-forecast)
-  - [News](#8-news)
-  - [Macro](#9-macro)
-  - [Data](#10-data)
+  - [Fundamentals](#8-fundamentals)
+  - [News](#9-news)
+  - [Macro](#10-macro)
+  - [Data](#11-data)
+- [Roadmap (v2)](#roadmap-v2)
 - [Pipeline Architecture](#pipeline-architecture)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -61,6 +63,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 | **Income Tracking** | Per-ticker dividends, yield on cost, current yield, income growth, cumulative income series |
 | **Tax Analysis** | Unrealized gain/loss per position, harvest candidates, estimated tax on rebalancing gains (short/long/state rates, average-cost basis) |
 | **Forecasting & Planning** | Parametric and bootstrap Monte Carlo (fan charts, probability of loss); retirement/withdrawal plan with contributions, withdrawals, inflation, goal funding, and safe-withdrawal-rate search |
+| **Fundamentals** | Per-holding valuation, profitability, growth, balance-sheet health, dividends, and upcoming earnings/ex-dividend dates (yfinance; FMP DCF fair value when keyed) |
 | **Market Context** | Per-holding news (yfinance baseline, no key; Alpha Vantage sentiment when keyed), FRED Treasury curve + key rates, on-demand Refresh and auto-refresh each run |
 | **Reports** | Automated interpretation engine, standalone HTML report, PDF report (reportlab), client-facing PowerPoint deck (python-pptx + kaleido), each with disclosures |
 | **Data Export** | ~22 CSV files + `summary.json` + a `README.txt` manifest, individually or as a ZIP |
@@ -188,17 +191,27 @@ Forward-looking simulation and retirement planning.
 - **Retirement Plan** — a Monte Carlo projection over a configurable horizon with contributions, withdrawals, and inflation. Reports success probability, depletion risk, median and worst-case (P5) endings, a solved safe-withdrawal rate, and goal-funding probability. Expected-return assumptions are recentered so a short historical bull run doesn't inflate long-horizon projections.
 - **Monte Carlo Forecast** — parametric and bootstrap fan charts (percentile bands) with a comparison table and probability analysis.
 
-### 8. News
+### 8. Fundamentals
+
+Company-level fundamentals for every holding, side by side — pulled from yfinance (no key), enriched with FMP's DCF fair value when an FMP key is set. Background-fetched (each run + Refresh); excluded from reports. Grouped comparison tables:
+
+- **Valuation** — P/E, forward P/E, P/B, P/S, PEG, EV/EBITDA (plus DCF fair value and upside when FMP is configured).
+- **Profitability** — gross/operating/net margin, ROE, ROA.
+- **Growth & Financial Health** — revenue and earnings growth, debt/equity, current ratio.
+- **Dividends & Profile** — dividend yield, payout ratio, beta, market cap, sector.
+- **Upcoming Earnings & Ex-Dividend Dates** — the next reporting and ex-dividend dates per holding.
+
+### 9. News
 
 Recent headlines for every ticker in the analysis, newest first, as clickable cards that open in your browser. Fetched on a background thread — automatically on every run and on demand via a **Refresh** button — so it never blocks the UI. Works with no setup via yfinance; adding an **Alpha Vantage** key in Settings pulls more articles and a per-article **sentiment** tag (bullish/neutral/bearish). Excluded from exported reports.
 
-### 9. Macro
+### 10. Macro
 
 Appears only once a valid **FRED** key returns data (added in Settings → Preferences). Shows the current U.S. Treasury yield curve, a headline-rates table (Fed Funds, CPI YoY, unemployment, key tenors) with one-year changes, and a 10-Year vs Fed Funds history. Also background-fetched with a Refresh button; excluded from reports.
 
 When macro data loads, the latest short-term Treasury yield (3-month bill) is fed back into the **Risk-free rate** config field, so the next run defaults to the live market rate. The field is labeled "Risk-free rate (live 3M T-bill)" while it's FRED-driven, and reverts to a plain label the moment you edit it manually.
 
-### 10. Data
+### 11. Data
 
 Raw data access, report generation, and export. Opens with an executive-summary interpretation card.
 
@@ -329,6 +342,7 @@ All optional and stored locally (via `QSettings`, or a `.env`/env var). The app 
 |-----|---------|
 | FRED | Reveals the **Macro** tab: Treasury yield curve + macro rates (free from the St. Louis Fed) |
 | Alpha Vantage | Additional news articles + per-article sentiment on the **News** tab (yfinance headlines work without it) |
+| FMP | DCF fair-value estimate on the **Fundamentals** tab (yfinance fundamentals work without it) |
 
 ---
 
@@ -411,3 +425,31 @@ The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` 
 - **Monte Carlo assumes i.i.d. (parametric) or stationary (bootstrap) returns**, neither of which captures regime changes or structural breaks. Retirement projections recenter the mean to an expected-return assumption to reduce look-ahead bias, but remain illustrative.
 - **Reports require kaleido for embedded chart images.** It is included in `requirements-desktop.txt`; without it, reports still generate with all text and tables (the PowerPoint's charts, however, depend on it).
 ```
+
+---
+
+## Roadmap (v2)
+
+Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is the first piece. Planned work, grouped by theme:
+
+**Fundamentals & data** (in progress)
+- [x] Company fundamentals tab — valuation, profitability, growth, balance-sheet health, dividends, upcoming earnings/ex-dividend dates.
+- [ ] Deeper statements (income / balance sheet / cash flow history) and analyst estimates.
+- [ ] Earnings & dividend calendar surfaced on the News tab.
+
+**Portfolio depth**
+- [ ] Multi-portfolio compare — open several saved portfolios side by side.
+- [ ] Custom / blended benchmarks (e.g., 60/40); the engine already has `blended_benchmark`.
+- [ ] Manual Black-Litterman views UI (the config model exists; view editing was deferred).
+- [ ] Real factor-model loadings (Fama-French) instead of return-based proxies.
+
+**Analytics**
+- [ ] Rebalancing / trade recommendations — "to reach target, buy X / sell Y."
+- [ ] Scenario builder — user-defined shocks (rates +100bps, oil −20%) beyond the fixed historical stress tests.
+- [ ] Time-series, benchmark-relative attribution (not just point-in-time).
+
+**Platform & polish**
+- [ ] Auto-update — check GitHub Releases and prompt to download (the "Check for Updates…" menu item is currently a stub).
+- [ ] Code-signing + notarization to remove the SmartScreen / Gatekeeper warnings on unsigned builds.
+- [ ] Scheduled / automated report generation.
+- [ ] First-run sample portfolios for onboarding.

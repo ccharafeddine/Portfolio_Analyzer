@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QTabWidget
 from .tabs.attribution_tab import AttributionTab
 from .tabs.data_tab import DataTab
 from .tabs.forecast_tab import ForecastTab
+from .tabs.fundamentals_tab import FundamentalsTab
 from .tabs.income_tab import IncomeTab
 from .tabs.macro_tab import MacroTab
 from .tabs.news_tab import NewsTab
@@ -39,11 +40,12 @@ class ResultsView(QTabWidget):
             IncomeTab(),
             OptimizationTab(),
             ForecastTab(),
+            FundamentalsTab(),
             self._news_tab,
             DataTab(),
         ]
         labels = ["Overview", "Performance", "Risk", "Attribution", "Income",
-                  "Optimization", "Forecast", "News", "Data"]
+                  "Optimization", "Forecast", "Fundamentals", "News", "Data"]
         for tab, label in zip(self._tabs, labels):
             self.addTab(tab, label)
 

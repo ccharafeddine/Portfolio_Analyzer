@@ -339,6 +339,12 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Every input — universe, weights, dates, and advanced options — is captured for reproducibility.",
         "why": "It lets you (or someone else) reproduce the exact run later, or audit what was assumed.",
     },
+    "fundamentals": {
+        "title": "Fundamentals",
+        "what": "Company-level financial metrics for each holding — valuation (P/E, P/B), profitability (margins, ROE), growth, balance-sheet health, and dividends.",
+        "how": "Compare holdings side by side. Lower P/E and higher margins/ROE are generally more attractive, but interpret within each sector. A DCF fair value above the price suggests potential undervaluation.",
+        "why": "Price performance tells you what happened; fundamentals tell you what you own and whether the valuation is justified.",
+    },
     "news_feed": {
         "title": "Latest News",
         "what": "Recent headlines for the holdings in your analysis, newest first.",

@@ -33,6 +33,13 @@ _KEYS = [
         "Adds more news articles and per-article sentiment. "
         "<a href='https://www.alphavantage.co/support/#api-key'>Get a key</a>",
     ),
+    (
+        "FMP_API_KEY",
+        "FMP key",
+        "Financial Modeling Prep — adds a DCF fair-value estimate on the "
+        "Fundamentals tab (yfinance fundamentals work without it). "
+        "<a href='https://site.financialmodelingprep.com/developer/docs'>Get a key</a>",
+    ),
 ]
 
 

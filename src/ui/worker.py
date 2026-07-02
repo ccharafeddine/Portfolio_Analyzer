@@ -78,3 +78,26 @@ class MacroWorker(QObject):
             self.done.emit(market_data.fetch_macro(self._fred_key))
         except Exception as e:
             self.failed.emit(str(e))
+
+
+class FundamentalsWorker(QObject):
+    """Fetches per-holding fundamentals off the UI thread. Emits ``done(list)``."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, tickers, fmp_key=None) -> None:
+        super().__init__()
+        self._tickers = list(tickers or [])
+        self._fmp_key = fmp_key
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import fundamentals
+
+            self.done.emit(
+                fundamentals.fetch_fundamentals(self._tickers, fmp_key=self._fmp_key)
+            )
+        except Exception as e:
+            self.failed.emit(str(e))
