@@ -13,8 +13,12 @@ from src.charts import plotly_charts as charts
 
 from .web_tab import WebTab
 
-# Display order for the Fama-French factor models (keys of results.factor_models).
-_FACTOR_MODELS = ("FF3", "Carhart 4-Factor", "FF5")
+# Fama-French models: results key -> (sub-heading label, explanation key). Ordered.
+_FACTOR_MODELS = {
+    "FF3": ("FF3 — Market, Size, Value", "factor_ff3"),
+    "Carhart 4-Factor": ("Carhart 4-Factor — + Momentum", "factor_carhart4"),
+    "FF5": ("FF5 — + Profitability & Investment", "factor_ff5"),
+}
 
 
 class AttributionTab(WebTab):
@@ -99,17 +103,19 @@ class AttributionTab(WebTab):
                             scatters.append(fig)
                 self.add_chart_grid(scatters, columns=3, height=300, explain="capm_scatter")
 
-        # Fama-French factor-model regressions (real loadings, computed by the pipeline)
+        # Fama-French factor-model regressions (real loadings, computed by the pipeline).
+        # One collapsible section; each model nests under it (h4) with its own tooltip.
         factor_models = results.factor_models or {}
         if factor_models:
             self.add_heading("Fama-French Factor Loadings", explain="factor_regression")
-            for model_name in _FACTOR_MODELS:
+            for model_name, (label, explain_key) in _FACTOR_MODELS.items():
                 df = factor_models.get(model_name)
                 if df is None or df.empty:
                     continue
-                self.add_chart(
+                self.add_subchart(
                     charts.factor_loadings_chart(df, model_name),
                     height=340,
-                    explain="factor_regression",
+                    explain=explain_key,
+                    title=label,
                 )
                 self.add_table(df)

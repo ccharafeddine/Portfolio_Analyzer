@@ -141,6 +141,24 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Each bar is a factor loading — how strongly returns depend on that factor. Bigger means more exposure.",
         "why": "It gives a fuller picture than market-only CAPM of what's really driving your returns.",
     },
+    "factor_ff3": {
+        "title": "FF3 — Fama-French 3-Factor",
+        "what": "The baseline model: market (Mkt-RF), size (SMB, small minus big), and value (HML, high book-to-market minus low).",
+        "how": "Each bar is the beta to that factor. Positive SMB = small-cap tilt; positive HML = value tilt, negative HML = growth tilt.",
+        "why": "Adds the size and value styles that market-only CAPM misses — the standard starting point for factor analysis.",
+    },
+    "factor_carhart4": {
+        "title": "Carhart 4-Factor",
+        "what": "FF3 with one addition: Momentum (MOM) — recent winners minus recent losers.",
+        "how": "Read it like FF3, plus the MOM bar: positive means the holding rides momentum (recent winners), negative means it leans contrarian.",
+        "why": "Momentum is a strong, persistent return driver that FF3 leaves out; this isolates it on top of size and value.",
+    },
+    "factor_ff5": {
+        "title": "FF5 — Fama-French 5-Factor",
+        "what": "FF3 plus two quality dimensions: Profitability (RMW, robust minus weak) and Investment (CMA, conservative minus aggressive).",
+        "how": "Read it like FF3, plus RMW (positive = tilt to profitable firms) and CMA (positive = tilt to conservatively-investing firms).",
+        "why": "Captures quality and capital-discipline effects that explain returns beyond size and value.",
+    },
     "income_metrics": {
         "title": "Income Metrics",
         "what": "Summary of the cash income (dividends) your holdings generate.",

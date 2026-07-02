@@ -379,6 +379,26 @@ class WebTab(QWidget):
             self._blank_fig_title(fig)
         self._html.append(self._chart_div(fig, self._scaled(height)))
 
+    def add_subchart(
+        self, fig, height: int = 340, explain: Optional[str] = None,
+        title: Optional[str] = None,
+    ) -> None:
+        """A chart nested inside the *current* collapsible section. Uses an ``h4``
+        sub-heading (with an optional '?') so it does NOT start a new section — use
+        this to group several charts under one collapsible ``add_heading``."""
+        if fig is None:
+            return
+        label = title or (self._fig_title(fig) if fig is not None else None)
+        if explain and explanations.get(explain):
+            label = label or explanations.get(explain)["title"]
+            self._html.append(self._heading_html(label, explain, tag="h4",
+                                                 allow_blurb=False))
+            self._blank_fig_title(fig)
+        elif label:
+            self._html.append(self._heading_html(label, None, tag="h4"))
+            self._blank_fig_title(fig)
+        self._html.append(self._chart_div(fig, self._scaled(height)))
+
     def add_chart_row(
         self, figs: list, height: int = 380, explains: Optional[list] = None
     ) -> None:
