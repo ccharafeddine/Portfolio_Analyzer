@@ -106,6 +106,37 @@ class FundamentalsWorker(QObject):
             self.failed.emit(str(e))
 
 
+class ComparisonWorker(QObject):
+    """Runs the fast multi-portfolio comparison off the UI thread.
+
+    ``named_configs`` is a list of (label, PortfolioConfig). Emits progress per
+    portfolio and ``done(list[ComparisonResult])``.
+    """
+
+    progress = Signal(str, float)
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, named_configs) -> None:
+        super().__init__()
+        self._named_configs = named_configs
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.analytics import comparison
+
+            results = comparison.compare_portfolios(
+                self._named_configs, progress=self._emit
+            )
+            self.done.emit(results)
+        except Exception as e:
+            self.failed.emit(str(e))
+
+    def _emit(self, label: str, frac: float) -> None:
+        self.progress.emit(str(label), float(frac))
+
+
 class StatementsWorker(QObject):
     """Fetches one ticker's financial statements + analyst data off the UI thread.
     Emits ``done((ticker, dict))``."""

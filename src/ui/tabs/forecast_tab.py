@@ -43,7 +43,8 @@ class ForecastTab(WebTab):
             if plan.goal_amount > 0:
                 items.append(("Goal Probability", f"{plan.goal_prob:.0%}"))
             self.add_heading("Projected Outcomes", explain="plan_metrics")
-            self.add_stat_grid(items, columns=4)
+            # One compact row (each card narrower), however many outcomes there are.
+            self.add_stat_grid(items, columns=len(items))
 
         if results.simulations:
             self.add_heading("Monte Carlo Forecast", explain="monte_carlo")

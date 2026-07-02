@@ -103,6 +103,11 @@ class MainWindow(QMainWindow):
         run_menu.addAction(self.act_run)
         run_menu.addAction(self.act_cancel)
 
+        # Top-level entry into the multi-portfolio comparison section.
+        self.act_compare = QAction("Compare Portfolios", self)
+        self.act_compare.triggered.connect(self._show_compare_mode)
+        bar.addAction(self.act_compare)
+
         view_menu = bar.addMenu("&View")
         theme_menu = view_menu.addMenu("Theme")
         self._theme_group = QActionGroup(self)
@@ -183,13 +188,27 @@ class MainWindow(QMainWindow):
         # rate for the next run.
         self.results_view._macro_tab.riskFreeRateReady.connect(self._on_risk_free_rate)
 
-        central = QWidget()
-        row = QHBoxLayout(central)
+        analyze = QWidget()
+        row = QHBoxLayout(analyze)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
         row.addWidget(self.sidebar)
         row.addWidget(main, stretch=1)
-        self.setCentralWidget(central)
+
+        # A stack switches the whole workspace between single-portfolio "Analyze"
+        # mode and the multi-portfolio "Compare" section.
+        from PySide6.QtWidgets import QStackedWidget
+
+        from .comparison_view import ComparisonView
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(analyze)                 # page 0: Analyze
+        self.comparison_view = ComparisonView(
+            get_current_config=self.config_panel.build_config
+        )
+        self.comparison_view.backRequested.connect(self._show_analyze_mode)
+        self._stack.addWidget(self.comparison_view)    # page 1: Compare
+        self.setCentralWidget(self._stack)
 
     def _build_header(self) -> QWidget:
         header = QWidget()
@@ -252,6 +271,17 @@ class MainWindow(QMainWindow):
         if self._last_results is not None:
             self._update_metrics(self._last_results)
         self.results_view.retheme()
+        if hasattr(self, "comparison_view"):
+            self.comparison_view.retheme()
+
+    # ── Mode switch (Analyze <-> Compare) ──
+    def _show_compare_mode(self) -> None:
+        self.comparison_view.refresh_portfolio_list()
+        self._stack.setCurrentWidget(self.comparison_view)
+        self._status("Compare portfolios — pick from the list and click Compare")
+
+    def _show_analyze_mode(self) -> None:
+        self._stack.setCurrentIndex(0)
 
     def _apply_theme(self, key: str) -> None:
         theme.set_active(key)

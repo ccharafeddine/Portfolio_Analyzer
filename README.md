@@ -43,6 +43,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 - **Performance measurement suite** — up/down capture, batting average, tracking error, information ratio, rolling alpha/beta, and a dual-window summary (max-available vs common history).
 - **Tax-aware analysis** — unrealized gains, tax-loss-harvesting candidates, and estimated tax on gains realized by rebalancing.
 - **Retirement / withdrawal planning** — Monte Carlo with contributions, withdrawals, inflation, a goal target, and a solved safe-withdrawal rate.
+- **Compare Portfolios** — a separate in-app section (menubar → Compare Portfolios) that runs a fast comparison of 2–6 saved portfolios (plus the current one) side by side: overlaid growth/drawdown, a return/risk metrics table, return correlation, allocation/concentration, and holdings overlap.
 - **Live News & Macro** — per-holding headlines (free via yfinance, no key needed), enriched with sentiment when an Alpha Vantage key is added. A FRED key reveals a Macro tab (Treasury curve + key rates) and auto-tracks the live 3-month T-bill as the risk-free rate for the next run. Optional API keys are entered in Settings and stored locally.
 - **Client-ready reports** — HTML, PDF, and a polished dark PowerPoint deck, each with proper disclosures. Plus a complete CSV data pack with a README manifest.
 - **Explain-everything UX** — a circled "?" beside every chart and section title reveals what it is, how to read it, and why it matters; a Beginner mode expands these into inline plain-English blurbs.
@@ -440,7 +441,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 - [x] Earnings & dividend calendar surfaced on the News tab.
 
 **Portfolio depth**
-- [ ] Multi-portfolio compare — open several saved portfolios side by side.
+- [x] Multi-portfolio compare — open several saved portfolios side by side (the **Compare Portfolios** section).
 - [ ] Custom / blended benchmarks (e.g., 60/40); the engine already has `blended_benchmark`.
 - [ ] Manual Black-Litterman views UI (the config model exists; view editing was deferred).
 - [ ] Real factor-model loadings (Fama-French) instead of return-based proxies.
