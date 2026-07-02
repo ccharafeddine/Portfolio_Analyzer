@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt, QThread, QSettings, QSize, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
         self._worker: AnalysisWorker | None = None
         self._cancelled = False
         self._last_results = None
+        self._current_portfolio_path: str | None = None
 
         self._build_menubar()
         self._build_central()
@@ -80,6 +82,11 @@ class MainWindow(QMainWindow):
         self.act_import_csv = QAction("Import Holdings CSV…", self)
         self.act_export = QAction("Export Report…", self)
         self.act_quit = QAction("Exit", self, shortcut=QKeySequence.Quit)
+        self.act_new.triggered.connect(self._on_new_portfolio)
+        self.act_open.triggered.connect(self._on_open_portfolio)
+        self.act_save.triggered.connect(self._on_save_portfolio)
+        self.act_import_csv.triggered.connect(self._on_import_csv)
+        self.act_export.triggered.connect(self._on_export_report)
         self.act_quit.triggered.connect(self.close)
         for a in (self.act_new, self.act_open, self.act_save):
             file_menu.addAction(a)
@@ -261,6 +268,91 @@ class MainWindow(QMainWindow):
             act.setChecked(abs(f - applied) < 1e-6)
         self._settings.setValue("ui_scale", applied)
         self._status(f"Text size: {int(applied * 100)}%")
+
+    # ── File: portfolio management ──
+    def _on_new_portfolio(self) -> None:
+        self.config_panel.reset_defaults()
+        self._current_portfolio_path = None
+        self._status("New portfolio — configuration reset to defaults")
+
+    def _on_open_portfolio(self) -> None:
+        from pathlib import Path
+
+        from . import paths
+        from .config_panel import ConfigPanel  # noqa: F401 (type hint clarity)
+        from src.config.models import PortfolioConfig
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Portfolio", str(paths.portfolios_dir()),
+            "Portfolio files (*.json)",
+        )
+        if not path:
+            return
+        try:
+            config = PortfolioConfig.load(path)
+        except Exception:
+            try:
+                config = PortfolioConfig.from_legacy(path)  # tolerate older files
+            except Exception as e:
+                QMessageBox.warning(self, "Open Portfolio", f"Could not open this file:\n{e}")
+                return
+        self.config_panel.load_config(config)
+        self._current_portfolio_path = path
+        self._status(f"Opened {Path(path).name}")
+
+    def _on_save_portfolio(self) -> None:
+        from pathlib import Path
+
+        from . import paths
+
+        try:
+            config = self.config_panel.build_config()
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Save Portfolio",
+                f"Fix the configuration before saving:\n{self.config_panel._friendly_error(e)}",
+            )
+            return
+        default = self._current_portfolio_path or str(paths.portfolios_dir() / "portfolio.json")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Portfolio", default, "Portfolio files (*.json)"
+        )
+        if not path:
+            return
+        try:
+            config.save(path)
+            self._current_portfolio_path = path
+            self._status(f"Saved portfolio to {Path(path).name}")
+        except Exception as e:
+            QMessageBox.warning(self, "Save Portfolio", f"Could not save:\n{e}")
+
+    def _on_import_csv(self) -> None:
+        from pathlib import Path
+
+        from . import paths
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Holdings CSV", str(paths.documents_export_dir()),
+            "CSV files (*.csv)",
+        )
+        if not path:
+            return
+        try:
+            n = self.config_panel.import_holdings_csv(path)
+            self._status(f"Imported {n} holdings from {Path(path).name}")
+        except Exception as e:
+            QMessageBox.warning(self, "Import Holdings CSV", str(e))
+
+    def _on_export_report(self) -> None:
+        # Reports live on the Data tab; jump there so the user can pick a format.
+        if self._last_results is None:
+            self._status("Run an analysis first, then export from the Data tab")
+            return
+        for i in range(self.results_view.count()):
+            if self.results_view.tabText(i) == "Data":
+                self.results_view.setCurrentIndex(i)
+                break
+        self._status("Choose a report format on the Data tab")
 
     # ── Live risk-free rate from FRED ──
     def _on_risk_free_rate(self, rate: float, tenor: str) -> None:

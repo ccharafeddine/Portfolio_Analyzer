@@ -346,6 +346,9 @@ class ConfigPanel(QScrollArea):
             w.setFocusPolicy(Qt.StrongFocus)
             w.installEventFilter(self._wheel_guard)
 
+        # Snapshot the initial (default) configuration for "New Portfolio".
+        self._defaults = self.build_config()
+
     # ── Weights handling ──
     def _current_tickers(self) -> list[str]:
         raw = self.tickers_edit.toPlainText()
@@ -432,6 +435,118 @@ class ConfigPanel(QScrollArea):
             return
         if self._rf_label.text() != "Risk-free rate":
             self._rf_label.setText("Risk-free rate")
+
+    # ── Load / reset / import (File menu) ──
+    @staticmethod
+    def _select_combo_data(combo, value) -> None:
+        idx = combo.findData(value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def load_config(self, config) -> None:
+        """Populate every field from a PortfolioConfig (the reverse of build_config)."""
+        c = config
+        self.tickers_edit.setPlainText("\n".join(c.tickers))
+        self.benchmark.setText(c.benchmark)
+        self.start_date.setDate(QDate(c.start_date.year, c.start_date.month, c.start_date.day))
+        self.end_date.setDate(QDate(c.end_date.year, c.end_date.month, c.end_date.day))
+        self.capital.setValue(float(c.capital))
+        self.set_risk_free_rate(float(c.risk_free_rate))
+
+        # Weights: treat as equal-weight when every weight matches 1/N.
+        weights = dict(c.weights or {})
+        n = len(c.tickers)
+        equal = (not weights) or (
+            n > 0 and all(abs(weights.get(t, 0.0) - 1.0 / n) <= 1e-4 for t in c.tickers)
+        )
+        self.equal_weights.setChecked(equal)
+        self.weights_group.setVisible(not equal)
+        if not equal:
+            self._rebuild_weights()
+            for t, spin in self._weight_spins.items():
+                if t in weights:
+                    spin.setValue(float(weights[t]))
+            self._update_sum()
+
+        # Advanced
+        self.allow_shorts.setChecked(bool(c.short_sales))
+        self.max_bound.setValue(float(c.max_weight_bound))
+        self.include_orp.setChecked(bool(c.include_orp))
+        self.use_dividends.setChecked(bool(c.use_dividends))
+        self.y_cp.setValue(float(c.complete_portfolio.y))
+        self.bl_group.setChecked(bool(c.black_litterman.enabled))
+        self.bl_tau.setValue(float(c.black_litterman.tau))
+        self._select_combo_data(self.inception_mode, c.backtest.inception_mode)
+        self._select_combo_data(self.rebalance_freq, c.backtest.rebalance_frequency)
+        self.cost_bps.setValue(float(c.backtest.transaction_cost_bps))
+        self.cost_basis_edit.setPlainText(
+            "\n".join(f"{k}: {v}" for k, v in (c.cost_basis or {}).items())
+        )
+
+        # Tax
+        self.tax_enabled.setChecked(bool(c.tax.enabled))
+        self.tax_st.setValue(float(c.tax.short_term_rate))
+        self.tax_lt.setValue(float(c.tax.long_term_rate))
+        self.tax_state.setValue(float(c.tax.state_rate))
+
+        # Planning
+        self.plan_enabled.setChecked(bool(c.plan.enabled))
+        self.plan_horizon.setValue(int(c.plan.horizon_years))
+        self.plan_contrib.setValue(float(c.plan.annual_contribution))
+        self.plan_withdraw.setValue(float(c.plan.annual_withdrawal))
+        self.plan_goal.setValue(float(c.plan.goal_amount))
+        self.plan_inflation.setValue(float(c.plan.inflation))
+        self.plan_exp_return.setValue(float(c.plan.expected_return))
+
+        self.error_label.setVisible(False)
+
+    def reset_defaults(self) -> None:
+        """New Portfolio: restore defaults and clear the ticker/weights/cost-basis entry."""
+        self.load_config(self._defaults)
+        self.tickers_edit.clear()
+        self.equal_weights.setChecked(True)
+        self.weights_group.setVisible(False)
+        self.cost_basis_edit.clear()
+        self.error_label.setVisible(False)
+
+    def import_holdings_csv(self, path) -> int:
+        """Populate tickers (and weights, if a Weight column exists) from a CSV.
+        Returns the number of tickers imported; raises on a malformed file."""
+        import pandas as pd
+
+        df = pd.read_csv(path)
+        cols = {str(col).lower().strip(): col for col in df.columns}
+        tcol = next((cols[k] for k in ("ticker", "symbol", "tickers") if k in cols), None)
+        if tcol is None:
+            raise ValueError("CSV needs a 'Ticker' (or 'Symbol') column.")
+        tickers = [str(t).strip().upper() for t in df[tcol].dropna() if str(t).strip()]
+        if not tickers:
+            raise ValueError("No tickers found in the CSV.")
+        self.tickers_edit.setPlainText("\n".join(tickers))
+
+        wcol = next((cols[k] for k in ("weight", "weights", "allocation") if k in cols), None)
+        if wcol is None:
+            self.equal_weights.setChecked(True)
+            self.weights_group.setVisible(False)
+            return len(tickers)
+
+        self.equal_weights.setChecked(False)
+        self.weights_group.setVisible(True)
+        self._rebuild_weights()
+        wmap: dict[str, float] = {}
+        for t, w in zip(df[tcol], df[wcol]):
+            try:
+                wmap[str(t).strip().upper()] = float(w)
+            except (TypeError, ValueError):
+                continue
+        total = sum(wmap.values())
+        if total > 1.5:  # looks like percentages — normalize to fractions
+            wmap = {k: v / total for k, v in wmap.items()}
+        for t, spin in self._weight_spins.items():
+            if t in wmap:
+                spin.setValue(wmap[t])
+        self._update_sum()
+        return len(tickers)
 
     def build_config(self):
         """Construct a validated ``PortfolioConfig`` (raises on invalid input)."""
