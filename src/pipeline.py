@@ -161,6 +161,8 @@ class AnalysisResults:
     # Sector & factor exposure
     sector_weights: Optional[pd.DataFrame] = None
     factor_tilts: Optional[pd.DataFrame] = None
+    # Real Fama-French factor loadings: {model_name: DataFrame(Asset, *_coef, R2)}
+    factor_models: dict = field(default_factory=dict)
 
     # Income
     income_summary: Optional[pd.DataFrame] = None
@@ -237,6 +239,7 @@ class AnalysisPipeline:
             ("Building complete portfolio", self._build_complete),
             ("Running attribution", self._run_attribution),
             ("Computing exposures", self._compute_exposure),
+            ("Fama-French factor models", self._run_factor_models),
             ("Monte Carlo simulation", self._simulate),
             ("Retirement planning", self._run_plan),
             ("Generating reports", self._generate_reports),
@@ -724,6 +727,32 @@ class AnalysisPipeline:
                 )
         except Exception as e:
             print(f"[pipeline] Factor tilts failed: {e}")
+
+    def _run_factor_models(self) -> None:
+        """Real Fama-French loadings (best-effort; needs the Ken French library)."""
+        prices = self.results.prices
+        asset_cols = [t for t in self.config.tickers if t in prices.columns]
+        if not asset_cols:
+            return
+        try:
+            from src.analytics.factor_models import FACTOR_SETS, run_factor_model
+            from src.data.factors import fetch_ff_factors
+        except Exception:
+            return
+
+        daily = prices[asset_cols].pct_change().dropna(how="all")
+        port = self.results.active.daily_returns if self.results.active else None
+
+        for model, cols in FACTOR_SETS.items():
+            try:
+                ff = fetch_ff_factors(self.config.start_date, self.config.end_date, model)
+                if ff is None or ff.empty:
+                    continue
+                df = run_factor_model(daily, ff, cols, port_returns=port)
+                if not df.empty:
+                    self.results.factor_models[model] = df
+            except Exception as e:
+                print(f"[pipeline] Factor model '{model}' failed: {e}")
 
     def _simulate(self) -> None:
         if self.results.active is None:

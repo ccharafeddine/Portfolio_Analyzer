@@ -11,15 +11,10 @@ import pandas as pd
 
 from src.charts import plotly_charts as charts
 
-from .. import paths
 from .web_tab import WebTab
 
-_FACTOR_MODELS = {
-    "FF3": "factor_regression_ff3.csv",
-    "Carhart 4-Factor": "factor_regression_carhart4.csv",
-    "FF5": "factor_regression_ff5.csv",
-    "Quality & Low-Vol": "factor_regression_quality_lowvol.csv",
-}
+# Display order for the Fama-French factor models (keys of results.factor_models).
+_FACTOR_MODELS = ("FF3", "Carhart 4-Factor", "FF5")
 
 
 class AttributionTab(WebTab):
@@ -104,19 +99,17 @@ class AttributionTab(WebTab):
                             scatters.append(fig)
                 self.add_chart_grid(scatters, columns=3, height=300, explain="capm_scatter")
 
-        # Factor-model regressions (CSVs written by the pipeline to outputs_dir)
-        out = paths.outputs_dir()
-        for model_name, fname in _FACTOR_MODELS.items():
-            fpath = out / fname
-            if not fpath.exists():
-                continue
-            try:
-                df = pd.read_csv(fpath)
+        # Fama-French factor-model regressions (real loadings, computed by the pipeline)
+        factor_models = results.factor_models or {}
+        if factor_models:
+            self.add_heading("Fama-French Factor Loadings", explain="factor_regression")
+            for model_name in _FACTOR_MODELS:
+                df = factor_models.get(model_name)
+                if df is None or df.empty:
+                    continue
                 self.add_chart(
                     charts.factor_loadings_chart(df, model_name),
                     height=340,
                     explain="factor_regression",
                 )
                 self.add_table(df)
-            except Exception:
-                pass

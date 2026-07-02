@@ -424,7 +424,7 @@ The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` 
 - **Transaction costs are modeled simply** as a basis-point charge on dollars traded; real-world slippage, spreads, and market impact are not simulated.
 - **Tax figures use a simplified average-cost model** (short/long/state rates on rebalancing gains) and are not tax advice; lot-level accounting and wash-sale rules are not modeled.
 - **Dividend and sector data depend on yfinance accuracy.** Some tickers (ETFs, indices, crypto) may have incomplete dividend histories or missing sector metadata.
-- **Factor tilts are return-based proxies**, not true Fama-French factor loadings.
+- **Style factor tilts are return-based proxies**; the Attribution tab also shows true Fama-French factor loadings (FF3 / Carhart 4 / FF5) regressed against the Ken French daily factors when reachable.
 - **Monte Carlo assumes i.i.d. (parametric) or stationary (bootstrap) returns**, neither of which captures regime changes or structural breaks. Retirement projections recenter the mean to an expected-return assumption to reduce look-ahead bias, but remain illustrative.
 - **Reports require kaleido for embedded chart images.** It is included in `requirements-desktop.txt`; without it, reports still generate with all text and tables (the PowerPoint's charts, however, depend on it).
 ```
@@ -444,7 +444,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 - [x] Multi-portfolio compare — open several saved portfolios side by side (the **Compare Portfolios** section).
 - [x] Custom / blended benchmarks (e.g., 60/40) — a "Benchmark blend" field builds a fixed-weight benchmark used across the whole analysis.
 - [x] Manual Black-Litterman views UI — absolute/relative views (with confidence) blended into the optimizer's expected returns.
-- [ ] Real factor-model loadings (Fama-French) instead of return-based proxies.
+- [x] Real factor-model loadings (Fama-French FF3 / Carhart 4 / FF5) from the Ken French daily factors, regressed per asset + portfolio.
 
 **Analytics**
 - [ ] Rebalancing / trade recommendations — "to reach target, buy X / sell Y."
