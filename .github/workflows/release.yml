@@ -1,7 +1,7 @@
 name: Release
 
 # Push a version tag to build installers and publish a GitHub Release, e.g.:
-#     git tag v1.0.0 && git push origin v1.0.0
+#     git tag v1.0.1 && git push origin v1.0.1
 on:
   push:
     tags: ["v*"]
@@ -19,9 +19,9 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact: PortfolioAnalyzer-windows
+            asset: PortfolioAnalyzer-Setup.exe   # Inno Setup installer
           - os: macos-latest
-            artifact: PortfolioAnalyzer-macos
+            asset: PortfolioAnalyzer.dmg         # disk image with the .app
     steps:
       - uses: actions/checkout@v4
 
@@ -35,31 +35,35 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-desktop.txt
 
-      - name: Build with PyInstaller
+      - name: Build app (PyInstaller)
         run: pyinstaller packaging/PortfolioAnalyzer.spec --noconfirm
 
-      - name: Package (Windows)
+      - name: Build Windows installer (.exe)
         if: runner.os == 'Windows'
-        run: |
-          Compress-Archive -Path dist/PortfolioAnalyzer/* -DestinationPath ${{ matrix.artifact }}.zip
         shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          if ($ver -notmatch '^\d') { $ver = "0.0.0" }
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=$ver packaging\installer.iss
 
-      - name: Package (macOS)
+      - name: Build macOS disk image (.dmg)
         if: runner.os == 'macOS'
         run: |
-          cd dist
-          zip -ry ../${{ matrix.artifact }}.zip "Portfolio Analyzer.app"
+          hdiutil create -volname "Portfolio Analyzer" \
+            -srcfolder "dist/Portfolio Analyzer.app" \
+            -ov -format UDZO "PortfolioAnalyzer.dmg"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.zip
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact }}.zip
+          files: ${{ matrix.asset }}
           draft: true
           generate_release_notes: true

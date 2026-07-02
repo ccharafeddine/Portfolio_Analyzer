@@ -369,14 +369,14 @@ pyinstaller packaging/PortfolioAnalyzer.spec --noconfirm
 # output in dist/PortfolioAnalyzer/  (Windows)  or  dist/Portfolio Analyzer.app  (macOS)
 ```
 
-**Cut a release:** push a version tag and `.github/workflows/release.yml` builds both platforms, zips them, and attaches the archives to a **draft GitHub Release** (review and publish it manually):
+**Cut a release:** push a version tag and `.github/workflows/release.yml` builds both platforms and attaches a **Windows installer (`PortfolioAnalyzer-Setup.exe`, via Inno Setup)** and a **macOS disk image (`PortfolioAnalyzer.dmg`)** to a **draft GitHub Release** (review and publish it manually):
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
-The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` (report chart export), and QtWebEngine. The Windows executable icon comes from `src/ui/assets/app.ico`; a macOS `app.icns` can be dropped alongside it to set the `.app` icon.
+The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` (report chart export), and QtWebEngine. The Windows installer and executable icon come from `src/ui/assets/app.ico` (`packaging/installer.iss`); a macOS `app.icns` can be dropped alongside it to set the `.app` icon. Builds are currently unsigned — Windows SmartScreen and macOS Gatekeeper will warn on first launch.
 
 ---
 
