@@ -59,6 +59,19 @@ def _help(key: str) -> InfoLabel:
     return InfoLabel(config_tooltip(key))
 
 
+def _bl_views_to_text(views) -> str:
+    """Serialize BLView objects back to the editor's line syntax."""
+    lines = []
+    for v in views or []:
+        conf = "" if v.confidence == "medium" else f" @{v.confidence}"
+        pct = f"{v.q * 100:g}%"
+        if v.type == "relative":
+            lines.append(f"{v.asset_long} > {v.asset_short}: {pct}{conf}")
+        else:
+            lines.append(f"{v.asset}: {pct}{conf}")
+    return "\n".join(lines)
+
+
 def _row(*widgets) -> QWidget:
     """Pack widgets into a tight left-aligned row (label + '?' badge, etc.)."""
     w = QWidget()
@@ -253,6 +266,14 @@ class ConfigPanel(QScrollArea):
         self.bl_tau.setSingleStep(0.01)
         self.bl_tau.setValue(0.05)
         bl_form.addRow(_field_label("Tau", "bl_tau"), self.bl_tau)
+        self.bl_views_edit = QPlainTextEdit()
+        self.bl_views_edit.setPlaceholderText(
+            "One view per line:\nAAPL: 12%           (AAPL returns ~12%/yr)\n"
+            "AAPL > MSFT: 3%     (AAPL beats MSFT by 3%)\nadd @high or @low for confidence"
+        )
+        self.bl_views_edit.setFixedHeight(96)
+        bl_form.addRow(_field_label("Views", "bl_views"))
+        bl_form.addRow(self.bl_views_edit)
         advanced.add_widget(self.bl_group)
 
         root.addWidget(advanced)
@@ -424,6 +445,49 @@ class ConfigPanel(QScrollArea):
                 continue
         return out
 
+    def _parse_bl_views(self) -> list:
+        """Parse the free-text views box into BLView objects (bad lines ignored).
+
+        Absolute:  ``AAPL: 12%``   Relative:  ``AAPL > MSFT: 3%``
+        Optional trailing confidence:  ``AAPL: 12% @high`` (low / medium / high).
+        """
+        from src.config.models import BLView
+
+        out = []
+        for raw in self.bl_views_edit.toPlainText().splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            conf = "medium"
+            if "@" in line:
+                line, _, ctok = line.rpartition("@")
+                line = line.strip()
+                ctok = ctok.strip().lower()
+                if ctok.startswith("l"):
+                    conf = "low"
+                elif ctok.startswith("h"):
+                    conf = "high"
+            if ":" not in line:
+                continue
+            lhs, _, qs = line.partition(":")
+            lhs = lhs.strip()
+            try:
+                q = float(qs.strip().replace("%", "")) / 100.0
+            except ValueError:
+                continue
+            try:
+                if ">" in lhs:
+                    a, b = (s.strip().upper() for s in lhs.split(">", 1))
+                    if a and b and a != b:
+                        out.append(BLView(type="relative", asset_long=a,
+                                          asset_short=b, q=q, confidence=conf))
+                elif lhs:
+                    out.append(BLView(type="absolute", asset=lhs.upper(),
+                                      q=q, confidence=conf))
+            except Exception:
+                continue
+        return out
+
     def _parse_benchmark_blend(self) -> dict[str, float]:
         """Parse 'TICKER: weight' lines into a blend dict (ignoring bad lines).
         Accepts 'SPY: 0.6' or 'SPY 60'; weights are used as-is (engine normalizes)."""
@@ -505,6 +569,7 @@ class ConfigPanel(QScrollArea):
         self.y_cp.setValue(float(c.complete_portfolio.y))
         self.bl_group.setChecked(bool(c.black_litterman.enabled))
         self.bl_tau.setValue(float(c.black_litterman.tau))
+        self.bl_views_edit.setPlainText(_bl_views_to_text(c.black_litterman.views))
         self._select_combo_data(self.inception_mode, c.backtest.inception_mode)
         self._select_combo_data(self.rebalance_freq, c.backtest.rebalance_frequency)
         self.cost_bps.setValue(float(c.backtest.transaction_cost_bps))
@@ -540,6 +605,7 @@ class ConfigPanel(QScrollArea):
         self.weights_group.setVisible(False)
         self.cost_basis_edit.clear()
         self.benchmark_blend.clear()
+        self.bl_views_edit.clear()
         self.error_label.setVisible(False)
 
     def import_holdings_csv(self, path) -> int:
@@ -612,7 +678,7 @@ class ConfigPanel(QScrollArea):
             black_litterman=BLConfig(
                 enabled=self.bl_group.isChecked(),
                 tau=float(self.bl_tau.value()),
-                views=[],
+                views=self._parse_bl_views(),
             ),
             backtest=BacktestConfig(
                 inception_mode=self.inception_mode.currentData(),

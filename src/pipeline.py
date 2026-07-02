@@ -396,6 +396,56 @@ class AnalysisPipeline:
         self.results.passive = PortfolioSeries("Passive", passive_value)
         self.results.passive.compute_sharpe(self.config.risk_free_rate)
 
+    def _apply_black_litterman(self, mu_a, cov_a, asset_cols, rets_m):
+        """Return BL posterior annual returns (pd.Series over asset_cols)."""
+        from src.analytics.optimization import (
+            BL_CONFIDENCE_SCALE,
+            black_litterman_posterior,
+        )
+
+        idx = {t: i for i, t in enumerate(asset_cols)}
+        n = len(asset_cols)
+
+        # Prior "market" = the user's target weights (fallback: equal weight).
+        w = np.array([float(self.config.weights.get(t, 0.0)) for t in asset_cols])
+        if w.sum() <= 0:
+            w = np.ones(n)
+        w = w / w.sum()
+
+        # Risk aversion implied by the benchmark; clamp to a sane range.
+        delta = 2.5
+        bench = self._bench_label
+        if bench in rets_m.columns:
+            br = rets_m[bench].dropna()
+            if len(br) > 1:
+                ann_ret = (1.0 + br.mean()) ** 12 - 1.0
+                ann_var = float(br.std() ** 2) * 12.0
+                if ann_var > 1e-9:
+                    d = (ann_ret - self.config.risk_free_rate) / ann_var
+                    if 0.5 <= d <= 15.0:
+                        delta = float(d)
+
+        views = []
+        for v in self.config.black_litterman.views:
+            c = BL_CONFIDENCE_SCALE.get(v.confidence, 1.0)
+            if v.type == "absolute" and v.asset in idx:
+                p = np.zeros(n)
+                p[idx[v.asset]] = 1.0
+                views.append((p, float(v.q), c))
+            elif v.type == "relative" and v.asset_long in idx and v.asset_short in idx:
+                p = np.zeros(n)
+                p[idx[v.asset_long]] = 1.0
+                p[idx[v.asset_short]] = -1.0
+                views.append((p, float(v.q), c))
+        if not views:
+            return mu_a
+
+        post = black_litterman_posterior(
+            cov_a, w, views, self.config.risk_free_rate,
+            tau=self.config.black_litterman.tau, delta=delta,
+        )
+        return pd.Series(post, index=asset_cols, name="mu_bl")
+
     def _optimize(self) -> None:
         if not self.config.include_orp:
             return
@@ -418,6 +468,12 @@ class AnalysisPipeline:
 
         cov_m = asset_rets.cov()
         mu_a = (1.0 + asset_rets.mean()) ** 12 - 1.0
+        cov_a = cov_m.values * 12.0
+
+        # Black-Litterman: blend the user's views into the expected returns.
+        bl = self.config.black_litterman
+        if bl.enabled and bl.views:
+            mu_a = self._apply_black_litterman(mu_a, cov_a, asset_cols, rets_m)
 
         bounds = self.config.allocation_bounds
         res = max_sharpe(

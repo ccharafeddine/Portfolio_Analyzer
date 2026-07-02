@@ -33,6 +33,22 @@ class OptimizationTab(WebTab):
             return
 
         cfg = results.config
+
+        # Note when Black-Litterman views shaped these weights.
+        bl = cfg.black_litterman
+        if bl.enabled and bl.views:
+            phrases = []
+            for v in bl.views:
+                if v.type == "relative":
+                    phrases.append(
+                        f"{v.asset_long} to beat {v.asset_short} by {v.q:.1%} ({v.confidence})"
+                    )
+                else:
+                    phrases.append(f"{v.asset} ≈ {v.q:.1%}/yr ({v.confidence})")
+            self.add_interpretation(
+                "Black-Litterman is on: the optimizer's expected returns were blended "
+                "with your views — " + "; ".join(phrases) + ". The ORP below reflects them."
+            )
         rets_m = results.monthly_returns
         asset_cols = [
             t for t in cfg.tickers if t in rets_m.columns and t != cfg.benchmark

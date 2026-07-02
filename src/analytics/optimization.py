@@ -14,6 +14,60 @@ from scipy.optimize import minimize
 
 
 # ──────────────────────────────────────────────────────────────
+# Black-Litterman
+# ──────────────────────────────────────────────────────────────
+
+# Confidence -> Omega scale (smaller = more confident view, tighter around Q).
+BL_CONFIDENCE_SCALE = {"low": 2.5, "medium": 1.0, "high": 0.35}
+
+
+def black_litterman_posterior(
+    cov: np.ndarray,
+    w_prior: np.ndarray,
+    views: list[tuple[np.ndarray, float, float]],
+    rf: float,
+    tau: float = 0.05,
+    delta: float = 2.5,
+) -> np.ndarray:
+    """Black-Litterman posterior expected (total, annual) returns.
+
+    Parameters
+    ----------
+    cov : (N,N) annualized covariance.
+    w_prior : (N,) prior/"market" weights (reverse-optimized to implied returns).
+    views : list of ``(P_row, Q, conf_scale)`` — P_row is an (N,) picking vector
+        (absolute: 1 on the asset; relative: +1 long / -1 short), Q the view's
+        expected annual return/outperformance, conf_scale the Omega multiplier.
+    rf : risk-free (annual). delta : risk-aversion. tau : prior uncertainty.
+
+    Returns the posterior mean vector; equals the implied equilibrium returns when
+    there are no views.
+    """
+    Sigma = np.asarray(cov, dtype=float)
+    n = Sigma.shape[0]
+    w = np.asarray(w_prior, dtype=float)
+    pi = rf + delta * (Sigma @ w)                      # implied equilibrium returns
+    if not views:
+        return pi
+
+    P = np.array([v[0] for v in views], dtype=float)   # (K, N)
+    Q = np.array([v[1] for v in views], dtype=float)   # (K,)
+    tau_sigma = tau * Sigma
+    omega = np.diag([
+        max(1e-10, float(P[k] @ tau_sigma @ P[k])) * float(views[k][2])
+        for k in range(len(views))
+    ])
+    ts_inv = np.linalg.pinv(tau_sigma)
+    om_inv = np.linalg.pinv(omega)
+    a = ts_inv + P.T @ om_inv @ P
+    b = ts_inv @ pi + P.T @ om_inv @ Q
+    try:
+        return np.linalg.solve(a, b)
+    except np.linalg.LinAlgError:
+        return np.linalg.pinv(a) @ b
+
+
+# ──────────────────────────────────────────────────────────────
 # Core math
 # ──────────────────────────────────────────────────────────────
 

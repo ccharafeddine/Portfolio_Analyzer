@@ -386,6 +386,10 @@ CONFIG_HELP: dict[str, str] = {
     "uncheck it to set each by hand (they must add up to 1).",
     "benchmark": "The index or ETF to measure your portfolio against (e.g. SPY for the "
     "S&P 500). Alpha, beta, and outperformance are all relative to this.",
+    "bl_views": "Your forward-looking opinions, blended into the optimizer's expected "
+    "returns (Black-Litterman). Absolute: 'AAPL: 12%' (AAPL will return ~12%/yr). "
+    "Relative: 'AAPL > MSFT: 3%' (AAPL beats MSFT by 3%). Add '@high' or '@low' to set "
+    "how strongly the view pulls the result. Only affects the ORP / optimized portfolio.",
     "benchmark_blend": "Optional multi-asset benchmark. Enter 'TICKER: weight' per line "
     "(e.g. 'SPY: 0.6' and 'AGG: 0.4' for a classic 60/40). When set, this fixed-weight "
     "mix replaces the single benchmark, and the Benchmark field above is just its label.",
