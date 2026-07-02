@@ -386,6 +386,9 @@ CONFIG_HELP: dict[str, str] = {
     "uncheck it to set each by hand (they must add up to 1).",
     "benchmark": "The index or ETF to measure your portfolio against (e.g. SPY for the "
     "S&P 500). Alpha, beta, and outperformance are all relative to this.",
+    "benchmark_blend": "Optional multi-asset benchmark. Enter 'TICKER: weight' per line "
+    "(e.g. 'SPY: 0.6' and 'AGG: 0.4' for a classic 60/40). When set, this fixed-weight "
+    "mix replaces the single benchmark, and the Benchmark field above is just its label.",
     "dates": "The historical window to analyze. A longer window captures more market "
     "conditions (bull and bear).",
     "capital": "The starting dollar amount to invest. All growth and income figures scale "

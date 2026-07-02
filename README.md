@@ -442,7 +442,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 
 **Portfolio depth**
 - [x] Multi-portfolio compare — open several saved portfolios side by side (the **Compare Portfolios** section).
-- [ ] Custom / blended benchmarks (e.g., 60/40); the engine already has `blended_benchmark`.
+- [x] Custom / blended benchmarks (e.g., 60/40) — a "Benchmark blend" field builds a fixed-weight benchmark used across the whole analysis.
 - [ ] Manual Black-Litterman views UI (the config model exists; view editing was deferred).
 - [ ] Real factor-model loadings (Fama-French) instead of return-based proxies.
 

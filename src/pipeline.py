@@ -213,6 +213,9 @@ class AnalysisPipeline:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.results = AnalysisResults(config=config)
+        # Effective benchmark column/label — becomes a synthetic blended series when
+        # config.benchmark_weights is set (see _fetch_data).
+        self._bench_label = config.benchmark
 
     def run(
         self,
@@ -259,15 +262,29 @@ class AnalysisPipeline:
     # ── Step implementations ──
 
     def _fetch_data(self) -> None:
-        all_tickers = sorted(
-            set(self.config.tickers + [self.config.benchmark])
-        )
+        blend = self.config.benchmark_weights or {}
+        bench_tickers = list(blend) if blend else [self.config.benchmark]
+        all_tickers = sorted(set(self.config.tickers + bench_tickers))
 
         prices = fetch_prices(
             tickers=all_tickers,
             start=self.config.start_date,
             end=self.config.end_date,
         )
+
+        # Blended benchmark → synthesize a value series and inject it as a column so
+        # every downstream benchmark reference (via self._bench_label) works unchanged.
+        if blend:
+            from src.analytics.performance import blended_benchmark
+
+            series = blended_benchmark(prices, blend, self.config.capital)
+            label = self.config.benchmark or "Blended Benchmark"
+            if label in prices.columns:  # avoid clobbering a real ticker column
+                label = f"{label} (blend)"
+            prices[label] = series.reindex(prices.index)
+            self._bench_label = label
+        else:
+            self._bench_label = self.config.benchmark
 
         self.results.prices = prices
         self.results.monthly_returns = T.monthly_returns(prices)
@@ -361,7 +378,7 @@ class AnalysisPipeline:
 
     def _build_passive(self) -> None:
         prices = self.results.prices
-        benchmark = self.config.benchmark
+        benchmark = self._bench_label
 
         if benchmark not in prices.columns:
             raise ValueError(f"Benchmark {benchmark} not in price data.")
@@ -384,7 +401,7 @@ class AnalysisPipeline:
             return
 
         rets_m = self.results.monthly_returns
-        benchmark = self.config.benchmark
+        benchmark = self._bench_label
 
         asset_cols = [
             t for t in self.config.tickers
@@ -484,7 +501,7 @@ class AnalysisPipeline:
         self.results.capm_results = run_capm_all(
             rets_m,
             self.config.tickers,
-            self.config.benchmark,
+            self._bench_label,
             self.config.risk_free_rate,
         )
 
@@ -566,7 +583,7 @@ class AnalysisPipeline:
             self.results.asset_attribution = simple_attribution_from_holdings(
                 self.results.holdings,
                 self.results.monthly_returns,
-                self.config.benchmark,
+                self._bench_label,
             )
         except Exception as e:
             print(f"[pipeline] Attribution failed: {e}")
@@ -639,7 +656,7 @@ class AnalysisPipeline:
 
         try:
             rets_m = self.results.monthly_returns
-            benchmark = self.config.benchmark
+            benchmark = self._bench_label
             asset_cols = [
                 t for t in self.config.tickers
                 if t in rets_m.columns and t != benchmark

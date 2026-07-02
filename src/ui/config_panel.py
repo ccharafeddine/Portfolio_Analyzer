@@ -232,6 +232,14 @@ class ConfigPanel(QScrollArea):
         advanced.add_widget(_row(self.include_orp, _help("include_orp")))
         advanced.add_widget(_row(self.use_dividends, _help("dividends")))
 
+        # Optional blended benchmark (e.g. 60/40). When filled, the Benchmark field
+        # above becomes the label for this mix.
+        advanced.add_widget(_field_label("Benchmark blend", "benchmark_blend"))
+        self.benchmark_blend = QPlainTextEdit()
+        self.benchmark_blend.setPlaceholderText("Optional, one per line:  SPY: 0.6")
+        self.benchmark_blend.setFixedHeight(70)
+        advanced.add_widget(self.benchmark_blend)
+
         # ── Black-Litterman (schema present, editing minimal for now) ──
         self.bl_group = QGroupBox("Black-Litterman views")
         self.bl_group.setCheckable(True)
@@ -416,6 +424,27 @@ class ConfigPanel(QScrollArea):
                 continue
         return out
 
+    def _parse_benchmark_blend(self) -> dict[str, float]:
+        """Parse 'TICKER: weight' lines into a blend dict (ignoring bad lines).
+        Accepts 'SPY: 0.6' or 'SPY 60'; weights are used as-is (engine normalizes)."""
+        out: dict[str, float] = {}
+        for line in self.benchmark_blend.toPlainText().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            sep = ":" if ":" in line else (" " if " " in line else None)
+            if sep is None:
+                continue
+            tk, _, val = line.partition(sep)
+            tk = tk.strip().upper()
+            try:
+                w = float(val.strip())
+                if tk and w > 0:
+                    out[tk] = w
+            except ValueError:
+                continue
+        return out
+
     def set_risk_free_rate(self, value: float, source: str | None = None) -> None:
         """Set the risk-free rate field (e.g. to the latest T-bill yield from FRED).
         ``source`` labels where the value came from, e.g. 'live 3M T-bill'."""
@@ -482,6 +511,9 @@ class ConfigPanel(QScrollArea):
         self.cost_basis_edit.setPlainText(
             "\n".join(f"{k}: {v}" for k, v in (c.cost_basis or {}).items())
         )
+        self.benchmark_blend.setPlainText(
+            "\n".join(f"{k}: {v}" for k, v in (getattr(c, "benchmark_weights", {}) or {}).items())
+        )
 
         # Tax
         self.tax_enabled.setChecked(bool(c.tax.enabled))
@@ -507,6 +539,7 @@ class ConfigPanel(QScrollArea):
         self.equal_weights.setChecked(True)
         self.weights_group.setVisible(False)
         self.cost_basis_edit.clear()
+        self.benchmark_blend.clear()
         self.error_label.setVisible(False)
 
     def import_holdings_csv(self, path) -> int:
@@ -565,6 +598,7 @@ class ConfigPanel(QScrollArea):
             tickers=tickers,
             weights=weights,
             benchmark=self.benchmark.text(),
+            benchmark_weights=self._parse_benchmark_blend(),
             start_date=self.start_date.date().toPython(),
             end_date=self.end_date.date().toPython(),
             capital=float(self.capital.value()),

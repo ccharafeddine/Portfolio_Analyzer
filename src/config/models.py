@@ -113,6 +113,9 @@ class PortfolioConfig(BaseModel):
     tickers: list[str] = Field(..., min_length=1)
     weights: dict[str, float] = Field(...)
     benchmark: str = "SPY"
+    # Optional blended benchmark: {ticker: weight}. When non-empty, the benchmark is a
+    # fixed-weight mix (e.g. {"SPY": 0.6, "AGG": 0.4}) and ``benchmark`` is its label.
+    benchmark_weights: dict[str, float] = Field(default_factory=dict)
 
     # ── Date range ──
     start_date: date

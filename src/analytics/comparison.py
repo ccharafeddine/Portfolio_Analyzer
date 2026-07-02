@@ -89,7 +89,9 @@ def _sector_weights(weights: dict, sector_cache: dict) -> Optional[dict]:
 
 def _one(label: str, cfg, sector_cache: dict, include_sectors: bool) -> ComparisonResult:
     tickers = list(cfg.tickers)
-    prices = fetcher.fetch_prices(tickers + [cfg.benchmark], cfg.start_date, cfg.end_date)
+    blend = getattr(cfg, "benchmark_weights", None) or {}
+    bench_tickers = list(blend) if blend else [cfg.benchmark]
+    prices = fetcher.fetch_prices(tickers + bench_tickers, cfg.start_date, cfg.end_date)
     bt = build_backtest(
         prices, cfg.weights, cfg.capital, cfg.risk_free_rate,
         inception_mode=cfg.backtest.inception_mode,
@@ -100,7 +102,13 @@ def _one(label: str, cfg, sector_cache: dict, include_sectors: bool) -> Comparis
     rets = values.pct_change().dropna()
 
     bench_ret = pd.Series(dtype=float)
-    if cfg.benchmark in prices.columns:
+    if blend:
+        try:
+            from src.analytics.performance import blended_benchmark
+            bench_ret = blended_benchmark(prices, blend, cfg.capital).pct_change().dropna()
+        except Exception:
+            pass
+    elif cfg.benchmark in prices.columns:
         bench_ret = prices[cfg.benchmark].pct_change().dropna()
 
     tail = risk.tail_metrics(rets)
