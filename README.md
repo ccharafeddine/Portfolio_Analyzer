@@ -27,6 +27,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
   - [Macro](#10-macro)
   - [Data](#11-data)
 - [Roadmap (v2)](#roadmap-v2)
+- [Roadmap (v3)](#roadmap-v3)
 - [Pipeline Architecture](#pipeline-architecture)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -433,9 +434,9 @@ The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` 
 
 ## Roadmap (v2)
 
-Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is the first piece. Planned work, grouped by theme:
+All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 
-**Fundamentals & data** (in progress)
+**Fundamentals & data**
 - [x] Company fundamentals tab — valuation, profitability, growth, balance-sheet health, dividends, upcoming earnings/ex-dividend dates.
 - [x] Deeper statements (income / balance sheet / cash flow history) and analyst estimates.
 - [x] Earnings & dividend calendar surfaced on the News tab.
@@ -455,4 +456,12 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 - [x] Auto-update — Settings → Check for Updates… queries GitHub Releases and prompts to download; installed builds auto-check on launch.
 - [x] Scheduled / automated report generation — Settings → Scheduled Reports… (in-app interval + Generate Now), plus a headless CLI (`--generate-report --all`) for OS-level scheduling.
 - [x] First-run sample portfolios (seeded on first launch; File → Open Sample).
-- [ ] Code-signing + notarization (deferred — requires an Apple Developer ID and a Windows code-signing certificate).
+
+---
+
+## Roadmap (v3)
+
+Planned for a future major release (more to be added):
+
+**Distribution**
+- [ ] Code-signing + notarization — remove the SmartScreen / Gatekeeper warnings on the installers (requires an Apple Developer ID and a Windows code-signing certificate).
