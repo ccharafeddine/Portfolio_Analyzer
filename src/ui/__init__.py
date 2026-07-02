@@ -7,4 +7,4 @@ imports from here.
 """
 
 __app_name__ = "Portfolio Analyzer"
-__version__ = "2.0.0"
+__version__ = "1.5.0"  # CI overwrites this from the git tag on release builds

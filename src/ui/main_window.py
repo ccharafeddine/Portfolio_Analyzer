@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QProgressBar,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -60,16 +61,26 @@ class MainWindow(QMainWindow):
         self._cancelled = False
         self._last_results = None
         self._current_portfolio_path: str | None = None
+        self._upd_thread = None
+        self._upd_worker = None
+        self._upd_silent = True
 
         self._build_menubar()
         self._build_central()
         self._build_statusbar()
 
-        self.act_cancel.triggered.connect(self._on_cancel)
-
         # Warm up chart views (and the QtWebEngine subsystem) right after the
         # window is shown, so the first Run doesn't flash while creating them.
         QTimer.singleShot(0, self.results_view.prewarm)
+
+        # Auto-check for updates on startup (installed builds only), silent unless a
+        # newer version exists. Skipped when running from source during development.
+        import sys as _sys
+
+        if getattr(_sys, "frozen", False) and self._settings.value(
+            "check_updates_on_startup", True, type=bool
+        ):
+            QTimer.singleShot(1800, lambda: self._start_update_check(silent=True))
 
     # ── Menubar ──
     def _build_menubar(self) -> None:
@@ -98,15 +109,13 @@ class MainWindow(QMainWindow):
 
         run_menu = bar.addMenu("&Run")
         self.act_run = QAction("Run Analysis", self, shortcut="Ctrl+R")
-        self.act_cancel = QAction("Cancel", self)
-        self.act_cancel.setEnabled(False)
         run_menu.addAction(self.act_run)
-        run_menu.addAction(self.act_cancel)
-
-        # Top-level entry into the multi-portfolio comparison section.
+        run_menu.addSeparator()
+        # Entry into the multi-portfolio comparison section, under Run Analysis.
+        # (Cancel lives on the progress bar in the status bar during a run.)
         self.act_compare = QAction("Compare Portfolios", self)
         self.act_compare.triggered.connect(self._show_compare_mode)
-        bar.addAction(self.act_compare)
+        run_menu.addAction(self.act_compare)
 
         view_menu = bar.addMenu("&View")
         theme_menu = view_menu.addMenu("Theme")
@@ -155,15 +164,17 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.act_beginner)
 
         settings_menu = bar.addMenu("&Settings")
+        self.act_updates = QAction("Check for Updates…", self)
+        self.act_updates.triggered.connect(self._on_check_updates)
+        settings_menu.addAction(self.act_updates)
+        settings_menu.addSeparator()
         self.act_settings = QAction("Preferences…", self)
         self.act_settings.triggered.connect(self._show_settings)
         settings_menu.addAction(self.act_settings)
 
         help_menu = bar.addMenu("&Help")
-        self.act_updates = QAction("Check for Updates…", self)
         self.act_about = QAction("About", self)
         self.act_about.triggered.connect(self._show_about)
-        help_menu.addAction(self.act_updates)
         help_menu.addAction(self.act_about)
 
     # ── Central area: collapsible sidebar + (header, metrics, results) ──
@@ -251,6 +262,20 @@ class MainWindow(QMainWindow):
         self.progress.setMinimumHeight(20)
         self.progress.setVisible(False)
         sb.addWidget(self.progress, 1)
+
+        # Cancel sits at the right end of the progress bar, visible only during a run
+        # so it's exactly where the user is already looking if it's taking too long.
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setObjectName("cancelButton")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.setVisible(False)
+        self.btn_cancel.setStyleSheet(
+            "QPushButton{background:#7f1d1d;color:#fff;border:1px solid #b91c1c;"
+            "border-radius:6px;padding:2px 16px;font-weight:600;}"
+            "QPushButton:hover{background:#991b1b;}"
+        )
+        self.btn_cancel.clicked.connect(self._on_cancel)
+        sb.addPermanentWidget(self.btn_cancel)
 
     def _status(self, text: str) -> None:
         self.status_label.setText(text)
@@ -403,6 +428,84 @@ class MainWindow(QMainWindow):
             self.results_view.refresh_news()
             self._status("Preferences saved")
 
+    # ── Auto-update ──
+    def _on_check_updates(self) -> None:
+        self._start_update_check(silent=False)
+
+    def _start_update_check(self, silent: bool) -> None:
+        if getattr(self, "_upd_thread", None) is not None:
+            return  # a check is already in flight
+        from .updater import UpdateCheckWorker
+
+        self._upd_silent = silent
+        if not silent:
+            self._status("Checking for updates…")
+        self._upd_thread = QThread(self)
+        self._upd_worker = UpdateCheckWorker()
+        self._upd_worker.moveToThread(self._upd_thread)
+        self._upd_thread.started.connect(self._upd_worker.run)
+        self._upd_worker.done.connect(self._handle_update_result)
+        self._upd_worker.failed.connect(self._handle_update_failed)
+        self._upd_worker.done.connect(self._upd_thread.quit)
+        self._upd_worker.failed.connect(self._upd_thread.quit)
+        self._upd_thread.finished.connect(self._cleanup_update_thread)
+        self._upd_thread.start()
+
+    def _cleanup_update_thread(self) -> None:
+        if getattr(self, "_upd_worker", None) is not None:
+            self._upd_worker.deleteLater()
+        if getattr(self, "_upd_thread", None) is not None:
+            self._upd_thread.deleteLater()
+        self._upd_worker = None
+        self._upd_thread = None
+
+    def _handle_update_result(self, release) -> None:
+        from .updater import is_newer
+
+        latest = release.get("tag", "")
+        if is_newer(latest, __version__):
+            if not self._upd_silent:
+                self._status(f"Update available: {release.get('name') or latest}")
+            self._prompt_update(release)
+        elif not self._upd_silent:
+            self._status("You're on the latest version")
+            QMessageBox.information(
+                self, "Up to date",
+                f"You're running the latest version (v{__version__}).",
+            )
+
+    def _handle_update_failed(self, message: str) -> None:
+        if not self._upd_silent:
+            self._status("Update check failed")
+            QMessageBox.warning(
+                self, "Update check failed",
+                f"Couldn't check for updates right now.\n\n{message}",
+            )
+
+    def _prompt_update(self, release) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        notes = (release.get("notes") or "").strip()
+        if len(notes) > 700:
+            notes = notes[:700].rstrip() + "…"
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Information)
+        box.setWindowTitle("Update available")
+        box.setTextFormat(Qt.RichText)
+        box.setText(
+            f"<b>{release.get('name') or release.get('tag')}</b> is available."
+            f"<br>You're running v{__version__}."
+        )
+        if notes:
+            box.setInformativeText(notes)
+        download_btn = box.addButton("Download", QMessageBox.AcceptRole)
+        box.addButton("Later", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is download_btn:
+            url = release.get("download_url") or release.get("url")
+            QDesktopServices.openUrl(QUrl(url))
+
     # ── Beginner mode & onboarding ──
     def _on_beginner_toggled(self, enabled: bool) -> None:
         explanations.set_beginner_mode(enabled)
@@ -532,8 +635,9 @@ class MainWindow(QMainWindow):
     def _set_running(self, running: bool) -> None:
         self.config_panel.set_enabled_for_run(not running)
         self.act_run.setEnabled(not running)
-        self.act_cancel.setEnabled(running)
-        # During a run the full-width progress bar replaces the idle status label.
+        # During a run the full-width progress bar (with its Cancel button) replaces
+        # the idle status label.
+        self.btn_cancel.setVisible(running)
         self.status_label.setVisible(not running)
         self.progress.setVisible(running)
         if running:

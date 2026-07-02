@@ -35,6 +35,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-desktop.txt
 
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          python -c "import re,pathlib,sys; p=pathlib.Path('src/ui/__init__.py'); s=p.read_text(); s=re.sub(r'__version__ = \"[^\"]*\"', '__version__ = \"'+sys.argv[1]+'\"', s); p.write_text(s)" "$VER"
+          echo "Set __version__ to $VER"
+
       - name: Build app (PyInstaller)
         run: pyinstaller packaging/PortfolioAnalyzer.spec --noconfirm
 
