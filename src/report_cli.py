@@ -16,6 +16,17 @@ import sys
 from pathlib import Path
 
 
+def scheduler_command(formats, out_dir: str) -> str:
+    """The command an OS scheduler (Task Scheduler / cron) runs for headless reports."""
+    fmt = ",".join(formats) or "pdf"
+    py = sys.executable
+    if getattr(sys, "frozen", False):
+        return f'"{py}" --generate-report --all --format {fmt} --out "{out_dir}"'
+    root = Path(__file__).resolve().parents[1]  # src/ -> repo root
+    return (f'"{py}" "{root / "main_desktop.py"}" --generate-report --all '
+            f'--format {fmt} --out "{out_dir}"')
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         prog="report_cli",

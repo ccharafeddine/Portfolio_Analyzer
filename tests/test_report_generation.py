@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import src.pipeline as pipeline_mod
+from src.report_cli import scheduler_command
 from src.reports import generate as gen
-from src.ui.scheduled_reports_dialog import scheduler_command
 
 
 class _FakePipeline:

@@ -9,9 +9,6 @@ Settings persist in QSettings; "Generate Now" runs immediately in the background
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -26,21 +23,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.report_cli import scheduler_command
+
 from . import paths
 from .settings import APP_NAME, ORG_NAME
 
 INTERVALS = ["On app launch", "Hourly", "Every 6 hours", "Daily"]
-
-
-def scheduler_command(formats: list[str], out_dir: str) -> str:
-    """The command an OS scheduler should run for headless report generation."""
-    fmt = ",".join(formats) or "pdf"
-    py = sys.executable
-    if getattr(sys, "frozen", False):
-        return f'"{py}" --generate-report --all --format {fmt} --out "{out_dir}"'
-    root = Path(__file__).resolve().parents[2]
-    return (f'"{py}" "{root / "main_desktop.py"}" --generate-report --all '
-            f'--format {fmt} --out "{out_dir}"')
 
 
 class ScheduledReportsDialog(QDialog):
