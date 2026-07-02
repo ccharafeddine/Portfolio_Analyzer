@@ -448,7 +448,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 
 **Analytics**
 - [x] Rebalancing / trade recommendations — concrete buy/sell orders (to your target and to the ORP) in the Optimization tab.
-- [ ] Scenario builder — user-defined shocks (rates +100bps, oil −20%) beyond the fixed historical stress tests.
+- [x] Scenario builder — interactive what-if shocks (macro factors + holdings) with live impact, in the Risk tab.
 - [ ] Time-series, benchmark-relative attribution (not just point-in-time).
 
 **Platform & polish**

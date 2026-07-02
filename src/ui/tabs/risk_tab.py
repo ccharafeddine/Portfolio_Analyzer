@@ -106,3 +106,16 @@ class RiskTab(WebTab):
                 charts.stress_test_chart(results.stress_df), height=360, explain="stress_test"
             )
             self.add_table(results.stress_df)
+
+        # Interactive what-if scenario builder (client-side; recomputes live)
+        model = getattr(results, "scenario_model", None)
+        if model and model.get("drivers"):
+            from .scenario_section import scenario_html
+
+            self.add_heading("Scenario Analysis", explain="scenario")
+            self.add_interpretation(
+                "Estimate how your portfolio would move under hypothetical shocks. Edit "
+                "the inputs (or pick a preset) and the impact updates live. Macro factors "
+                "use your portfolio's estimated sensitivity; holdings use their weight."
+            )
+            self.add_html(scenario_html(model))

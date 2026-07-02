@@ -167,6 +167,8 @@ class AnalysisResults:
     factor_tilts: Optional[pd.DataFrame] = None
     # Real Fama-French factor loadings: {model_name: DataFrame(Asset, *_coef, R2)}
     factor_models: dict = field(default_factory=dict)
+    # Interactive what-if scenario model: {value, drivers:[{name,ticker,group,beta}], presets}
+    scenario_model: Optional[dict] = None
 
     # Income
     income_summary: Optional[pd.DataFrame] = None
@@ -241,6 +243,7 @@ class AnalysisPipeline:
             ("Computing risk metrics", self._compute_risk),
             ("Recommending trades", self._recommend_trades),
             ("Running stress tests", self._run_stress_tests),
+            ("Building scenario model", self._build_scenario_model),
             ("Building complete portfolio", self._build_complete),
             ("Running attribution", self._run_attribution),
             ("Computing exposures", self._compute_exposure),
@@ -753,6 +756,26 @@ class AnalysisPipeline:
             self.results.trade_recos_orp = trade_recommendations(
                 current, orp.weights.to_dict(), total_value, latest
             )
+
+    def _build_scenario_model(self) -> None:
+        """Precompute betas for the interactive what-if scenario builder (best-effort)."""
+        if self.results.active is None:
+            return
+        try:
+            from src.analytics.scenario import MACRO_FACTORS, build_scenario_model
+        except Exception:
+            return
+        try:
+            macro = fetch_prices(
+                [t for _, t in MACRO_FACTORS],
+                self.config.start_date, self.config.end_date,
+            )
+        except Exception:
+            macro = pd.DataFrame()
+        value = float(self.results.active.values.iloc[-1])
+        self.results.scenario_model = build_scenario_model(
+            self.results.active.daily_returns, macro, self.config.weights, value
+        )
 
     def _run_factor_models(self) -> None:
         """Real Fama-French loadings (best-effort; needs the Ken French library)."""

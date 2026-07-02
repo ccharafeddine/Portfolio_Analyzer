@@ -93,6 +93,12 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Each bar is one scenario (e.g. a past crash). More negative means the portfolio was hit harder.",
         "why": "Averages hide tail events; stress tests show behavior in the exact moments risk matters most.",
     },
+    "scenario": {
+        "title": "Scenario Analysis",
+        "what": "A forward-looking what-if: your estimated portfolio move if chosen drivers were shocked by set amounts (e.g. equities −20%, oil −30%).",
+        "how": "Set a shock (%) for any driver. The estimate is beta × shock summed across drivers — macro factors use your portfolio's historical sensitivity; holdings use their weight. The chart shows each driver's contribution.",
+        "why": "Stress tests replay the past; this lets you price *your own* hypotheticals, so you can pressure-test the specific risks you're worried about.",
+    },
     "correlation_regime": {
         "title": "Correlation Regime",
         "what": "How the average correlation among your holdings changes over time.",
