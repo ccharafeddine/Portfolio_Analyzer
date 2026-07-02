@@ -160,6 +160,38 @@ def test_macro_parsing(monkeypatch):
     assert "DGS10" in macro.series and "FEDFUNDS" in macro.series
 
 
+def test_calendar_future_only_and_sorted(monkeypatch):
+    from datetime import date, timedelta
+
+    today = date.today()
+    soon = today + timedelta(days=5)
+    later = today + timedelta(days=20)
+    past = today - timedelta(days=10)
+
+    def cal_for(sym):
+        if sym == "AAPL":
+            return {"Earnings Date": [later], "Ex-Dividend Date": soon,
+                    "Earnings Average": 1.89}
+        return {"Earnings Date": [past]}  # in the past -> excluded
+
+    fake_yf = MagicMock()
+
+    def ticker(sym):
+        t = MagicMock()
+        t.calendar = cal_for(sym)
+        return t
+
+    fake_yf.Ticker.side_effect = ticker
+    monkeypatch.setattr(md, "yf", fake_yf)
+
+    events = md.fetch_calendar(["AAPL", "MSFT"], use_cache=False)
+    # MSFT's only date is in the past -> dropped; AAPL contributes two, sorted.
+    assert [e.kind for e in events] == ["Ex-Dividend", "Earnings"]
+    assert all(e.ticker == "AAPL" for e in events)
+    assert events[0].date < events[1].date
+    assert "Est. EPS" in events[1].detail
+
+
 def test_macro_roundtrip_serialization(monkeypatch):
     _install_fred(monkeypatch)
     macro = md.fetch_macro("FREDKEY", use_cache=False)

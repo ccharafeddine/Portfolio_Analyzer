@@ -203,7 +203,7 @@ Company-level fundamentals for every holding, side by side — pulled from yfina
 
 ### 9. News
 
-Recent headlines for every ticker in the analysis, newest first, as clickable cards that open in your browser. Fetched on a background thread — automatically on every run and on demand via a **Refresh** button — so it never blocks the UI. Works with no setup via yfinance; adding an **Alpha Vantage** key in Settings pulls more articles and a per-article **sentiment** tag (bullish/neutral/bearish). Excluded from exported reports.
+Opens with an **Upcoming Earnings & Dividends** calendar — the next earnings reports and ex-dividend dates across all holdings, soonest first (with a relative countdown and estimated EPS when available). Below it, recent headlines for every ticker in the analysis, newest first, as clickable cards that open in your browser. Fetched on a background thread — automatically on every run and on demand via a **Refresh** button — so it never blocks the UI. Works with no setup via yfinance; adding an **Alpha Vantage** key in Settings pulls more articles and a per-article **sentiment** tag (bullish/neutral/bearish). Excluded from exported reports.
 
 ### 10. Macro
 
@@ -435,7 +435,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 **Fundamentals & data** (in progress)
 - [x] Company fundamentals tab — valuation, profitability, growth, balance-sheet health, dividends, upcoming earnings/ex-dividend dates.
 - [ ] Deeper statements (income / balance sheet / cash flow history) and analyst estimates.
-- [ ] Earnings & dividend calendar surfaced on the News tab.
+- [x] Earnings & dividend calendar surfaced on the News tab.
 
 **Portfolio depth**
 - [ ] Multi-portfolio compare — open several saved portfolios side by side.

@@ -11,6 +11,8 @@ import html as _html
 from datetime import datetime, timezone
 from typing import Optional
 
+import pandas as pd
+
 from .. import settings, theme
 from ..worker import NewsWorker
 from .refreshable_tab import RefreshableWebTab
@@ -43,6 +45,7 @@ class NewsTab(RefreshableWebTab):
     def __init__(self) -> None:
         super().__init__()
         self._news: list = []
+        self._events: list = []
         self._last_updated: Optional[datetime] = None
 
     def refresh(self) -> None:
@@ -52,8 +55,10 @@ class NewsTab(RefreshableWebTab):
         worker = NewsWorker(self._tickers, av_key=settings.get_api_key("ALPHAVANTAGE_API_KEY"))
         self._start(worker, self._on_news)
 
-    def _on_news(self, news) -> None:
+    def _on_news(self, payload) -> None:
+        news, events = payload
         self._news = news or []
+        self._events = events or []
         self._last_updated = datetime.now(timezone.utc)
         stamp = self._last_updated.astimezone().strftime("%I:%M %p").lstrip("0")
         self._set_status(f"Updated {stamp}  ·  {len(self._news)} stories")
@@ -63,6 +68,21 @@ class NewsTab(RefreshableWebTab):
     # ── Rendering ──
     def _populate(self, results) -> None:
         self.add_html(self._extra_css())
+
+        # Upcoming earnings / ex-dividend dates across the holdings.
+        self.add_heading("Upcoming Earnings & Dividends", explain="earnings_calendar")
+        if self._events:
+            self.add_table(pd.DataFrame({
+                "Date": [self._fmt_event_date(e.date) for e in self._events],
+                "Ticker": [e.ticker for e in self._events],
+                "Event": [e.kind for e in self._events],
+                "Detail": [e.detail or "—" for e in self._events],
+            }))
+        else:
+            self.add_interpretation(
+                "No upcoming earnings or ex-dividend dates were found for your holdings."
+            )
+
         self.add_heading("Latest News", explain="news_feed")
         if not self._news:
             if self._fetching:
@@ -75,6 +95,16 @@ class NewsTab(RefreshableWebTab):
             return
         cards = "".join(self._news_card(item) for item in self._news)
         self.add_html(f"<div class='news-list'>{cards}</div>")
+
+    @staticmethod
+    def _fmt_event_date(iso: str) -> str:
+        try:
+            d = datetime.fromisoformat(iso).date()
+        except Exception:
+            return iso
+        days = (d - datetime.now(timezone.utc).date()).days
+        rel = "today" if days == 0 else ("tomorrow" if days == 1 else f"in {days}d")
+        return f"{d.strftime('%b %d, %Y')}  ({rel})"
 
     def _news_card(self, item) -> str:
         t = theme.ACTIVE

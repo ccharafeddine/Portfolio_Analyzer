@@ -21,7 +21,7 @@ import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -407,3 +407,72 @@ def fetch_macro(fred_key: Optional[str], use_cache: bool = True) -> Optional[Mac
     if use_cache:
         _save_cache("macro_fred.json", macro.to_dict())
     return macro
+
+
+# ──────────────────────────────────────────────────────────────
+# Upcoming events calendar (earnings + ex-dividend)
+# ──────────────────────────────────────────────────────────────
+
+@dataclass
+class CalendarEvent:
+    ticker: str
+    date: str      # ISO date (YYYY-MM-DD)
+    kind: str      # "Earnings" | "Ex-Dividend"
+    detail: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CalendarEvent":
+        return cls(**d)
+
+
+def _as_date(v) -> Optional[date]:
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return datetime.fromisoformat(str(v)[:10]).date()
+    except Exception:
+        return None
+
+
+def fetch_calendar(tickers, use_cache: bool = True) -> list[CalendarEvent]:
+    """Upcoming earnings and ex-dividend dates across the holdings, soonest first.
+    Uses only ``Ticker.calendar`` (cheap), so it's lighter than full fundamentals."""
+    tickers = [str(t).upper() for t in tickers if t]
+    if not tickers:
+        return []
+    cache_name = f"calendar_{'-'.join(sorted(tickers))}.json"
+    if use_cache:
+        cached = _load_cache(cache_name, CACHE_TTL_MACRO)
+        if cached is not None:
+            return [CalendarEvent.from_dict(d) for d in cached]
+
+    today = datetime.now(timezone.utc).date()
+    events: list[CalendarEvent] = []
+    if yf is not None:
+        for t in tickers:
+            try:
+                cal = yf.Ticker(t).calendar or {}
+            except Exception:
+                continue
+            avg = cal.get("Earnings Average")
+            detail = f"Est. EPS ${avg:.2f}" if isinstance(avg, (int, float)) else ""
+            ed = cal.get("Earnings Date")
+            for d in (ed if isinstance(ed, (list, tuple)) else [ed]):
+                dd = _as_date(d)
+                if dd and dd >= today:
+                    events.append(CalendarEvent(t, dd.isoformat(), "Earnings", detail))
+            xd = _as_date(cal.get("Ex-Dividend Date"))
+            if xd and xd >= today:
+                events.append(CalendarEvent(t, xd.isoformat(), "Ex-Dividend", ""))
+
+    events.sort(key=lambda e: e.date)
+    if use_cache and events:
+        _save_cache(cache_name, [e.to_dict() for e in events])
+    return events

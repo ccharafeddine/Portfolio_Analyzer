@@ -40,7 +40,8 @@ class AnalysisWorker(QObject):
 
 
 class NewsWorker(QObject):
-    """Fetches per-holding news off the UI thread. Emits ``done(list[NewsItem])``."""
+    """Fetches per-holding news + an upcoming-events calendar off the UI thread.
+    Emits ``done((list[NewsItem], list[CalendarEvent]))``."""
 
     done = Signal(object)
     failed = Signal(str)
@@ -55,7 +56,9 @@ class NewsWorker(QObject):
         try:
             from src.data import market_data
 
-            self.done.emit(market_data.fetch_ticker_news(self._tickers, av_key=self._av_key))
+            news = market_data.fetch_ticker_news(self._tickers, av_key=self._av_key)
+            events = market_data.fetch_calendar(self._tickers)
+            self.done.emit((news, events))
         except Exception as e:
             self.failed.emit(str(e))
 
