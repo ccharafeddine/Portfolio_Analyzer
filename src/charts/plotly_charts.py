@@ -737,6 +737,32 @@ def return_distribution_chart(
 # ──────────────────────────────────────────────────────────────
 
 
+def trade_chart(df: pd.DataFrame, title: str = "Trades to Rebalance") -> go.Figure:
+    """Per-ticker buy (green) / sell (red) dollar trades."""
+    if df is None or df.empty:
+        return go.Figure()
+    d = df[df["Action"] != "Hold"].copy()
+    if d.empty:
+        return go.Figure()
+    colors = ["#3fb950" if v >= 0 else "#f85149" for v in d["TradeValue"]]
+    fig = go.Figure(go.Bar(
+        x=d["Ticker"].tolist(),
+        y=d["TradeValue"].tolist(),
+        marker=dict(color=colors),
+        hovertemplate="<b>%{x}</b><br>%{y:$,.0f}<extra></extra>",
+        cliponaxis=False,
+    ))
+    fig.add_hline(y=0, line_color=MUTED_COLOR, opacity=0.4)
+    _apply_layout(
+        fig,
+        title=dict(text=title, font=dict(size=16, color=TEXT_COLOR)),
+        xaxis=dict(gridcolor="rgba(0,0,0,0)"),
+        yaxis=dict(title="Buy (+) / Sell (−) $", gridcolor=GRID_COLOR, zeroline=False),
+        height=360,
+    )
+    return fig
+
+
 def factor_loadings_chart(
     df: pd.DataFrame,
     model_name: str = "",

@@ -447,7 +447,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 - [x] Real factor-model loadings (Fama-French FF3 / Carhart 4 / FF5) from the Ken French daily factors, regressed per asset + portfolio.
 
 **Analytics**
-- [ ] Rebalancing / trade recommendations — "to reach target, buy X / sell Y."
+- [x] Rebalancing / trade recommendations — concrete buy/sell orders (to your target and to the ORP) in the Optimization tab.
 - [ ] Scenario builder — user-defined shocks (rates +100bps, oil −20%) beyond the fixed historical stress tests.
 - [ ] Time-series, benchmark-relative attribution (not just point-in-time).
 

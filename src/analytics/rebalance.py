@@ -1,11 +1,78 @@
 """
-Rebalancing analysis: weight drift, periodic rebalancing backtest, turnover.
+Rebalancing analysis: weight drift, periodic rebalancing backtest, turnover,
+and concrete buy/sell trade recommendations.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
+
+def trade_recommendations(
+    current_weights: pd.Series,
+    target_weights: dict[str, float],
+    total_value: float,
+    latest_prices: pd.Series,
+    band: float = 0.0,
+) -> pd.DataFrame:
+    """Concrete trades to move from current (drifted) weights to a target allocation.
+
+    Parameters
+    ----------
+    current_weights : realized weight per ticker now (sums to ~1).
+    target_weights : desired weight per ticker (normalized internally).
+    total_value : current portfolio value ($).
+    latest_prices : latest price per ticker (for share counts).
+    band : no-trade band — |drift| below this is left as "Hold" (0 = trade everything).
+
+    Returns numeric columns: Ticker, CurrentWeight, TargetWeight, Drift,
+    CurrentValue, TargetValue, TradeValue (+buy/-sell), Shares, Action —
+    sorted by trade size (largest first).
+    """
+    tgt_total = sum(v for v in target_weights.values() if v)
+    tgt = {k: (v / tgt_total if tgt_total else 0.0) for k, v in target_weights.items()}
+
+    tickers = sorted(set(current_weights.index) | set(tgt))
+    rows = []
+    for t in tickers:
+        cur_w = float(current_weights.get(t, 0.0) or 0.0)
+        tgt_w = float(tgt.get(t, 0.0) or 0.0)
+        drift = cur_w - tgt_w
+        cur_val = cur_w * total_value
+        tgt_val = tgt_w * total_value
+        trade_val = tgt_val - cur_val  # +buy / -sell
+
+        if abs(drift) < band:
+            action, trade_val = "Hold", 0.0
+        elif trade_val > 0:
+            action = "Buy"
+        elif trade_val < 0:
+            action = "Sell"
+        else:
+            action = "Hold"
+
+        price = float(latest_prices.get(t, np.nan)) if t in latest_prices.index else np.nan
+        shares = (trade_val / price) if (price and price == price and price > 0) else np.nan
+
+        rows.append({
+            "Ticker": t,
+            "CurrentWeight": cur_w,
+            "TargetWeight": tgt_w,
+            "Drift": drift,
+            "CurrentValue": cur_val,
+            "TargetValue": tgt_val,
+            "TradeValue": trade_val,
+            "Shares": shares,
+            "Action": action,
+        })
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.reindex(
+        df["TradeValue"].abs().sort_values(ascending=False).index
+    ).reset_index(drop=True)
 
 
 def drift_from_target(

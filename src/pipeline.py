@@ -45,6 +45,7 @@ from src.analytics.rebalance import (
     drift_from_target,
     rebalanced_backtest,
     compute_turnover,
+    trade_recommendations,
 )
 from src.analytics.exposure import (
     get_sector_weights,
@@ -154,6 +155,9 @@ class AnalysisResults:
     rebalanced: Optional[PortfolioSeries] = None
     weight_drift: Optional[pd.DataFrame] = None
     turnover_table: Optional[pd.DataFrame] = None
+    # Buy/sell trades to rebalance current drifted weights to a target
+    trade_recos: Optional[pd.DataFrame] = None          # -> your target weights
+    trade_recos_orp: Optional[pd.DataFrame] = None      # -> the optimal (ORP) weights
 
     # Correlation regime
     correlation_regime: Optional[pd.DataFrame] = None
@@ -235,6 +239,7 @@ class AnalysisPipeline:
             ("Measuring performance", self._measure_performance),
             ("Analyzing taxes", self._compute_tax),
             ("Computing risk metrics", self._compute_risk),
+            ("Recommending trades", self._recommend_trades),
             ("Running stress tests", self._run_stress_tests),
             ("Building complete portfolio", self._build_complete),
             ("Running attribution", self._run_attribution),
@@ -727,6 +732,27 @@ class AnalysisPipeline:
                 )
         except Exception as e:
             print(f"[pipeline] Factor tilts failed: {e}")
+
+    def _recommend_trades(self) -> None:
+        """Concrete buy/sell trades to rebalance to the target (and to the ORP)."""
+        bt = self.results.backtest
+        if bt is None or self.results.active is None:
+            return
+        wh = bt.weight_history
+        if wh is None or wh.empty:
+            return
+        current = wh.iloc[-1].drop(labels=["Cash"], errors="ignore")
+        total_value = float(self.results.active.values.iloc[-1])
+        latest = self.results.prices.ffill().iloc[-1]
+
+        self.results.trade_recos = trade_recommendations(
+            current, self.config.weights, total_value, latest
+        )
+        orp = self.results.orp_optimization
+        if orp is not None and orp.weights is not None and not orp.weights.empty:
+            self.results.trade_recos_orp = trade_recommendations(
+                current, orp.weights.to_dict(), total_value, latest
+            )
 
     def _run_factor_models(self) -> None:
         """Real Fama-French loadings (best-effort; needs the Ken French library)."""

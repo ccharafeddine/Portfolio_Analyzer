@@ -22,6 +22,18 @@ def _ratio(v, d: int = 2) -> str:
     return f"{v:.{d}f}" if v is not None and not np.isnan(v) else "—"
 
 
+def _usd(v) -> str:
+    if v is None or np.isnan(v):
+        return "—"
+    return f"{'+' if v >= 0 else '−'}${abs(v):,.0f}"
+
+
+def _shares(v) -> str:
+    if v is None or np.isnan(v):
+        return "—"
+    return f"{'+' if v >= 0 else '−'}{abs(v):,.2f}"
+
+
 class OptimizationTab(WebTab):
     def _populate(self, results) -> None:
         interp = results.interpretations or {}
@@ -152,6 +164,9 @@ class OptimizationTab(WebTab):
             self.add_heading("Quarterly Turnover", explain="turnover")
             self.add_table(results.turnover_table)
 
+        # Trade recommendations (buy/sell to rebalance)
+        self._render_trades(results)
+
         # ORP stats
         self.add_heading("Optimal Risky Portfolio Statistics", explain="orp_stats")
         self.add_table(
@@ -175,3 +190,41 @@ class OptimizationTab(WebTab):
                 height=360,
                 explain="risk_contribution",
             )
+
+    def _render_trades(self, results) -> None:
+        """Buy/sell trades to rebalance to the target (and, if available, the ORP)."""
+        specs = [
+            ("Portfolio Rebalancing Trades", "your target",
+             "trade_recommendations_target", results.trade_recos),
+        ]
+        if results.trade_recos_orp is not None:
+            specs.append(
+                ("ORP Rebalancing Trades", "the optimal (ORP)",
+                 "trade_recommendations_orp", results.trade_recos_orp)
+            )
+
+        for title, label, explain_key, df in specs:
+            if df is None or df.empty:
+                continue
+            self.add_heading(title, explain=explain_key)
+            traded = df[df["Action"] != "Hold"]
+            if traded.empty:
+                self.add_interpretation("Already on target — no trades needed.")
+                continue
+
+            buys = float(traded.loc[traded["TradeValue"] > 0, "TradeValue"].sum())
+            sells = float(-traded.loc[traded["TradeValue"] < 0, "TradeValue"].sum())
+            self.add_interpretation(
+                f"To rebalance to {label}: buy ${buys:,.0f} and sell ${sells:,.0f} "
+                f"across {len(traded)} position(s)."
+            )
+            self.add_chart(charts.trade_chart(df, f"Trades to reach {label}"), height=340)
+            self.add_table(pd.DataFrame({
+                "Ticker": df["Ticker"],
+                "Current %": df["CurrentWeight"].map(_pct),
+                "Target %": df["TargetWeight"].map(_pct),
+                "Drift": df["Drift"].map(_pct),
+                "Action": df["Action"],
+                "Trade $": df["TradeValue"].map(_usd),
+                "Shares": df["Shares"].map(_shares),
+            }))

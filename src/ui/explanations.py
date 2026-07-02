@@ -321,6 +321,18 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Higher turnover means more trading — and more cost and potential taxes. Watch for spikes.",
         "why": "Turnover is the hidden price of rebalancing; keeping an eye on it keeps costs in check.",
     },
+    "trade_recommendations_target": {
+        "title": "Portfolio Rebalancing Trades",
+        "what": "The exact buy/sell orders to move your holdings from where they've drifted back to the target weights you specified.",
+        "how": "Each row shows current vs your target weight, the dollar trade (+buy / −sell), and an approximate share count. Green bars buy, red bars sell.",
+        "why": "Rebalancing back to your intended allocation controls risk drift and enforces buy-low/sell-high discipline — a concrete to-do list instead of a spreadsheet exercise.",
+    },
+    "trade_recommendations_orp": {
+        "title": "ORP Rebalancing Trades",
+        "what": "The buy/sell orders to move your holdings to the Optimal Risky Portfolio (ORP) — the max-Sharpe weights the optimizer computed.",
+        "how": "Same layout, but the target is the ORP's optimized weights rather than your own. Trades can be large when the ORP differs a lot from your current mix.",
+        "why": "Shows what it would actually take to adopt the mean-variance-optimal allocation, so you can weigh the move — and its turnover — deliberately.",
+    },
     "orp_stats": {
         "title": "Optimal Risky Portfolio",
         "what": "The expected return, volatility, and Sharpe of the max-Sharpe optimal portfolio.",
