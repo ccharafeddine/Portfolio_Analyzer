@@ -222,3 +222,84 @@ def fetch_fundamentals(
     if use_cache and any(i.name and i.name != i.ticker for i in items):
         _save_cache(cache_name, [i.to_dict() for i in items])
     return items
+
+
+# ── Deeper statements + analyst estimates (per ticker, lazy) ──
+
+_INCOME_ROWS = [
+    "Total Revenue", "Gross Profit", "Operating Income", "EBITDA",
+    "Net Income", "Diluted EPS",
+]
+_BALANCE_ROWS = [
+    "Total Assets", "Total Liabilities Net Minority Interest",
+    "Stockholders Equity", "Total Debt", "Cash And Cash Equivalents",
+]
+_CASHFLOW_ROWS = [
+    "Operating Cash Flow", "Investing Cash Flow", "Financing Cash Flow",
+    "Free Cash Flow",
+]
+
+
+def _statement_dict(df, rows, max_periods: int = 5) -> Optional[dict]:
+    if df is None or getattr(df, "empty", True):
+        return None
+    cols = list(df.columns)[:max_periods]
+    periods = [str(getattr(c, "year", str(c)[:4])) for c in cols]
+    out_rows: dict[str, list] = {}
+    for r in rows:
+        if r in df.index:
+            vals = []
+            for c in cols:
+                vals.append(_f(df.loc[r, c]))
+            out_rows[r] = vals
+    if not out_rows:
+        return None
+    return {"periods": periods, "rows": out_rows}
+
+
+def fetch_statements(ticker: str, use_cache: bool = True) -> dict:
+    """Income / balance / cash-flow history (annual) + analyst targets and
+    recommendation mix for a single ticker. Returns {} if unavailable."""
+    ticker = str(ticker).upper()
+    cache_name = f"statements_{ticker}.json"
+    if use_cache:
+        cached = _load_cache(cache_name, 24 * 60 * 60)
+        if cached is not None:
+            return cached
+
+    data: dict = {}
+    tk = yf.Ticker(ticker) if yf is not None else None
+    if tk is not None:
+        try:
+            data["income"] = _statement_dict(tk.income_stmt, _INCOME_ROWS)
+        except Exception:
+            pass
+        try:
+            data["balance"] = _statement_dict(tk.balance_sheet, _BALANCE_ROWS)
+        except Exception:
+            pass
+        try:
+            data["cashflow"] = _statement_dict(tk.cashflow, _CASHFLOW_ROWS)
+        except Exception:
+            pass
+        try:
+            pt = tk.analyst_price_targets
+            if isinstance(pt, dict) and pt:
+                data["target"] = {k: _f(v) for k, v in pt.items()}
+        except Exception:
+            pass
+        try:
+            rs = tk.recommendations_summary
+            if rs is not None and len(rs):
+                row = rs.iloc[0].to_dict()
+                data["recommendation"] = {
+                    k: int(row[k]) for k in
+                    ("strongBuy", "buy", "hold", "sell", "strongSell")
+                    if k in row and row[k] == row[k]
+                }
+        except Exception:
+            pass
+
+    if use_cache and any(data.get(k) for k in ("income", "balance", "cashflow")):
+        _save_cache(cache_name, data)
+    return data

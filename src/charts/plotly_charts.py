@@ -1384,6 +1384,58 @@ def treasury_curve_chart(curve: dict) -> go.Figure:
     return fig
 
 
+def metric_bar_chart(names, values, title: str, pct: bool = False,
+                     suffix: str = "") -> go.Figure:
+    """A simple vertical bar comparing one metric across holdings (skips None)."""
+    xs, ys = [], []
+    for n, v in zip(names, values):
+        if v is None:
+            continue
+        xs.append(n)
+        ys.append(v * 100 if pct else v)
+    text = [f"{y:.1f}%" if pct else (f"{y:,.2f}{suffix}") for y in ys]
+    colors = [COLORS[i % len(COLORS)] for i in range(len(xs))]
+    fig = go.Figure(go.Bar(
+        x=xs, y=ys, marker_color=colors, text=text, textposition="outside",
+        cliponaxis=False, hovertemplate="%{x}: %{text}<extra></extra>",
+    ))
+    # Headroom so the outside value labels are never clipped at the top/bottom.
+    hi = max(ys) if ys else 1.0
+    lo = min(ys) if ys else 0.0
+    y_top = hi * 1.20 if hi > 0 else hi * 0.80
+    y_bot = lo * 1.20 if lo < 0 else 0.0
+    _apply_layout(
+        fig,
+        title=dict(text=title, font=dict(size=15, color=TEXT_COLOR)),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=True,
+                   ticksuffix=("%" if pct else ""), range=[y_bot, y_top]),
+        showlegend=False,
+    )
+    return fig
+
+
+def statement_trend_chart(periods, series: dict, title: str) -> go.Figure:
+    """Grouped bars of statement line items over periods (values in USD billions).
+    ``series`` maps a label to values aligned with ``periods`` (newest-first)."""
+    order = list(reversed([str(p) for p in periods]))
+    fig = go.Figure()
+    for i, (label, vals) in enumerate(series.items()):
+        y = [(v / 1e9 if v is not None else None) for v in reversed(vals)]
+        fig.add_trace(go.Bar(
+            name=label, x=order, y=y, marker_color=COLORS[i % len(COLORS)],
+            hovertemplate="%{x}: $%{y:.1f}B<extra>" + label + "</extra>",
+        ))
+    _apply_layout(
+        fig,
+        title=dict(text=title, font=dict(size=15, color=TEXT_COLOR)),
+        barmode="group",
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=True, title="USD billions", tickprefix=""),
+    )
+    return fig
+
+
 def rate_history_chart(series: dict, title: str = "Key Rates") -> go.Figure:
     """Multi-line history of a few macro series. ``series`` maps a display
     label to a pandas Series indexed by date (values in percent)."""

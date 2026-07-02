@@ -104,3 +104,24 @@ class FundamentalsWorker(QObject):
             )
         except Exception as e:
             self.failed.emit(str(e))
+
+
+class StatementsWorker(QObject):
+    """Fetches one ticker's financial statements + analyst data off the UI thread.
+    Emits ``done((ticker, dict))``."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, ticker) -> None:
+        super().__init__()
+        self._ticker = ticker
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import fundamentals
+
+            self.done.emit((self._ticker, fundamentals.fetch_statements(self._ticker)))
+        except Exception as e:
+            self.failed.emit(str(e))

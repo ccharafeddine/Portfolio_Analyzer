@@ -201,6 +201,8 @@ Company-level fundamentals for every holding, side by side — pulled from yfina
 - **Dividends & Profile** — dividend yield, payout ratio, beta, market cap, sector.
 - **Upcoming Earnings & Ex-Dividend Dates** — the next reporting and ex-dividend dates per holding.
 
+Below the comparison, a per-holding drill-down (pick a ticker in the toolbar) shows the **income statement, balance sheet, and cash-flow history** (annual) plus **analyst price targets and the buy/hold/sell mix** — fetched lazily and cached. Comparison tables use uniform column widths so the numbers line up down the page.
+
 ### 9. News
 
 Opens with an **Upcoming Earnings & Dividends** calendar — the next earnings reports and ex-dividend dates across all holdings, soonest first (with a relative countdown and estimated EPS when available). Below it, recent headlines for every ticker in the analysis, newest first, as clickable cards that open in your browser. Fetched on a background thread — automatically on every run and on demand via a **Refresh** button — so it never blocks the UI. Works with no setup via yfinance; adding an **Alpha Vantage** key in Settings pulls more articles and a per-article **sentiment** tag (bullish/neutral/bearish). Excluded from exported reports.
@@ -434,7 +436,7 @@ Fundamentals & data is underway — the [Fundamentals](#8-fundamentals) tab is t
 
 **Fundamentals & data** (in progress)
 - [x] Company fundamentals tab — valuation, profitability, growth, balance-sheet health, dividends, upcoming earnings/ex-dividend dates.
-- [ ] Deeper statements (income / balance sheet / cash flow history) and analyst estimates.
+- [x] Deeper statements (income / balance sheet / cash flow history) and analyst estimates.
 - [x] Earnings & dividend calendar surfaced on the News tab.
 
 **Portfolio depth**

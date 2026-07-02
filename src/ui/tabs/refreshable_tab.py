@@ -20,13 +20,24 @@ from .web_tab import WebTab
 
 class _ExternalLinkPage(QWebEnginePage):
     """Opens clicked http(s) links in the system browser instead of navigating the
-    in-app view (which would replace the tab's rendered page)."""
+    in-app view (which would replace the tab's rendered page). ``app://`` links are
+    routed to an optional in-app handler (used for in-page controls like the
+    Fundamentals ticker chips)."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.app_link_handler = None  # optional callable(url_string)
 
     def acceptNavigationRequest(self, url: QUrl, nav_type, is_main_frame) -> bool:
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
-            if url.scheme() in ("http", "https"):
+            scheme = url.scheme()
+            if scheme in ("http", "https"):
                 QDesktopServices.openUrl(url)
-            return False
+                return False
+            if scheme == "app":
+                if self.app_link_handler:
+                    self.app_link_handler(url.toString())
+                return False
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
@@ -53,6 +64,7 @@ class RefreshableWebTab(WebTab):
         hb.addStretch(1)
         hb.addWidget(self._status)
 
+        self._toolbar_layout = hb  # subclasses can insert extra controls (before the stretch)
         lay = self.layout()
         lay.insertWidget(0, bar)
         # The toolbar keeps its natural height; the web view takes ALL remaining

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import html as _html
 import json
+import re
 from typing import Callable, Optional
 
 import math
@@ -65,6 +66,7 @@ class WebTab(QWidget):
         self._figs: dict[str, str] = {}
         self._chart_i = 0
         self._loaded_blank = False
+        self._post_script = ""  # optional JS appended to the next rendered page
         self._render_blank()
 
     # ── Interface used by ResultsView ──
@@ -91,6 +93,7 @@ class WebTab(QWidget):
         else:
             self._populate(self._results)
             self._view.setHtml(self._build_page(), self._base_url)
+        self._post_script = ""  # one-shot; don't repeat on later renders
         self._dirty = False
 
     def _populate(self, results) -> None:  # pragma: no cover - overridden
@@ -126,7 +129,11 @@ class WebTab(QWidget):
             )
 
         for b in blocks:
-            if b.startswith("<h3>") and b.endswith("</h3>"):
+            if b.startswith("<div class='zone'"):
+                flush()          # zones are standalone dividers between sections
+                cur = None
+                out.append(b)
+            elif b.startswith("<h3>") and b.endswith("</h3>"):
                 flush()
                 cur = {"inner": b[4:-5], "body": []}
             elif cur is None:
@@ -183,6 +190,7 @@ class WebTab(QWidget):
       b.addEventListener('transitionend', done);
     }}
   }}
+  {self._post_script}
 </script>
 </body></html>"""
 
@@ -224,6 +232,25 @@ class WebTab(QWidget):
     border-bottom:1px solid {t.border}}}
   .tbl td{{padding:7px 10px;border-bottom:1px solid {t.border};font-variant-numeric:tabular-nums}}
   .tbl tr:nth-child(even) td{{background:{t.card_alt}}}
+  table.tbl-fixed{{table-layout:fixed}}
+  .tbl-fixed th,.tbl-fixed td{{white-space:normal;word-break:break-word}}
+  .zone{{display:flex;align-items:baseline;gap:12px;margin-top:14px;
+    padding:10px 0 2px;border-top:2px solid {t.accent}}}
+  .zone-title{{font-size:{t.heading_pt + 5}px;font-weight:800;color:{t.text};
+    letter-spacing:.01em}}
+  .zone-sub{{color:{t.text_muted};font-size:{t.base_pt}px}}
+  .chips{{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 2px}}
+  .chip{{padding:4px 14px;border:1px solid {t.border_light};border-radius:999px;
+    color:{t.text_muted};text-decoration:none;font-size:{t.base_pt - 1}px;
+    font-weight:600;transition:all .12s}}
+  .chip:hover{{border-color:{t.accent};color:{t.text}}}
+  .chip.active{{background:{t.accent};border-color:{t.accent};color:#fff}}
+  ::-webkit-scrollbar{{width:12px;height:12px}}
+  ::-webkit-scrollbar-track{{background:transparent}}
+  ::-webkit-scrollbar-thumb{{background:{t.border_light};border-radius:7px;
+    border:3px solid {t.chart_bg}}}
+  ::-webkit-scrollbar-thumb:hover{{background:{t.text_muted}}}
+  ::-webkit-scrollbar-thumb:active{{background:{t.accent}}}
   .statgrid{{display:grid;gap:10px}}
   .card{{background:{t.card};border:1px solid {t.border_light};
     border-radius:{max(6, t.radius - 2)}px;padding:12px 14px}}
@@ -284,6 +311,18 @@ class WebTab(QWidget):
                 f"<div class='blurb'><b>{_html.escape(e['title'])}.</b> "
                 f"{_html.escape(explanations.inline_text(explain))}</div>"
             )
+
+    def add_zone(self, title: str, subtitle: Optional[str] = None,
+                 anchor: Optional[str] = None) -> None:
+        """A prominent banner separating major zones of a tab (e.g. the
+        portfolio-wide comparison vs. a single-company drill-down)."""
+        aid = f" id='{anchor}'" if anchor else ""
+        sub = (f"<span class='zone-sub'>{_html.escape(subtitle)}</span>"
+               if subtitle else "")
+        self._html.append(
+            f"<div class='zone'{aid}>"
+            f"<span class='zone-title'>{_html.escape(title)}</span>{sub}</div>"
+        )
 
     def add_interpretation(self, text: Optional[str]) -> None:
         if not text:
@@ -384,6 +423,7 @@ class WebTab(QWidget):
         df: pd.DataFrame,
         formatters: Optional[dict[str, Callable]] = None,
         show_index: bool = False,
+        slots: Optional[int] = None,
     ) -> None:
         if df is None or len(df) == 0:
             return
@@ -393,9 +433,29 @@ class WebTab(QWidget):
         for col in frame.columns:
             fmt = formatters.get(col)
             disp[col] = [fmt(v) if fmt else _fmt_default(v) for v in frame[col]]
+
+        colgroup, classes = "", "tbl"
+        if slots and slots > 1:
+            # Uniform column pitch = 100% / slots, applied to every table in a group
+            # so their columns line up while each still fills the full width. Tables
+            # with fewer columns are padded with blank trailing cells.
+            pad = 0
+            while disp.shape[1] < slots:
+                pad += 1
+                disp[" " * pad] = ""  # unique, blank-rendering column name
+            ncols = disp.shape[1] + (1 if show_index else 0)
+            pitch = 100.0 / slots
+            colgroup = ("<colgroup>"
+                        + "".join(f"<col style='width:{pitch:.4f}%'>" for _ in range(ncols))
+                        + "</colgroup>")
+            classes = ["tbl", "tbl-fixed"]
+
         html_table = disp.to_html(
-            index=show_index, escape=True, border=0, classes="tbl", justify="left"
+            index=show_index, escape=True, border=0, classes=classes, justify="left"
         )
+        if colgroup:
+            html_table = re.sub(r"(<table\b[^>]*>)", lambda m: m.group(1) + colgroup,
+                                html_table, count=1)
         self._html.append(html_table)
 
     def add_stat_grid(self, items: list[tuple[str, str]], columns: int = 4) -> None:

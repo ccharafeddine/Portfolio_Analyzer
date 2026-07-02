@@ -345,6 +345,12 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Compare holdings side by side. Lower P/E and higher margins/ROE are generally more attractive, but interpret within each sector. A DCF fair value above the price suggests potential undervaluation.",
         "why": "Price performance tells you what happened; fundamentals tell you what you own and whether the valuation is justified.",
     },
+    "financial_statements": {
+        "title": "Financial Statements",
+        "what": "Annual income statement, balance sheet, and cash-flow history for the selected holding, plus analyst price targets and the buy/hold/sell mix.",
+        "how": "Look for consistent revenue and free-cash-flow growth, a manageable debt load, and where the price sits versus the analyst mean target.",
+        "why": "The comparison tables show the current snapshot; the statements show the trajectory and what Wall Street expects next.",
+    },
     "earnings_calendar": {
         "title": "Upcoming Earnings & Dividends",
         "what": "The next scheduled earnings reports and ex-dividend dates for your holdings, soonest first.",

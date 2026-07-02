@@ -109,3 +109,40 @@ def test_roundtrip_serialization(monkeypatch):
     f = fu.fetch_fundamentals(["AAPL"], use_cache=False)[0]
     restored = fu.Fundamentals.from_dict(f.to_dict())
     assert restored.name == f.name and restored.pe == f.pe
+
+
+def test_fetch_statements(monkeypatch):
+    import pandas as pd
+
+    periods = [pd.Timestamp("2025-09-30"), pd.Timestamp("2024-09-30")]
+    income = pd.DataFrame(
+        {periods[0]: [400e9, 100e9, 6.1], periods[1]: [383e9, 97e9, 6.0]},
+        index=["Total Revenue", "Net Income", "Diluted EPS"],
+    )
+    balance = pd.DataFrame(
+        {periods[0]: [360e9], periods[1]: [352e9]}, index=["Total Assets"]
+    )
+    cashflow = pd.DataFrame(
+        {periods[0]: [110e9], periods[1]: [99e9]}, index=["Free Cash Flow"]
+    )
+    rec = pd.DataFrame([{"period": "0m", "strongBuy": 6, "buy": 22, "hold": 16,
+                         "sell": 1, "strongSell": 2}])
+
+    tk = MagicMock()
+    tk.income_stmt = income
+    tk.balance_sheet = balance
+    tk.cashflow = cashflow
+    tk.analyst_price_targets = {"current": 294.0, "high": 400.0, "low": 215.0,
+                                "mean": 315.0, "median": 315.0}
+    tk.recommendations_summary = rec
+    fake = MagicMock()
+    fake.Ticker.return_value = tk
+    monkeypatch.setattr(fu, "yf", fake)
+
+    data = fu.fetch_statements("AAPL", use_cache=False)
+    assert data["income"]["periods"] == ["2025", "2024"]
+    assert data["income"]["rows"]["Total Revenue"][0] == pytest.approx(400e9)
+    assert data["balance"]["rows"]["Total Assets"][1] == pytest.approx(352e9)
+    assert data["cashflow"]["rows"]["Free Cash Flow"][0] == pytest.approx(110e9)
+    assert data["target"]["mean"] == pytest.approx(315.0)
+    assert data["recommendation"]["strongBuy"] == 6
