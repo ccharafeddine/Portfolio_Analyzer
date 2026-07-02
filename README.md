@@ -28,6 +28,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
   - [Data](#11-data)
 - [Roadmap (v2)](#roadmap-v2)
 - [Roadmap (v3)](#roadmap-v3)
+- [Release Notes](#release-notes)
 - [Pipeline Architecture](#pipeline-architecture)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -465,3 +466,51 @@ Planned for a future major release (more to be added):
 
 **Distribution**
 - [ ] Code-signing + notarization — remove the SmartScreen / Gatekeeper warnings on the installers (requires an Apple Developer ID and a Windows code-signing certificate).
+
+---
+
+## Release Notes
+
+Every release ships a Windows installer (`.exe`) and a macOS disk image (`.dmg`), built and published automatically from a version tag. Oldest first.
+
+### v1.0.0 — First desktop release
+The initial PySide6 desktop app: inception-aware backtest engine; performance, risk, attribution, income, optimization, and forecast analytics; tax and retirement/withdrawal planning; live News & Macro tabs; and client-ready HTML, PDF, and PowerPoint reports.
+
+### v1.0.1
+- Fixed File-menu portfolio management (New / Open / Save) and CSV import.
+- First release to ship a Windows installer (`.exe`) and a macOS disk image (`.dmg`).
+
+### v1.1.0 — Fundamentals tab
+Added a Fundamentals tab: per-holding valuation, profitability, growth, balance-sheet health, dividends, and upcoming earnings / ex-dividend dates (yfinance baseline; FMP discounted-cash-flow fair value when an API key is added).
+
+### v1.1.1
+Added an Upcoming Earnings & Dividends calendar to the News tab — the next earnings and ex-dividend dates across all holdings, soonest first.
+
+### v1.2.0 — Financial statements
+Extended the Fundamentals tab with per-company financial statements (income / balance-sheet / cash-flow history) and analyst estimates, revenue and net-income trend + comparison charts, and full-width, column-aligned statement matrices.
+
+### v1.3.0 — Multi-Portfolio Comparison
+Introduced a distinct in-app **Compare Portfolios** section that compares 2–6 portfolios side by side: overlaid growth and drawdown, a return/risk metrics table, return correlation, allocation/concentration, and holdings overlap.
+
+### v1.4.0 — Portfolio Depth
+Completed the Portfolio-depth theme:
+- Multi-portfolio comparison (from v1.3.0).
+- Blended (multi-asset) benchmarks, e.g. 60/40.
+- Black-Litterman views — absolute/relative opinions blended into the optimizer's expected returns.
+- Real Fama-French factor loadings (FF3 / Carhart 4 / FF5) from the Ken French daily factors.
+
+### v1.4.1
+Fixed the Attribution tab's Fama-French section: the header now collapses all three models together, and each model (FF3 / Carhart 4 / FF5) has its own tooltip explaining how it differs.
+
+### v1.5.0 — Analytics
+Completed the Analytics theme:
+- Rebalancing / trade recommendations — concrete buy/sell orders to your target and to the ORP.
+- Interactive scenario builder — what-if macro and holding shocks with live impact, in the Risk tab.
+- Time-series, benchmark-relative attribution — per-holding contribution to active return, point-in-time and cumulative, replacing the degenerate single-benchmark Brinson-Fachler.
+
+### v2.0.0 — The v2 vision, delivered
+Completed the entire v2 roadmap:
+- **Fundamentals & data** — Fundamentals tab, statements + analyst estimates, news calendar.
+- **Portfolio depth** — multi-portfolio comparison, blended benchmarks, Black-Litterman views, real Fama-French factor loadings.
+- **Analytics** — rebalancing/trade recommendations, interactive scenario builder, time-series benchmark-relative attribution.
+- **Platform & polish** — auto-update (Settings → Check for Updates), first-run sample portfolios, and scheduled/automated report generation (in-app scheduler + headless CLI).
