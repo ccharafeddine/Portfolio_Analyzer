@@ -170,6 +170,31 @@ class ComparisonWorker(QObject):
         self.progress.emit(str(label), float(frac))
 
 
+class QuotesWorker(QObject):
+    """Fetches a delayed quote snapshot for a set of tickers off the UI thread.
+
+    Drives the always-on ticker strip and the Live Market Watch view. Emits
+    ``done(dict[str, Quote])``; never raises (a bad symbol yields an empty
+    quote), so ``failed`` only fires on a total fetch collapse.
+    """
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, tickers) -> None:
+        super().__init__()
+        self._tickers = list(tickers or [])
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import market_data
+
+            self.done.emit(market_data.fetch_quotes(self._tickers))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class StatementsWorker(QObject):
     """Fetches one ticker's financial statements + analyst data off the UI thread.
     Emits ``done((ticker, dict))``."""

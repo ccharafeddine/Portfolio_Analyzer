@@ -34,8 +34,9 @@ from .sidebar import Sidebar
 from .formatting import delta_str, fmt_pct
 from .results_view import ResultsView
 from .settings import APP_NAME, ORG_NAME
+from .ticker_strip import TickerStrip
 from .widgets.metric_card import MetricStrip
-from .worker import AnalysisWorker
+from .worker import AnalysisWorker, QuotesWorker
 
 
 class MainWindow(QMainWindow):
@@ -79,6 +80,7 @@ class MainWindow(QMainWindow):
         self._build_menubar()
         self._build_central()
         self._build_statusbar()
+        self._init_quotes()
 
         # Warm up chart views (and the QtWebEngine subsystem) right after the
         # window is shown, so the first Run doesn't flash while creating them.
@@ -138,6 +140,10 @@ class MainWindow(QMainWindow):
         self.act_compare = QAction("Compare Portfolios", self)
         self.act_compare.triggered.connect(self._show_compare_mode)
         run_menu.addAction(self.act_compare)
+        # Live Market Watch — delayed quotes for the loaded portfolio.
+        self.act_live = QAction("Live Market Watch", self)
+        self.act_live.triggered.connect(self._show_live_mode)
+        run_menu.addAction(self.act_live)
 
         view_menu = bar.addMenu("&View")
         theme_menu = view_menu.addMenu("Theme")
@@ -236,6 +242,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QStackedWidget
 
         from .comparison_view import ComparisonView
+        from .live_watch_view import LiveWatchView
 
         self._stack = QStackedWidget()
         self._stack.addWidget(analyze)                 # page 0: Analyze
@@ -244,6 +251,14 @@ class MainWindow(QMainWindow):
         )
         self.comparison_view.backRequested.connect(self._show_analyze_mode)
         self._stack.addWidget(self.comparison_view)    # page 1: Compare
+
+        self.live_watch_view = LiveWatchView(
+            get_current_config=self.config_panel.build_config
+        )
+        self.live_watch_view.backRequested.connect(self._show_analyze_mode)
+        self.live_watch_view.refreshRequested.connect(self._poll_quotes)
+        self.live_watch_view.refreshIntervalChanged.connect(self._set_quotes_interval)
+        self._stack.addWidget(self.live_watch_view)    # page 2: Live Market Watch
         self.setCentralWidget(self._stack)
 
     def _build_header(self) -> QWidget:
@@ -274,11 +289,15 @@ class MainWindow(QMainWindow):
     def _build_statusbar(self) -> None:
         sb = self.statusBar()
         sb.setSizeGripEnabled(False)
-        # An idle status label and a full-width progress bar share the bar; only
-        # one is visible at a time, so the progress bar spans the whole bottom.
-        self.status_label = QLabel("Ready")
-        self.status_label.setObjectName("statusLabel")
-        sb.addWidget(self.status_label, 1)
+        sb.setContentsMargins(0, 0, 0, 0)
+        # The always-on ticker strip spans the whole bottom when idle; a
+        # full-width progress bar takes over only during a run (the two are
+        # mutually exclusive — see ``_set_running``). Transient status messages
+        # go through the status bar's own auto-clearing ``showMessage`` so there
+        # is no permanent indicator eating into the strip.
+        self.ticker_strip = TickerStrip()
+        self.ticker_strip.symbolClicked.connect(self._on_ticker_clicked)
+        sb.addWidget(self.ticker_strip, 1)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
@@ -303,7 +322,9 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self.btn_cancel)
 
     def _status(self, text: str) -> None:
-        self.status_label.setText(text)
+        # Transient, auto-clearing message — briefly overlays the ticker strip,
+        # then the strip returns. No permanent status widget in the bar.
+        self.statusBar().showMessage(text, 3500)
 
     # ── Theming ──
     def _apply_chart_palette(self) -> None:
@@ -334,6 +355,10 @@ class MainWindow(QMainWindow):
         self.results_view.retheme()
         if hasattr(self, "comparison_view"):
             self.comparison_view.retheme()
+        if hasattr(self, "live_watch_view"):
+            self.live_watch_view.retheme()
+        if hasattr(self, "ticker_strip"):
+            self.ticker_strip.retheme()
 
     # ── Mode switch (Analyze <-> Compare) ──
     def _show_compare_mode(self) -> None:
@@ -343,6 +368,91 @@ class MainWindow(QMainWindow):
 
     def _show_analyze_mode(self) -> None:
         self._stack.setCurrentIndex(0)
+
+    # ── Live Market Watch ──
+    def _show_live_mode(self) -> None:
+        self._refresh_watch_universe()
+        self._stack.setCurrentWidget(self.live_watch_view)
+        self._status("Live Market Watch — delayed quotes")
+        self._poll_quotes()  # refresh immediately on entry
+
+    def _on_ticker_clicked(self, symbol: str) -> None:
+        self._show_live_mode()
+
+    def _refresh_watch_universe(self):
+        """Snapshot the current portfolio config for the strip + live view.
+        Keeps the last valid config if the panel is mid-edit / invalid."""
+        try:
+            cfg = self.config_panel.build_config()
+        except Exception:
+            cfg = None
+        if cfg is not None:
+            self._watch_config = cfg
+            self.live_watch_view.set_portfolio(cfg)
+        return self._watch_config
+
+    def _init_quotes(self) -> None:
+        """Wire up delayed-quote polling shared by the strip and the live view."""
+        self._watch_config = None
+        self._quotes_thread = None
+        self._quotes_worker = None
+        self._quotes_in_flight = False
+        self._quotes_timer = QTimer(self)
+        self._quotes_timer.timeout.connect(self._poll_quotes)
+
+        from .live_watch_view import DEFAULT_INTERVAL
+
+        secs = int(self._settings.value("live_refresh_secs", DEFAULT_INTERVAL, type=int))
+        self.live_watch_view.set_interval(secs)
+        self._set_quotes_interval(secs)
+        # First snapshot shortly after launch so the strip comes alive on its own.
+        QTimer.singleShot(1200, self._poll_quotes)
+
+    def _set_quotes_interval(self, secs: int) -> None:
+        self._settings.setValue("live_refresh_secs", int(secs))
+        if secs and secs > 0:
+            self._quotes_timer.setInterval(int(secs) * 1000)
+            if not self._quotes_timer.isActive():
+                self._quotes_timer.start()
+        else:
+            self._quotes_timer.stop()
+
+    def _poll_quotes(self) -> None:
+        if self._quotes_in_flight:
+            return
+        cfg = self._refresh_watch_universe()
+        tickers = list(getattr(cfg, "tickers", []) or []) if cfg else []
+        if not tickers:
+            return
+        self._quotes_in_flight = True
+        self._quotes_thread = QThread(self)
+        self._quotes_worker = QuotesWorker(tickers)
+        self._quotes_worker.moveToThread(self._quotes_thread)
+        self._quotes_thread.started.connect(self._quotes_worker.run)
+        self._quotes_worker.done.connect(self._on_quotes)
+        self._quotes_worker.failed.connect(self._on_quotes_failed)
+        self._quotes_worker.done.connect(self._quotes_thread.quit)
+        self._quotes_worker.failed.connect(self._quotes_thread.quit)
+        self._quotes_thread.finished.connect(self._cleanup_quotes_thread)
+        self._quotes_thread.start()
+
+    def _on_quotes(self, quotes: dict) -> None:
+        cfg = self._watch_config
+        order = list(getattr(cfg, "tickers", []) or []) if cfg else list(quotes.keys())
+        self.ticker_strip.set_quotes(quotes, order=order)
+        self.live_watch_view.set_quotes(quotes)
+
+    def _on_quotes_failed(self, message: str) -> None:
+        pass  # delayed data is best-effort; a failed poll just retries next tick
+
+    def _cleanup_quotes_thread(self) -> None:
+        if self._quotes_worker is not None:
+            self._quotes_worker.deleteLater()
+        if self._quotes_thread is not None:
+            self._quotes_thread.deleteLater()
+        self._quotes_worker = None
+        self._quotes_thread = None
+        self._quotes_in_flight = False
 
     def _apply_theme(self, key: str) -> None:
         theme.set_active(key)
@@ -772,19 +882,25 @@ class MainWindow(QMainWindow):
         self.config_panel.set_enabled_for_run(not running)
         self.act_run.setEnabled(not running)
         # During a run the full-width progress bar (with its Cancel button) replaces
-        # the idle status label.
+        # the idle status label + ticker strip; the strip returns when the run ends.
         self.btn_cancel.setVisible(running)
-        self.status_label.setVisible(not running)
+        self.ticker_strip.setVisible(not running)
         self.progress.setVisible(running)
         if running:
             self.progress.setValue(0)
 
     def closeEvent(self, event) -> None:
         """Wait for an in-flight analysis thread so it is not destroyed mid-run."""
+        if getattr(self, "_quotes_timer", None) is not None:
+            self._quotes_timer.stop()
         if self._thread is not None and self._thread.isRunning():
             self._cancelled = True
             self._thread.quit()
             self._thread.wait(5000)
+        qt = getattr(self, "_quotes_thread", None)
+        if qt is not None and qt.isRunning():
+            qt.quit()
+            qt.wait(3000)
         super().closeEvent(event)
 
     def _show_about(self) -> None:

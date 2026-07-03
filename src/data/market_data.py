@@ -476,3 +476,111 @@ def fetch_calendar(tickers, use_cache: bool = True) -> list[CalendarEvent]:
     if use_cache and events:
         _save_cache(cache_name, [e.to_dict() for e in events])
     return events
+
+
+# ──────────────────────────────────────────────────────────────
+# Live quotes (delayed) — powers the ticker strip + Live Market Watch
+# ──────────────────────────────────────────────────────────────
+#
+# yfinance does not stream; ``fast_info`` gives a lightweight delayed snapshot
+# (typically 15–20 min behind the exchange). We poll it on an interval from the
+# UI. A tiny in-memory TTL cache dedupes bursts so a strip + view asking at the
+# same moment hit the network once.
+
+CACHE_TTL_QUOTES = 10  # seconds — just enough to dedupe near-simultaneous polls
+
+
+@dataclass
+class Quote:
+    ticker: str
+    last: Optional[float] = None
+    prev_close: Optional[float] = None
+    change: Optional[float] = None      # last - prev_close
+    change_pct: Optional[float] = None  # change / prev_close (fraction, e.g. 0.012)
+    day_high: Optional[float] = None
+    day_low: Optional[float] = None
+    volume: Optional[float] = None
+    currency: Optional[str] = None
+    as_of: Optional[str] = None         # ISO timestamp of the fetch
+
+    @property
+    def ok(self) -> bool:
+        return self.last is not None
+
+
+# frozenset(tickers) -> (monotonic_ts, {ticker: Quote})
+_QUOTE_CACHE: dict[frozenset, tuple[float, dict]] = {}
+
+
+def _f(v) -> Optional[float]:
+    """Coerce to a finite float or None."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):  # NaN / inf guard
+        return None
+    return f
+
+
+def fetch_quotes(tickers, use_cache: bool = True) -> dict[str, Quote]:
+    """Return a delayed snapshot quote per ticker.
+
+    Best-effort and Qt-free: a per-ticker failure yields an empty ``Quote``
+    (``ok`` False) rather than raising, so one bad symbol never sinks the poll.
+    Uses yfinance ``fast_info`` (no heavy ``.info`` call).
+    """
+    syms = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
+    syms = list(dict.fromkeys(syms))  # dedupe, preserve order
+    if not syms:
+        return {}
+
+    key = frozenset(syms)
+    if use_cache:
+        hit = _QUOTE_CACHE.get(key)
+        if hit and (time.monotonic() - hit[0]) < CACHE_TTL_QUOTES:
+            return dict(hit[1])
+
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    out: dict[str, Quote] = {}
+
+    if yf is None:
+        return {t: Quote(t) for t in syms}
+
+    for t in syms:
+        q = Quote(t, as_of=now_iso)
+        try:
+            fi = yf.Ticker(t).fast_info
+            last = _f(_fi_get(fi, "last_price"))
+            prev = _f(_fi_get(fi, "previous_close"))
+            q.last = last
+            q.prev_close = prev
+            if last is not None and prev not in (None, 0):
+                q.change = last - prev
+                q.change_pct = (last - prev) / prev
+            q.day_high = _f(_fi_get(fi, "day_high"))
+            q.day_low = _f(_fi_get(fi, "day_low"))
+            q.volume = _f(_fi_get(fi, "last_volume"))
+            cur = _fi_get(fi, "currency")
+            q.currency = str(cur) if cur else None
+        except Exception:
+            pass  # leave q as an empty (not-ok) quote
+        out[t] = q
+
+    _QUOTE_CACHE[key] = (time.monotonic(), dict(out))
+    return out
+
+
+def _fi_get(fast_info, name):
+    """``fast_info`` supports both attribute and mapping access across yfinance
+    versions; try attribute first, then mapping, then give up."""
+    try:
+        val = getattr(fast_info, name)
+        if val is not None:
+            return val
+    except Exception:
+        pass
+    try:
+        return fast_info[name]
+    except Exception:
+        return None
