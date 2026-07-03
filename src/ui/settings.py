@@ -29,7 +29,21 @@ _API_ENV_VARS = {
     "FMP_API_KEY": "FMP_API_KEY",
     "ALPHAVANTAGE_API_KEY": "ALPHAVANTAGE_API_KEY",
     "FRED_API_KEY": "FRED_API_KEY",
+    # Real-time quote providers (Live Market Watch). Any one upgrades quotes from
+    # yfinance-delayed to that provider's real-time feed.
+    "FINNHUB_API_KEY": "FINNHUB_API_KEY",
+    "POLYGON_API_KEY": "POLYGON_API_KEY",
+    "ALPACA_API_KEY": "ALPACA_API_KEY",
+    "ALPACA_API_SECRET": "ALPACA_API_SECRET",
 }
+
+# Real-time quote providers in priority order: (name, key settings-name,
+# optional secret settings-name). The first fully-configured one wins.
+REALTIME_PROVIDERS = [
+    ("finnhub", "FINNHUB_API_KEY", None),
+    ("polygon", "POLYGON_API_KEY", None),
+    ("alpaca", "ALPACA_API_KEY", "ALPACA_API_SECRET"),
+]
 
 
 def _load_dotenv_value(name: str) -> Optional[str]:
@@ -64,6 +78,26 @@ def get_api_key(name: str) -> Optional[str]:
         or _load_dotenv_value(env_name)
         or _qsettings_value(name)
     )
+
+
+def realtime_provider():
+    """Return ``(provider_name, creds)`` for the first fully-configured real-time
+    quote provider, or ``(None, None)`` when none is set (yfinance-delayed).
+
+    ``creds`` is the API key string, or ``(key, secret)`` for providers that need
+    both (Alpaca). Resolution reuses :func:`get_api_key` (env / .env / QSettings).
+    """
+    for name, key_name, secret_name in REALTIME_PROVIDERS:
+        key = get_api_key(key_name)
+        if not key:
+            continue
+        if secret_name:
+            secret = get_api_key(secret_name)
+            if not secret:
+                continue  # needs both key and secret
+            return name, (key, secret)
+        return name, key
+    return None, None
 
 
 class AppSettings:

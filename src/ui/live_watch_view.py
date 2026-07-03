@@ -36,6 +36,10 @@ from PySide6.QtWidgets import (
 from src.charts import plotly_charts as charts
 
 from . import theme
+from .quote_format import fmt_pct as _fmt_pct
+from .quote_format import fmt_price as _fmt_price
+from .quote_format import fmt_signed as _fmt_signed
+from .quote_format import fmt_volume as _fmt_volume
 from .widgets.plotly_widget import PlotlyWidget
 from .worker import IntradayWorker
 
@@ -44,30 +48,6 @@ REFRESH_OPTIONS = [("Off", 0), ("15s", 15), ("30s", 30), ("60s", 60)]
 DEFAULT_INTERVAL = 30
 
 _COLUMNS = ["Ticker", "Last", "Chg", "Chg %", "Day Range", "Volume", "Weight"]
-
-
-def _fmt_price(v) -> str:
-    return f"{v:,.2f}" if isinstance(v, (int, float)) else "—"
-
-
-def _fmt_signed(v, pct=False) -> str:
-    if not isinstance(v, (int, float)) or v != v:
-        return "—"
-    body = f"{abs(v) * 100:.2f}%" if pct else f"{abs(v):,.2f}"
-    return f"{'+' if v >= 0 else '-'}{body}"
-
-
-def _fmt_pct(v, d=2) -> str:
-    return f"{v * 100:.{d}f}%" if isinstance(v, (int, float)) else "—"
-
-
-def _fmt_volume(v) -> str:
-    if not isinstance(v, (int, float)) or v != v:
-        return "—"
-    for unit, div in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
-        if abs(v) >= div:
-            return f"{v / div:.2f}{unit}"
-    return f"{v:.0f}"
 
 
 class _NumItem(QTableWidgetItem):
@@ -92,6 +72,7 @@ class LiveWatchView(QWidget):
     backRequested = Signal()
     refreshRequested = Signal()
     refreshIntervalChanged = Signal(int)  # seconds; 0 = off
+    alertsRequested = Signal()
 
     def __init__(
         self,
@@ -160,6 +141,11 @@ class LiveWatchView(QWidget):
         self._refresh_btn.setCursor(Qt.PointingHandCursor)
         self._refresh_btn.clicked.connect(self.refreshRequested.emit)
         controls.addWidget(self._refresh_btn)
+        self._alerts_btn = QPushButton("Alerts…")
+        self._alerts_btn.setObjectName("secondary")
+        self._alerts_btn.setCursor(Qt.PointingHandCursor)
+        self._alerts_btn.clicked.connect(self.alertsRequested.emit)
+        controls.addWidget(self._alerts_btn)
         controls.addStretch(1)
         root.addLayout(controls)
 
@@ -428,10 +414,14 @@ class LiveWatchView(QWidget):
 
     def _update_stamp(self) -> None:
         as_of = None
+        realtime = False
+        source = None
         for q in self._quotes.values():
-            as_of = getattr(q, "as_of", None)
-            if as_of:
-                break
+            if getattr(q, "as_of", None) and as_of is None:
+                as_of = q.as_of
+            if getattr(q, "realtime", False):
+                realtime = True
+                source = getattr(q, "source", None)
         if not as_of:
             self._stamp.setText("")
             return
@@ -442,7 +432,8 @@ class LiveWatchView(QWidget):
             local = dt.astimezone().strftime("%I:%M:%S %p").lstrip("0")
         except Exception:
             local = as_of
-        self._stamp.setText(f"as of {local}  ·  delayed")
+        mode = f"real-time · {source}" if realtime else "delayed"
+        self._stamp.setText(f"as of {local}  ·  {mode}")
 
     # ── Stat styling ──
     def _set_stat(self, name: str, text: str, signed) -> None:

@@ -19,6 +19,14 @@ outputs/
 # Claude Code local settings
 .claude/
 
+# API keys / secrets — never commit. Keys live in the OS config dir or here for
+# local dev; QSettings (registry/plist) is out of the repo by nature.
+.env
+.env.*
+*.env
+secrets.json
+api_keys.json
+
 # PyInstaller build artifacts
 build/
 dist/

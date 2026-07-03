@@ -190,7 +190,12 @@ class QuotesWorker(QObject):
         try:
             from src.data import market_data
 
-            self.done.emit(market_data.fetch_quotes(self._tickers))
+            from . import settings
+
+            provider, creds = settings.realtime_provider()
+            self.done.emit(
+                market_data.fetch_quotes(self._tickers, provider=provider, creds=creds)
+            )
         except Exception as e:
             self.failed.emit(str(e))
 

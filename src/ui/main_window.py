@@ -199,7 +199,10 @@ class MainWindow(QMainWindow):
         self.act_sched_reports = QAction("Scheduled Reports…", self)
         self.act_sched_reports.triggered.connect(self._show_scheduled_reports)
         settings_menu.addAction(self.act_sched_reports)
-        self.act_settings = QAction("Preferences…", self)
+        self.act_alerts = QAction("Price Alerts…", self)
+        self.act_alerts.triggered.connect(self._show_alerts)
+        settings_menu.addAction(self.act_alerts)
+        self.act_settings = QAction("API Keys…", self)
         self.act_settings.triggered.connect(self._show_settings)
         settings_menu.addAction(self.act_settings)
 
@@ -259,6 +262,7 @@ class MainWindow(QMainWindow):
         self.live_watch_view.backRequested.connect(self._show_analyze_mode)
         self.live_watch_view.refreshRequested.connect(self._poll_quotes)
         self.live_watch_view.refreshIntervalChanged.connect(self._set_quotes_interval)
+        self.live_watch_view.alertsRequested.connect(self._show_alerts)
         self._stack.addWidget(self.live_watch_view)    # page 2: Live Market Watch
         self.setCentralWidget(self._stack)
 
@@ -406,11 +410,16 @@ class MainWindow(QMainWindow):
 
     def _init_quotes(self) -> None:
         """Wire up delayed-quote polling shared by the strip and the live view."""
+        from .alerts import AlertStore
+
         self._watch_config = None
+        self._last_quotes: dict = {}
         self._quotes_thread = None
         self._quotes_worker = None
         self._quotes_in_flight = False
         self._quotes_repoll = False
+        self._alerts = AlertStore()
+        self._init_tray()
         self._quotes_timer = QTimer(self)
         self._quotes_timer.timeout.connect(self._poll_quotes)
 
@@ -437,6 +446,10 @@ class MainWindow(QMainWindow):
             return
         cfg = self._refresh_watch_universe()
         tickers = list(getattr(cfg, "tickers", []) or []) if cfg else []
+        # Also poll any ticker that has an enabled alert, even if it isn't in the
+        # current portfolio, so alerts fire regardless of the loaded universe.
+        if self._alerts is not None:
+            tickers = list(dict.fromkeys([*tickers, *self._alerts.tickers()]))
         if not tickers:
             return
         self._quotes_in_flight = True
@@ -452,10 +465,12 @@ class MainWindow(QMainWindow):
         self._quotes_thread.start()
 
     def _on_quotes(self, quotes: dict) -> None:
+        self._last_quotes = dict(quotes)
         cfg = self._watch_config
         order = list(getattr(cfg, "tickers", []) or []) if cfg else list(quotes.keys())
         self.ticker_strip.set_quotes(quotes, order=order)
         self.live_watch_view.set_quotes(quotes)
+        self._check_alerts(quotes)
 
     def _on_quotes_failed(self, message: str) -> None:
         pass  # delayed data is best-effort; a failed poll just retries next tick
@@ -471,6 +486,53 @@ class MainWindow(QMainWindow):
         if self._quotes_repoll:
             self._quotes_repoll = False
             QTimer.singleShot(0, self._poll_quotes)
+
+    # ── Price alerts + notifications ──
+    def _init_tray(self) -> None:
+        """A system-tray icon so price alerts can raise desktop notifications.
+        Silently absent where no system tray exists (falls back to the status bar)."""
+        self._tray = None
+        try:
+            from PySide6.QtWidgets import QSystemTrayIcon
+
+            if QSystemTrayIcon.isSystemTrayAvailable():
+                self._tray = QSystemTrayIcon(QIcon(mark_path()), self)
+                self._tray.setToolTip(__app_name__)
+                self._tray.show()
+        except Exception:
+            self._tray = None
+
+    def notify(self, title: str, message: str) -> None:
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            from PySide6.QtWidgets import QSystemTrayIcon
+
+            tray.showMessage(title, message, QSystemTrayIcon.Information, 8000)
+        else:
+            self._status(f"{title}: {message}")
+
+    def _check_alerts(self, quotes: dict) -> None:
+        if self._alerts is None:
+            return
+        for a in self._alerts.evaluate(quotes):
+            last = getattr(quotes.get(a.ticker), "last", None)
+            price = f"{last:,.2f}" if isinstance(last, (int, float)) else "—"
+            self.notify(
+                "Price alert",
+                f"{a.ticker} is {price} — {a.direction} {a.price:,.2f}",
+            )
+
+    def _show_alerts(self) -> None:
+        from .alerts_dialog import AlertsDialog
+
+        cfg = self._refresh_watch_universe()
+        universe = list(getattr(cfg, "tickers", []) or []) if cfg else []
+
+        def price_of(ticker: str):
+            return getattr(self._last_quotes.get(ticker), "last", None)
+
+        AlertsDialog(self._alerts, tickers=universe, get_price=price_of, parent=self).exec()
+        self._poll_quotes()  # alert tickers may have changed the poll union
 
     def _apply_theme(self, key: str) -> None:
         theme.set_active(key)

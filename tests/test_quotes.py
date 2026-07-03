@@ -150,16 +150,17 @@ def test_holdings_treemap_builds_and_skips_zero_weight():
 
 
 def test_live_watch_formatting_helpers():
-    from src.ui.live_watch_view import _fmt_price, _fmt_signed, _fmt_volume, _fmt_pct
+    # Qt-free module (CI's headless runner can't import PySide6.QtWidgets).
+    from src.ui.quote_format import fmt_price, fmt_signed, fmt_volume, fmt_pct
 
-    assert _fmt_price(1234.5) == "1,234.50"
-    assert _fmt_price(None) == "—"
-    assert _fmt_signed(2.5) == "+2.50"
-    assert _fmt_signed(-2.5) == "-2.50"
-    assert _fmt_signed(0.0123, pct=True) == "+1.23%"
-    assert _fmt_signed(-0.0123, pct=True) == "-1.23%"
-    assert _fmt_signed(float("nan")) == "—"
-    assert _fmt_volume(2_500_000) == "2.50M"
-    assert _fmt_volume(1_200_000_000) == "1.20B"
-    assert _fmt_volume(None) == "—"
-    assert _fmt_pct(0.25) == "25.00%"
+    assert fmt_price(1234.5) == "1,234.50"
+    assert fmt_price(None) == "—"
+    assert fmt_signed(2.5) == "+2.50"
+    assert fmt_signed(-2.5) == "-2.50"
+    assert fmt_signed(0.0123, pct=True) == "+1.23%"
+    assert fmt_signed(-0.0123, pct=True) == "-1.23%"
+    assert fmt_signed(float("nan")) == "—"
+    assert fmt_volume(2_500_000) == "2.50M"
+    assert fmt_volume(1_200_000_000) == "1.20B"
+    assert fmt_volume(None) == "—"
+    assert fmt_pct(0.25) == "25.00%"
