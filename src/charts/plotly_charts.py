@@ -44,11 +44,17 @@ GRID_COLOR = "rgba(148, 163, 184, 0.08)"
 TEXT_COLOR = "#E2E8F0"
 MUTED_COLOR = "#94A3B8"
 CARD_BG = "#151D2E"
+HOVER_BORDER = "#334155"
+# Plotly base template. Flipped to "plotly_white" for light themes so chart
+# internals (axes, ticks, spikelines, colorbars) render dark-on-light rather
+# than the default dark-on-dark. ``apply_palette(light=...)`` sets this.
+TEMPLATE = "plotly_dark"
+IS_LIGHT = False
 
 def _make_base_layout() -> dict:
     """Build the shared layout dict from the current module palette."""
     return dict(
-        template="plotly_dark",
+        template=TEMPLATE,
         paper_bgcolor=PAPER_COLOR,
         plot_bgcolor=BG_COLOR,
         font=dict(family="DM Sans, Helvetica, Arial, sans-serif", color=TEXT_COLOR, size=13),
@@ -66,8 +72,8 @@ def _make_base_layout() -> dict:
         ),
         hoverlabel=dict(
             bgcolor=CARD_BG,
-            font=dict(size=13, family="DM Sans, monospace"),
-            bordercolor="#334155",
+            font=dict(size=13, family="DM Sans, monospace", color=TEXT_COLOR),
+            bordercolor=HOVER_BORDER,
         ),
     )
 
@@ -75,19 +81,44 @@ def _make_base_layout() -> dict:
 _BASE_LAYOUT = _make_base_layout()
 
 
-def apply_palette(bg: str, paper: str, grid: str, text: str, muted: str) -> None:
+def apply_palette(
+    bg: str,
+    paper: str,
+    grid: str,
+    text: str,
+    muted: str,
+    card: str | None = None,
+    border: str | None = None,
+    series: "list[str] | tuple[str, ...] | None" = None,
+    light: bool = False,
+) -> None:
     """Retint the charts to match the active UI theme.
 
     Reassigns the module palette and rebuilds the shared base layout. Charts
     created after this call use the new colors (existing figures are not
     mutated — re-render them). Defaults are preserved if never called.
+
+    ``light`` flips the Plotly base template (``plotly_white`` vs
+    ``plotly_dark``) so the chart internals go genuinely light, not just the
+    background fill. ``series`` overrides the categorical color cycle
+    (``COLORS``). ``card``/``border`` retint the hover tooltip so it matches
+    the theme's surfaces instead of staying dark on a light chart.
     """
-    global BG_COLOR, PAPER_COLOR, GRID_COLOR, TEXT_COLOR, MUTED_COLOR, _BASE_LAYOUT
+    global BG_COLOR, PAPER_COLOR, GRID_COLOR, TEXT_COLOR, MUTED_COLOR
+    global CARD_BG, HOVER_BORDER, IS_LIGHT, TEMPLATE, COLORS, _BASE_LAYOUT
     BG_COLOR = bg
     PAPER_COLOR = paper
     GRID_COLOR = grid
     TEXT_COLOR = text
     MUTED_COLOR = muted
+    IS_LIGHT = light
+    TEMPLATE = "plotly_white" if light else "plotly_dark"
+    if series:
+        COLORS = list(series)
+    if card is not None:
+        CARD_BG = card
+    if border is not None:
+        HOVER_BORDER = border
     _BASE_LAYOUT = _make_base_layout()
 
 
@@ -370,7 +401,7 @@ def correlation_heatmap(corr: pd.DataFrame) -> go.Figure:
         colorscale=[
             [0.0, "#EF4444"],
             [0.25, "#7F1D1D"],
-            [0.5, "#0B1120"],
+            [0.5, BG_COLOR],  # zero correlation blends into the chart background
             [0.75, "#14532D"],
             [1.0, "#10B981"],
         ],

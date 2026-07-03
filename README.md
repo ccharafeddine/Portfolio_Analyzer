@@ -467,6 +467,9 @@ Planned for a future major release (more to be added):
 **Distribution**
 - [ ] Code-signing + notarization — remove the SmartScreen / Gatekeeper warnings on the installers (requires an Apple Developer ID and a Windows code-signing certificate).
 
+**Theming**
+- [ ] Additional themes (Frutiger Aero, Corporate Synthwave, Superflat Pop, incl. genuine light themes).
+
 ---
 
 ## Release Notes

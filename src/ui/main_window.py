@@ -309,7 +309,18 @@ class MainWindow(QMainWindow):
     def _apply_chart_palette(self) -> None:
         from src.charts import plotly_charts
 
-        plotly_charts.apply_palette(**theme.chart_palette())
+        pal = theme.chart_palette()
+        plotly_charts.apply_palette(
+            bg=pal["bg"],
+            paper=pal["paper"],
+            grid=pal["grid"],
+            text=pal["text"],
+            muted=pal["muted"],
+            card=pal["card"],
+            border=pal["border"],
+            series=pal["series"],
+            light=pal["is_light"],
+        )
 
     def _restyle_all(self) -> None:
         """Re-apply the active theme + scale to every part of the window."""

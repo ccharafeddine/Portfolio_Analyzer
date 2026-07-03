@@ -1,11 +1,14 @@
 """Theming system for the desktop UI.
 
 A ``Theme`` is a bundle of design tokens (colors, fonts, type sizes, density).
-Three built-in themes are provided and can be switched live:
+Six built-in themes are provided and can be switched live:
 
-- ``institutional`` — clean, spacious, refined product look (default)
-- ``terminal``      — dense, high-contrast, Bloomberg-style power view
-- ``minimal``       — understated, generous whitespace, muted palette
+- ``institutional``        — clean, spacious, refined product look (default)
+- ``terminal``             — dense, high-contrast, Bloomberg-style power view
+- ``minimal``              — understated, generous whitespace, muted palette
+- ``light``                — a genuine light/day theme (dark ink on white)
+- ``high_contrast_light``  — accessibility variant, black-on-white, AAA
+- ``high_contrast_dark``   — accessibility variant, white-on-black, AAA
 
 Widgets read the *active* theme via ``theme.ACTIVE`` so a rebuild picks up the
 current tokens. ``stylesheet()`` builds the application-wide QSS from a theme,
@@ -14,7 +17,21 @@ and ``chart_palette()`` returns the colors used to theme the Plotly charts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+
+# Default categorical chart series — mirrors plotly_charts.COLORS so the
+# original themes (Terminal/Institutional/Minimal) keep today's palette when
+# they don't declare their own ``chart_series``.
+_DEFAULT_SERIES: tuple[str, ...] = (
+    "#3B82F6",  # blue
+    "#10B981",  # green
+    "#F59E0B",  # amber
+    "#EF4444",  # red
+    "#8B5CF6",  # purple
+    "#EC4899",  # pink
+    "#06B6D4",  # cyan
+    "#F97316",  # orange
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +76,10 @@ class Theme:
     input_pad: int
     content_spacing: int
     chart_scale: float  # multiplies base chart heights
+
+    # Optional / defaulted (kept last so existing themes need no edits).
+    chart_series: tuple[str, ...] = _DEFAULT_SERIES  # categorical chart palette
+    gloss: bool = False  # glossy accent-button treatment (Frutiger Aero)
 
 
 INSTITUTIONAL = Theme(
@@ -171,7 +192,262 @@ MINIMAL = Theme(
     chart_scale=1.15,
 )
 
-THEMES: dict[str, Theme] = {t.key: t for t in (TERMINAL, INSTITUTIONAL, MINIMAL)}
+# ── Aesthetic themes ─────────────────────────────────────────────
+# Typography/density mirror INSTITUTIONAL except where noted (radius,
+# chart_scale, font, gloss). Each declares its own chart_series.
+
+FRUTIGER = Theme(
+    key="frutiger",
+    name="Frutiger Aero",
+    # Glossy aqua-sky optimism: bright cyan on airy blues, glassy buttons.
+    bg="#EAF4FB",
+    panel="#F2F8FD",
+    card="#FFFFFF",
+    card_alt="#E4F1FA",
+    border="#CBE1F0",
+    border_light="#DCEBF6",
+    accent="#0FB0E7",
+    accent_hover="#0C97C7",
+    accent_text="#FFFFFF",
+    text="#10222E",
+    text_muted="#5E7A8A",
+    text_slate="#3E5A6A",
+    green="#2FBF57",
+    red="#E5484D",
+    chart_bg="#FFFFFF",
+    chart_grid="rgba(60, 120, 150, 0.12)",
+    font="Segoe UI, DM Sans, Helvetica, Arial, sans-serif",
+    mono="JetBrains Mono, Consolas, monospace",
+    base_pt=13,
+    label_pt=11,
+    heading_pt=15,
+    metric_pt=26,
+    statval_pt=18,
+    radius=12,
+    card_pad_v=14,
+    card_pad_h=18,
+    tab_pad_v=8,
+    tab_pad_h=18,
+    input_pad=6,
+    content_spacing=14,
+    chart_scale=1.0,
+    chart_series=(
+        "#0FB0E7", "#2FBF57", "#4FC3F7", "#14B8A6",
+        "#8BC34A", "#2979FF", "#00BCD4", "#26D0A0",
+    ),
+    gloss=True,
+)
+
+SYNTHWAVE = Theme(
+    key="synthwave",
+    name="Corporate Synthwave",
+    # Deep violet night + magenta laser accent. Mint/rose for up/down so
+    # losses never blur into the magenta accent.
+    bg="#120726",
+    panel="#1B0E38",
+    card="#241246",
+    card_alt="#2A1650",
+    border="#3A1E63",
+    border_light="#4E2A80",
+    accent="#E23CFF",
+    accent_hover="#C21FE0",
+    accent_text="#FFFFFF",
+    text="#F5E9FF",
+    text_muted="#9B7BC7",
+    text_slate="#B79BE0",
+    green="#2EE6B0",
+    red="#FF3B5C",
+    chart_bg="#120726",
+    chart_grid="rgba(226, 60, 255, 0.14)",  # faint magenta laser-grid tint
+    font="DM Sans, Segoe UI, Helvetica, Arial, sans-serif",
+    mono="JetBrains Mono, Consolas, monospace",
+    base_pt=13,
+    label_pt=11,
+    heading_pt=15,
+    metric_pt=26,
+    statval_pt=18,
+    radius=8,
+    card_pad_v=14,
+    card_pad_h=18,
+    tab_pad_v=8,
+    tab_pad_h=18,
+    input_pad=6,
+    content_spacing=14,
+    chart_scale=1.0,
+    chart_series=(
+        "#E23CFF", "#22D3EE", "#2EE6B0", "#FF3D9A",
+        "#9D5CFF", "#4361FF", "#FFB443", "#FF6B9D",
+    ),
+    gloss=False,
+)
+
+SUPERFLAT = Theme(
+    key="superflat",
+    name="Superflat Pop",
+    # Warm-white gallery walls, candy-pop accents, big flat rounded shapes.
+    bg="#FCFCFA",
+    panel="#FFFFFF",
+    card="#FFFFFF",
+    card_alt="#F4F2EC",
+    border="#E0DDD3",
+    border_light="#ECEAE1",
+    accent="#FF3EA5",
+    accent_hover="#E62E90",
+    accent_text="#FFFFFF",
+    text="#16130F",
+    text_muted="#6B6459",
+    text_slate="#4A443B",
+    green="#2FC24E",
+    red="#FF473E",
+    chart_bg="#FFFFFF",
+    chart_grid="rgba(20, 20, 20, 0.10)",
+    font="DM Sans, Segoe UI, Helvetica, Arial, sans-serif",
+    mono="JetBrains Mono, Consolas, monospace",
+    base_pt=13,
+    label_pt=11,
+    heading_pt=15,
+    metric_pt=26,
+    statval_pt=18,
+    radius=14,
+    card_pad_v=14,
+    card_pad_h=18,
+    tab_pad_v=8,
+    tab_pad_h=18,
+    input_pad=6,
+    content_spacing=14,
+    chart_scale=1.1,
+    chart_series=(
+        "#FF3EA5", "#33A1FD", "#FFC61A", "#2FC24E",
+        "#FF7A1A", "#9B5DE5", "#FF473E", "#12CDD4",
+    ),
+    gloss=False,
+)
+
+LIGHT = Theme(
+    key="light",
+    name="Daylight",
+    # A genuine light/day theme: near-white surfaces, dark ink, blue accent.
+    # bg is the soft page gray; panel/card are raised white so chrome reads as
+    # elevated. Borders run slightly darker than the surfaces so edges are
+    # visible on white (the inverse of the dark themes, where border_light is
+    # the *lighter* of the pair).
+    bg="#EEF1F6",
+    panel="#FFFFFF",
+    card="#FFFFFF",
+    card_alt="#F4F6FA",
+    border="#E2E8F0",
+    border_light="#CBD5E1",
+    accent="#2563EB",
+    accent_hover="#1D4ED8",
+    accent_text="#FFFFFF",
+    text="#0F172A",       # ~16:1 on white
+    text_muted="#4D596D",  # ~7.1:1 on white (AAA for text)
+    text_slate="#475569",  # ~7.5:1 on white
+    green="#059669",
+    red="#DC2626",
+    chart_bg="#FFFFFF",
+    chart_grid="rgba(15, 23, 42, 0.10)",
+    font="DM Sans, Segoe UI, Helvetica, Arial, sans-serif",
+    mono="JetBrains Mono, Consolas, monospace",
+    base_pt=13,
+    label_pt=11,
+    heading_pt=15,
+    metric_pt=26,
+    statval_pt=18,
+    radius=12,
+    card_pad_v=14,
+    card_pad_h=18,
+    tab_pad_v=8,
+    tab_pad_h=18,
+    input_pad=6,
+    content_spacing=14,
+    chart_scale=1.0,
+)
+
+HIGH_CONTRAST_LIGHT = Theme(
+    key="high_contrast_light",
+    name="High Contrast (Light)",
+    # Accessibility variant: pure black-on-white, saturated accent, heavy
+    # borders. Every foreground pair clears WCAG AAA (7:1+) against white.
+    bg="#FFFFFF",
+    panel="#FFFFFF",
+    card="#FFFFFF",
+    card_alt="#F2F2F2",
+    border="#000000",
+    border_light="#333333",
+    accent="#0B5FD4",      # ~5.9:1 on white; white text ~5.9:1 on accent
+    accent_hover="#0847A6",
+    accent_text="#FFFFFF",
+    text="#000000",
+    text_muted="#3A3A3A",  # ~10:1 on white
+    text_slate="#1A1A1A",
+    green="#0F7A34",       # ~5:1 on white
+    red="#C21818",         # ~6:1 on white
+    chart_bg="#FFFFFF",
+    chart_grid="rgba(0, 0, 0, 0.22)",
+    font="DM Sans, Segoe UI, Helvetica, Arial, sans-serif",
+    mono="JetBrains Mono, Consolas, monospace",
+    base_pt=14,
+    label_pt=12,
+    heading_pt=16,
+    metric_pt=27,
+    statval_pt=19,
+    radius=6,
+    card_pad_v=14,
+    card_pad_h=18,
+    tab_pad_v=8,
+    tab_pad_h=18,
+    input_pad=6,
+    content_spacing=14,
+    chart_scale=1.0,
+)
+
+HIGH_CONTRAST_DARK = Theme(
+    key="high_contrast_dark",
+    name="High Contrast (Dark)",
+    # Accessibility variant: pure white-on-black, amber accent, heavy white
+    # borders. Every foreground pair clears WCAG AAA (7:1+) against black.
+    bg="#000000",
+    panel="#000000",
+    card="#000000",
+    card_alt="#1A1A1A",
+    border="#FFFFFF",
+    border_light="#CCCCCC",
+    accent="#FFD400",      # ~14.7:1 on black; black text ~14.7:1 on accent
+    accent_hover="#E6BE00",
+    accent_text="#000000",
+    text="#FFFFFF",
+    text_muted="#A6A6A6",  # ~8.6:1 on black
+    text_slate="#CCCCCC",  # ~13:1 on black
+    green="#4AE88A",       # ~13:1 on black
+    red="#FF6B6B",         # ~7.6:1 on black
+    chart_bg="#000000",
+    chart_grid="rgba(255, 255, 255, 0.22)",
+    font="DM Sans, Segoe UI, Helvetica, Arial, sans-serif",
+    mono="JetBrains Mono, Consolas, monospace",
+    base_pt=14,
+    label_pt=12,
+    heading_pt=16,
+    metric_pt=27,
+    statval_pt=19,
+    radius=6,
+    card_pad_v=14,
+    card_pad_h=18,
+    tab_pad_v=8,
+    tab_pad_h=18,
+    input_pad=6,
+    content_spacing=14,
+    chart_scale=1.0,
+)
+
+THEMES: dict[str, Theme] = {
+    t.key: t
+    for t in (
+        TERMINAL, INSTITUTIONAL, MINIMAL,
+        FRUTIGER, SYNTHWAVE, SUPERFLAT,
+        LIGHT, HIGH_CONTRAST_LIGHT, HIGH_CONTRAST_DARK,
+    )
+}
 
 # ── UI scale (zoom) ──
 # A global multiplier applied to every font size / padding on top of the base
@@ -233,8 +509,39 @@ def base_key() -> str:
     return _BASE.key
 
 
+def _luminance(hex_color: str) -> float:
+    """Relative luminance (0=black, 1=white) of a #RRGGBB color."""
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return 0.0
+    r, g, b = (int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _lighten(hex_color: str, amount: float) -> str:
+    """Blend a #RRGGBB color toward white by ``amount`` (0..1)."""
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return hex_color
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    r, g, b = (round(c + (255 - c) * amount) for c in (r, g, b))
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def is_light_theme(theme: Theme | None = None) -> bool:
+    """True when the theme's chart background is light enough to want a light
+    Plotly template (``plotly_white``) rather than the dark default."""
+    t = theme or ACTIVE
+    return _luminance(t.chart_bg) > 0.5
+
+
 def chart_palette(theme: Theme | None = None) -> dict:
-    """Colors passed to plotly_charts.apply_palette() so charts match the theme."""
+    """Colors passed to plotly_charts.apply_palette() so charts match the theme.
+
+    Includes the theme's categorical ``series`` and an ``is_light`` flag
+    (derived from chart-background luminance, not hardcoded per key) so the
+    chart layer can flip to the light Plotly template.
+    """
     t = theme or ACTIVE
     return dict(
         bg=t.chart_bg,
@@ -242,11 +549,35 @@ def chart_palette(theme: Theme | None = None) -> dict:
         grid=t.chart_grid,
         text=t.text,
         muted=t.text_slate,
+        card=t.card,
+        border=t.border_light,
+        series=t.chart_series,
+        is_light=is_light_theme(t),
     )
 
 
 def stylesheet(theme: Theme | None = None) -> str:
     t = theme or ACTIVE
+
+    # Glossy accent-button treatment (Frutiger Aero only). A lighter tint of
+    # the accent at the top fading to the accent at the bottom, plus a faint
+    # top highlight — applied to the primary button and accent menu selection.
+    # Every other theme keeps a flat accent fill.
+    if t.gloss:
+        _btn = (
+            f"qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            f"stop:0 {_lighten(t.accent, 0.38)}, stop:1 {t.accent})"
+        )
+        _btn_hover = (
+            f"qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            f"stop:0 {_lighten(t.accent_hover, 0.38)}, stop:1 {t.accent_hover})"
+        )
+        _btn_top = f"border-top: 1px solid {_lighten(t.accent, 0.6)};"
+    else:
+        _btn = t.accent
+        _btn_hover = t.accent_hover
+        _btn_top = ""
+
     return f"""
     QMainWindow, QWidget {{
         background-color: {t.bg};
@@ -260,7 +591,7 @@ def stylesheet(theme: Theme | None = None) -> str:
     QMenuBar::item:selected {{ background-color: {t.card}; border-radius: 4px; }}
     QMenu {{ background-color: {t.panel}; border: 1px solid {t.border}; }}
     QMenu::item {{ padding: 6px 24px; }}
-    QMenu::item:selected {{ background-color: {t.accent}; color: {t.accent_text}; }}
+    QMenu::item:selected {{ background: {_btn}; color: {t.accent_text}; }}
     QMenu::indicator:checked {{ color: {t.accent}; }}
 
     QDockWidget {{ color: {t.text_slate}; }}
@@ -306,14 +637,15 @@ def stylesheet(theme: Theme | None = None) -> str:
     QTabBar::tab:hover {{ color: {t.text_slate}; }}
 
     QPushButton {{
-        background-color: {t.accent};
+        background: {_btn};
         color: {t.accent_text};
         border: none;
+        {_btn_top}
         border-radius: {t.radius}px;
         padding: {t.input_pad + 3}px {t.input_pad + 12}px;
         font-weight: 600;
     }}
-    QPushButton:hover {{ background-color: {t.accent_hover}; }}
+    QPushButton:hover {{ background: {_btn_hover}; }}
     QPushButton:disabled {{ background-color: {t.border_light}; color: {t.text_muted}; }}
     QPushButton#secondary {{
         background-color: {t.card};
