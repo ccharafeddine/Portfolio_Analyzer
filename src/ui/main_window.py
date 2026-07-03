@@ -213,6 +213,7 @@ class MainWindow(QMainWindow):
         # Config panel lives in a collapsible left sidebar (not a floating dock).
         self.config_panel = ConfigPanel()
         self.config_panel.runRequested.connect(self._on_run_requested)
+        self.config_panel.configChanged.connect(self._on_portfolio_changed)
         self.sidebar = Sidebar(self.config_panel, title="Configuration")
         # Menu "Run Analysis" triggers the same path as the panel button.
         self.act_run.triggered.connect(self.config_panel._on_run)
@@ -379,6 +380,18 @@ class MainWindow(QMainWindow):
     def _on_ticker_clicked(self, symbol: str) -> None:
         self._show_live_mode()
 
+    def _on_portfolio_changed(self) -> None:
+        """The whole portfolio was replaced (open / sample / new / import). Re-sync
+        the live universe now instead of waiting for the next poll tick, so the
+        ticker strip + watch table don't linger on the previous holdings."""
+        if getattr(self, "_quotes_timer", None) is None:
+            return  # quotes not wired yet (during startup)
+        self._refresh_watch_universe()
+        self.ticker_strip.clear()               # drop stale tickers immediately
+        self.live_watch_view.reset_selection()
+        self.live_watch_view.set_quotes({})     # show the new universe (empty) at once
+        self._poll_quotes()                     # fetch fresh quotes for it
+
     def _refresh_watch_universe(self):
         """Snapshot the current portfolio config for the strip + live view.
         Keeps the last valid config if the panel is mid-edit / invalid."""
@@ -397,6 +410,7 @@ class MainWindow(QMainWindow):
         self._quotes_thread = None
         self._quotes_worker = None
         self._quotes_in_flight = False
+        self._quotes_repoll = False
         self._quotes_timer = QTimer(self)
         self._quotes_timer.timeout.connect(self._poll_quotes)
 
@@ -419,6 +433,7 @@ class MainWindow(QMainWindow):
 
     def _poll_quotes(self) -> None:
         if self._quotes_in_flight:
+            self._quotes_repoll = True  # a fresh poll is wanted once this one ends
             return
         cfg = self._refresh_watch_universe()
         tickers = list(getattr(cfg, "tickers", []) or []) if cfg else []
@@ -453,6 +468,9 @@ class MainWindow(QMainWindow):
         self._quotes_worker = None
         self._quotes_thread = None
         self._quotes_in_flight = False
+        if self._quotes_repoll:
+            self._quotes_repoll = False
+            QTimer.singleShot(0, self._poll_quotes)
 
     def _apply_theme(self, key: str) -> None:
         theme.set_active(key)
@@ -901,6 +919,8 @@ class MainWindow(QMainWindow):
         if qt is not None and qt.isRunning():
             qt.quit()
             qt.wait(3000)
+        if hasattr(self, "live_watch_view"):
+            self.live_watch_view.shutdown()
         super().closeEvent(event)
 
     def _show_about(self) -> None:

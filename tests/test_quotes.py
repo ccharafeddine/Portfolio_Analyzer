@@ -90,6 +90,65 @@ def test_fetch_quotes_dedupes_and_uppercases():
     assert sorted(seen) == ["AAPL", "MSFT"]  # deduped, uppercased
 
 
+def _intraday_df():
+    import pandas as pd
+
+    idx = pd.date_range("2026-07-03 09:30", periods=5, freq="1min")
+    return pd.DataFrame(
+        {"Open": [100, 101, 102, 101, 103], "High": [101, 102, 103, 102, 104],
+         "Low": [99, 100, 101, 100, 102], "Close": [100.5, 101.5, 102.5, 101.0, 103.5],
+         "Volume": [1000, 1100, 900, 1200, 1300]},
+        index=idx,
+    )
+
+
+def test_fetch_intraday_returns_frame():
+    df = _intraday_df()
+    mock_yf = SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=lambda **kw: df))
+    with patch.object(market_data, "yf", mock_yf):
+        out = market_data.fetch_intraday("AAPL", use_cache=False)
+    assert out is not None and not out.empty and "Close" in out.columns
+
+
+def test_fetch_intraday_none_on_empty_or_error():
+    import pandas as pd
+
+    empty_yf = SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=lambda **kw: pd.DataFrame()))
+    with patch.object(market_data, "yf", empty_yf):
+        assert market_data.fetch_intraday("AAPL", use_cache=False) is None
+
+    def boom(**kw):
+        raise RuntimeError("network")
+
+    err_yf = SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=boom))
+    with patch.object(market_data, "yf", err_yf):
+        assert market_data.fetch_intraday("AAPL", use_cache=False) is None
+
+    with patch.object(market_data, "yf", None):
+        assert market_data.fetch_intraday("AAPL", use_cache=False) is None
+
+
+def test_intraday_chart_builds_figure():
+    from src.charts import plotly_charts as charts
+
+    fig = charts.intraday_chart(_intraday_df(), ticker="AAPL", prev_close=100.0)
+    assert fig is not None and len(fig.data) >= 1
+    assert charts.intraday_chart(None) is None
+
+
+def test_holdings_treemap_builds_and_skips_zero_weight():
+    from src.charts import plotly_charts as charts
+
+    tickers = ["A", "B", "C"]
+    weights = {"A": 0.5, "B": 0.5, "C": 0.0}   # C excluded (zero weight)
+    changes = {"A": 0.02, "B": -0.01, "C": 0.0}
+    fig = charts.holdings_treemap(tickers, weights, changes)
+    assert fig is not None
+    tm = fig.data[0]
+    assert set(tm.labels) == {"A", "B"}         # C dropped
+    assert charts.holdings_treemap([], {}, {}) is None
+
+
 def test_live_watch_formatting_helpers():
     from src.ui.live_watch_view import _fmt_price, _fmt_signed, _fmt_volume, _fmt_pct
 

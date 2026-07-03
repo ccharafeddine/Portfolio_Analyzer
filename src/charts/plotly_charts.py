@@ -1569,3 +1569,98 @@ def rate_history_chart(series: dict, title: str = "Key Rates") -> go.Figure:
         yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, title="Percent", ticksuffix="%"),
     )
     return fig
+
+
+# ──────────────────────────────────────────────────────────────
+# Live Market Watch (Tier 2): intraday chart + holdings treemap
+# ──────────────────────────────────────────────────────────────
+
+_UP = "#10B981"
+_DOWN = "#EF4444"
+
+
+def intraday_chart(df, ticker: str = "", prev_close=None):
+    """Today's 1-minute close line for one ticker, colored by direction vs. the
+    previous close, with a dotted reference line at the prior close. ``df`` is a
+    yfinance OHLCV frame; returns ``None`` when there's nothing to draw."""
+    if df is None or getattr(df, "empty", True):
+        return None
+    close = df["Close"] if "Close" in getattr(df, "columns", []) else df.iloc[:, 0]
+    close = close.dropna()
+    if close.empty:
+        return None
+
+    base = float(prev_close) if prev_close not in (None, 0) else float(close.iloc[0])
+    last = float(close.iloc[-1])
+    up = last >= base
+    color = _UP if up else _DOWN
+    fill = "rgba(16,185,129,0.10)" if up else "rgba(239,68,68,0.10)"
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=list(close.index), y=list(close.values), mode="lines",
+        line=dict(color=color, width=2), fill="tozeroy", fillcolor=fill,
+        name=ticker or "Price",
+        hovertemplate="%{x|%H:%M}<br>%{y:,.2f}<extra></extra>",
+    ))
+    # Tight y-range so the fill reads as a band, not a wedge to zero.
+    lo = float(min(close.min(), base))
+    hi = float(max(close.max(), base))
+    pad = (hi - lo) * 0.12 or (abs(hi) * 0.01 or 1.0)
+    fig.add_hline(y=base, line=dict(color=MUTED_COLOR, width=1, dash="dot"))
+    _apply_layout(
+        fig,
+        title=dict(text=f"{ticker} · Intraday (1m)".strip(" ·"),
+                   font=dict(size=15, color=TEXT_COLOR)),
+        showlegend=False,
+        margin=dict(l=54, r=20, t=44, b=40),
+        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, range=[lo - pad, hi + pad]),
+    )
+    return fig
+
+
+def _tile_color(change_pct) -> str:
+    """A green/red tile shade whose intensity scales with the day move
+    (saturating at ±3%). Neutral card color when the change is unknown."""
+    if change_pct is None or change_pct != change_pct:
+        return CARD_BG
+    mag = min(1.0, abs(float(change_pct)) / 0.03)
+    alpha = 0.30 + 0.55 * mag
+    rgb = "16,185,129" if change_pct >= 0 else "239,68,68"
+    return f"rgba({rgb},{alpha:.3f})"
+
+
+def holdings_treemap(tickers, weights: dict, changes: dict):
+    """A treemap of holdings sized by portfolio weight and shaded by day change
+    %. ``weights``/``changes`` are ``{ticker: value}``; returns ``None`` when no
+    holding has a positive weight."""
+    labels, values, colors, text = [], [], [], []
+    for t in (tickers or []):
+        w = weights.get(t)
+        if w is None or w <= 0:
+            continue
+        c = changes.get(t)
+        labels.append(t)
+        values.append(float(w))
+        colors.append(_tile_color(c))
+        text.append(f"<b>{t}</b><br>{c * 100:+.2f}%" if isinstance(c, (int, float)) and c == c else f"<b>{t}</b>")
+    if not labels:
+        return None
+
+    fig = go.Figure(go.Treemap(
+        labels=labels,
+        parents=[""] * len(labels),
+        values=values,
+        text=text,
+        textinfo="text",
+        marker=dict(colors=colors, line=dict(color=BG_COLOR, width=2)),
+        hovertemplate="%{label}<br>Weight %{value:.1%}<extra></extra>",
+        tiling=dict(pad=2),
+    ))
+    _apply_layout(
+        fig,
+        title=dict(text="Holdings · day change", font=dict(size=15, color=TEXT_COLOR)),
+        margin=dict(l=8, r=8, t=44, b=8),
+    )
+    return fig

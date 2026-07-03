@@ -584,3 +584,35 @@ def _fi_get(fast_info, name):
         return fast_info[name]
     except Exception:
         return None
+
+
+def fetch_intraday(ticker: str, use_cache: bool = True):
+    """Return today's 1-minute OHLCV frame for one ticker (or ``None``).
+
+    Best-effort: any failure (no data, network, delisted) returns ``None`` so
+    the Live Market Watch chart just stays blank. Powers the click-through
+    intraday chart. A short in-memory TTL cache avoids re-fetching the same
+    symbol on rapid row clicks.
+    """
+    sym = str(ticker or "").strip().upper()
+    if not sym or yf is None:
+        return None
+
+    if use_cache:
+        hit = _INTRADAY_CACHE.get(sym)
+        if hit and (time.monotonic() - hit[0]) < CACHE_TTL_INTRADAY:
+            return hit[1]
+
+    try:
+        df = yf.Ticker(sym).history(period="1d", interval="1m")
+    except Exception:
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+    _INTRADAY_CACHE[sym] = (time.monotonic(), df)
+    return df
+
+
+CACHE_TTL_INTRADAY = 60  # seconds
+# symbol -> (monotonic_ts, DataFrame)
+_INTRADAY_CACHE: dict[str, tuple[float, object]] = {}

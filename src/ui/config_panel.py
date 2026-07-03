@@ -103,6 +103,9 @@ class ConfigPanel(QScrollArea):
     config validates."""
 
     runRequested = Signal(object)
+    # Emitted whenever the whole config is replaced (open / sample / new / import),
+    # so the live layer can re-sync its ticker universe immediately.
+    configChanged = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -596,6 +599,7 @@ class ConfigPanel(QScrollArea):
         self.plan_exp_return.setValue(float(c.plan.expected_return))
 
         self.error_label.setVisible(False)
+        self.configChanged.emit()
 
     def reset_defaults(self) -> None:
         """New Portfolio: restore defaults and clear the ticker/weights/cost-basis entry."""

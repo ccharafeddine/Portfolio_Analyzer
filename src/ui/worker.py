@@ -195,6 +195,27 @@ class QuotesWorker(QObject):
             self.failed.emit(str(e))
 
 
+class IntradayWorker(QObject):
+    """Fetches one ticker's 1-minute intraday frame off the UI thread for the
+    Live Market Watch click-through chart. Emits ``done((ticker, DataFrame|None))``."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, ticker: str) -> None:
+        super().__init__()
+        self._ticker = str(ticker or "")
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import market_data
+
+            self.done.emit((self._ticker, market_data.fetch_intraday(self._ticker)))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class StatementsWorker(QObject):
     """Fetches one ticker's financial statements + analyst data off the UI thread.
     Emits ``done((ticker, dict))``."""
