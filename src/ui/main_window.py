@@ -97,6 +97,9 @@ class MainWindow(QMainWindow):
 
         # Configure the scheduled-reports timer (and run once if set to "On app launch").
         QTimer.singleShot(2500, self._configure_report_schedule)
+        # Configure the daily Morning Report (fires at a clock time; catches up on
+        # launch if today's run was missed).
+        QTimer.singleShot(3200, self._configure_morning_report)
 
     # ── Menubar ──
     def _build_menubar(self) -> None:
@@ -436,6 +439,12 @@ class MainWindow(QMainWindow):
         self._quotes_timer = QTimer(self)
         self._quotes_timer.timeout.connect(self._poll_quotes)
 
+        # Daily Morning Report state (scheduling + delivery).
+        self._morning_timer: QTimer | None = None
+        self._morning_thread = None
+        self._morning_worker = None
+        self._last_brief_path: str | None = None
+
         from .live_watch_view import DEFAULT_INTERVAL
 
         secs = int(self._settings.value("live_refresh_secs", DEFAULT_INTERVAL, type=int))
@@ -511,9 +520,18 @@ class MainWindow(QMainWindow):
             if QSystemTrayIcon.isSystemTrayAvailable():
                 self._tray = QSystemTrayIcon(QIcon(mark_path()), self)
                 self._tray.setToolTip(__app_name__)
+                # Clicking a morning-report notification opens the saved brief.
+                self._tray.messageClicked.connect(self._on_tray_message_clicked)
                 self._tray.show()
         except Exception:
             self._tray = None
+
+    def _on_tray_message_clicked(self) -> None:
+        if self._last_brief_path:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._last_brief_path))
 
     def notify(self, title: str, message: str) -> None:
         tray = getattr(self, "_tray", None)
@@ -628,6 +646,7 @@ class MainWindow(QMainWindow):
                 return
         self.config_panel.load_config(config)
         self._current_portfolio_path = path
+        self._settings.setValue("last_portfolio_path", path)
         self._status(f"Opened {Path(path).name}")
 
     def _on_open_sample(self, name: str) -> None:
@@ -663,6 +682,7 @@ class MainWindow(QMainWindow):
         try:
             config.save(path)
             self._current_portfolio_path = path
+            self._settings.setValue("last_portfolio_path", path)
             self._status(f"Saved portfolio to {Path(path).name}")
         except Exception as e:
             QMessageBox.warning(self, "Save Portfolio", f"Could not save:\n{e}")
@@ -798,8 +818,10 @@ class MainWindow(QMainWindow):
 
         dlg = ScheduledReportsDialog(self)
         dlg.generateNowRequested.connect(self._run_reports)
+        dlg.morningNowRequested.connect(self._run_morning_report)
         dlg.exec()
         self._configure_report_schedule()
+        self._configure_morning_report()
 
     def _configure_report_schedule(self) -> None:
         """Start/stop the in-app report timer from saved settings."""
@@ -880,6 +902,161 @@ class MainWindow(QMainWindow):
 
     def _on_reports_failed(self, message: str) -> None:
         self._status(f"Scheduled reports failed: {message}")
+
+    # ── Daily Morning Report (clock-time schedule + catch-up + delivery) ──
+    def _configure_morning_report(self) -> None:
+        """(Re)configure the morning-report schedule from settings. Runs a missed
+        report on launch (catch-up), then arms the next fire."""
+        s = self._settings
+        if not s.value("morning_enabled", False, type=bool):
+            if self._morning_timer is not None:
+                self._morning_timer.stop()
+            return
+        from datetime import date, datetime
+
+        now = datetime.now()
+        hh, mm = self._morning_time_parts()
+        scheduled_today = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        last_run = s.value("morning_last_run", "", type=str)
+        if last_run != date.today().isoformat() and now >= scheduled_today:
+            self._run_morning_report()  # catch-up: today's time already passed
+        self._schedule_next_morning()
+
+    def _morning_time_parts(self) -> tuple[int, int]:
+        raw = self._settings.value("morning_time", "07:00", type=str) or "07:00"
+        try:
+            hh, mm = (int(x) for x in raw.split(":")[:2])
+            return max(0, min(23, hh)), max(0, min(59, mm))
+        except Exception:
+            return 7, 0
+
+    def _schedule_next_morning(self) -> None:
+        from datetime import datetime, timedelta
+
+        now = datetime.now()
+        hh, mm = self._morning_time_parts()
+        nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if nxt <= now:
+            nxt += timedelta(days=1)
+        ms = int((nxt - now).total_seconds() * 1000)
+        if self._morning_timer is None:
+            self._morning_timer = QTimer(self)
+            self._morning_timer.setSingleShot(True)
+            self._morning_timer.timeout.connect(self._on_morning_timer)
+        self._morning_timer.stop()
+        self._morning_timer.start(max(1000, ms))
+
+    def _on_morning_timer(self) -> None:
+        self._run_morning_report()
+        self._schedule_next_morning()  # arm tomorrow's
+
+    def _morning_target(self):
+        """Return (config, name) for the morning report: the configured portfolio,
+        else the last-opened one, else the live config panel."""
+        from pathlib import Path
+
+        from src.config.models import PortfolioConfig
+
+        s = self._settings
+        path = (s.value("morning_portfolio", "", type=str)
+                or s.value("last_portfolio_path", "", type=str))
+        if path and Path(path).exists():
+            try:
+                return PortfolioConfig.load(path), Path(path).stem
+            except Exception:
+                pass
+        try:
+            cfg = self.config_panel.build_config()
+            name = (Path(self._current_portfolio_path).stem
+                    if self._current_portfolio_path else "Portfolio")
+            return cfg, name
+        except Exception:
+            return None, "Portfolio"
+
+    def _morning_email_config(self):
+        """Assemble an SmtpConfig from QSettings + the keychain password, or None
+        when email delivery is off / not fully configured."""
+        s = self._settings
+        if not s.value("morning_email_enabled", False, type=bool):
+            return None
+        host = (s.value("smtp_host", "", type=str) or "").strip()
+        user = (s.value("smtp_username", "", type=str) or "").strip()
+        if not (host and user):
+            return None
+        from src.reports.emailer import SmtpConfig
+
+        from . import settings as _settings
+
+        pw = _settings.get_email_password(user)
+        if not pw:
+            return None
+        return SmtpConfig(
+            host=host,
+            port=int(s.value("smtp_port", 587, type=int)),
+            username=user,
+            password=pw,
+            from_addr=(s.value("smtp_from", "", type=str) or "").strip() or user,
+            use_ssl=s.value("smtp_use_ssl", False, type=bool),
+        )
+
+    def _run_morning_report(self) -> None:
+        if self._morning_thread is not None:
+            return  # one already running
+        from . import paths
+        from .worker import MorningReportWorker
+
+        cfg, name = self._morning_target()
+        if cfg is None:
+            self._status("Morning report: no portfolio configured")
+            return
+        s = self._settings
+        to = [a.strip() for a in (s.value("morning_email_to", "", type=str) or "").split(",")
+              if a.strip()]
+        options = {
+            "config": cfg,
+            "name": name,
+            "out_dir": s.value("morning_outdir", str(paths.documents_export_dir()), type=str),
+            "attach_full": s.value("morning_attach_full", True, type=bool),
+            "formats": tuple(f for f in (s.value("report_sched_formats", "pdf", type=str) or "pdf").split(",") if f),
+            "email": self._morning_email_config(),
+            "to": to,
+        }
+        self._status(f"Generating morning report for {name}…")
+        self._morning_thread = QThread(self)
+        self._morning_worker = MorningReportWorker(options)
+        self._morning_worker.moveToThread(self._morning_thread)
+        self._morning_thread.started.connect(self._morning_worker.run)
+        self._morning_worker.done.connect(self._on_morning_done)
+        self._morning_worker.failed.connect(self._on_morning_failed)
+        self._morning_worker.done.connect(self._morning_thread.quit)
+        self._morning_worker.failed.connect(self._morning_thread.quit)
+        self._morning_thread.finished.connect(self._cleanup_morning_thread)
+        self._morning_thread.start()
+
+    def _on_morning_done(self, result) -> None:
+        from datetime import date
+
+        self._settings.setValue("morning_last_run", date.today().isoformat())
+        self._last_brief_path = result.get("brief_path")
+        summary = result.get("summary") or "Morning report ready"
+        if result.get("emailed"):
+            self.notify("Morning report sent", summary)
+        elif result.get("email_error"):
+            self.notify("Morning report ready (email failed)",
+                        str(result["email_error"])[:140])
+        else:
+            self.notify("Morning report ready", f"{summary} — click to open")
+
+    def _on_morning_failed(self, message: str) -> None:
+        self._status(f"Morning report failed: {message}")
+
+    def _cleanup_morning_thread(self) -> None:
+        if self._morning_worker is not None:
+            self._morning_worker.deleteLater()
+        if self._morning_thread is not None:
+            self._morning_thread.deleteLater()
+        self._morning_worker = None
+        self._morning_thread = None
 
     # ── Beginner mode & onboarding ──
     def _on_beginner_toggled(self, enabled: bool) -> None:
@@ -1025,12 +1202,14 @@ class MainWindow(QMainWindow):
             self._quotes_timer.stop()
         if getattr(self, "_report_timer", None) is not None:
             self._report_timer.stop()
+        if getattr(self, "_morning_timer", None) is not None:
+            self._morning_timer.stop()
         if self._thread is not None and self._thread.isRunning():
             self._cancelled = True
             self._thread.quit()
             self._thread.wait(5000)
         # Every other window-owned worker thread: stop and wait briefly.
-        for attr in ("_quotes_thread", "_upd_thread", "_rep_thread"):
+        for attr in ("_quotes_thread", "_upd_thread", "_rep_thread", "_morning_thread"):
             t = getattr(self, attr, None)
             if t is not None and t.isRunning():
                 t.quit()

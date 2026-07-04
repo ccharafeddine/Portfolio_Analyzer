@@ -286,6 +286,88 @@ class SymbolNewsWorker(QObject):
             self.failed.emit(str(e))
 
 
+class MorningReportWorker(QObject):
+    """Builds and delivers a daily Morning Report for one portfolio, off the UI
+    thread: fetch quotes + calendar + news, render the Morning Brief, optionally
+    generate the full analytical report, and optionally email them.
+
+    ``options`` keys: ``config`` (PortfolioConfig), ``name`` (str), ``out_dir``
+    (str), ``attach_full`` (bool), ``formats`` (tuple), ``email`` (SmtpConfig or
+    None), ``to`` (list[str]). Emits ``done(dict)`` with brief_path / report_paths
+    / emailed / email_error / subject / summary; ``failed(str)`` on a hard error
+    (a failed *email* is reported inside ``done`` so the report is still saved)."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, options: dict) -> None:
+        super().__init__()
+        self._o = dict(options)
+
+    @Slot()
+    def run(self) -> None:
+        from datetime import datetime
+        from pathlib import Path
+
+        try:
+            from src.data import market_data
+            from src.reports.emailer import send_email
+            from src.reports.generate import _safe, generate_report
+            from src.reports.morning_brief import build_morning_brief
+
+            from . import settings as _settings
+
+            o = self._o
+            cfg = o["config"]
+            name = o.get("name") or "Portfolio"
+            tickers = list(getattr(cfg, "tickers", []) or [])
+
+            provider, creds = _settings.realtime_provider()
+            quotes = market_data.fetch_quotes(tickers, provider=provider, creds=creds)
+            events = market_data.fetch_calendar(tickers)
+            news = market_data.fetch_ticker_news(
+                tickers, av_key=_settings.get_api_key("ALPHAVANTAGE_API_KEY")
+            )
+            brief = build_morning_brief(cfg, quotes, events=events, news=news, name=name)
+
+            out = Path(o["out_dir"])
+            out.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d")
+            brief_path = out / f"{_safe(name)}_morning_{stamp}.html"
+            brief_path.write_text(brief["html"], encoding="utf-8")
+
+            report_paths: list[str] = []
+            if o.get("attach_full"):
+                report_paths = [
+                    str(p) for p in generate_report(
+                        cfg, out, formats=o.get("formats", ("pdf",)), name=name
+                    )
+                ]
+
+            emailed = False
+            email_error = None
+            email_cfg = o.get("email")
+            to = o.get("to") or []
+            if email_cfg is not None and to:
+                try:
+                    send_email(email_cfg, to, brief["subject"], brief["html"],
+                               attachments=report_paths or None)
+                    emailed = True
+                except Exception as e:
+                    email_error = str(e)
+
+            self.done.emit({
+                "brief_path": str(brief_path),
+                "report_paths": report_paths,
+                "emailed": emailed,
+                "email_error": email_error,
+                "subject": brief["subject"],
+                "summary": brief["summary"],
+            })
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class StatementsWorker(QObject):
     """Fetches one ticker's financial statements + analyst data off the UI thread.
     Emits ``done((ticker, dict))``."""

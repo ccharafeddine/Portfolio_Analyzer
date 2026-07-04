@@ -27,7 +27,9 @@ hiddenimports = []
 #  - plotly: get_plotlyjs() reads the bundled plotly.min.js at runtime
 #  - kaleido: static chart export for PDF/HTML/PowerPoint reports
 #  - statsmodels / scipy: data tables and compiled bits
-for pkg in ("plotly", "kaleido", "statsmodels"):
+#  - keyring: backends (Windows Credential Locker / macOS Keychain) are resolved
+#    via entry points that PyInstaller misses without collect_all
+for pkg in ("plotly", "kaleido", "statsmodels", "keyring"):
     try:
         d, b, h = collect_all(pkg)
         datas += d

@@ -26,6 +26,9 @@ kaleido==0.2.1
 # ── Desktop UI ──
 PySide6>=6.10
 platformdirs>=4.0
+# OS keychain for the scheduled-report email password (Windows Credential Locker
+# / macOS Keychain) — the password is never written to QSettings or .env.
+keyring>=25.0
 
 # ── Build tooling (dev only) ──
 pyinstaller>=6.6

@@ -80,6 +80,66 @@ def get_api_key(name: str) -> Optional[str]:
     )
 
 
+# ── Email (scheduled-report delivery) password — OS keychain only ──
+# The SMTP password is stored in the OS keychain (Windows Credential Locker /
+# macOS Keychain) via ``keyring`` — never in QSettings or ``.env``. The rest of
+# the SMTP config (host/port/from/to/TLS) is non-secret and lives in QSettings.
+EMAIL_KEYRING_SERVICE = "PortfolioAnalyzer:smtp"
+
+
+def _keyring():
+    try:
+        import keyring
+
+        return keyring
+    except Exception:
+        return None
+
+
+def keyring_available() -> bool:
+    """True when a real OS keychain backend is usable (not the null/fail backend)."""
+    kr = _keyring()
+    if kr is None:
+        return False
+    try:
+        from keyring.backends.fail import Keyring as _Fail
+
+        return not isinstance(kr.get_keyring(), _Fail)
+    except Exception:
+        return True
+
+
+def set_email_password(username: str, password: str) -> bool:
+    kr = _keyring()
+    if kr is None or not username:
+        return False
+    try:
+        kr.set_password(EMAIL_KEYRING_SERVICE, username, password)
+        return True
+    except Exception:
+        return False
+
+
+def get_email_password(username: str) -> Optional[str]:
+    kr = _keyring()
+    if kr is None or not username:
+        return None
+    try:
+        return kr.get_password(EMAIL_KEYRING_SERVICE, username) or None
+    except Exception:
+        return None
+
+
+def delete_email_password(username: str) -> None:
+    kr = _keyring()
+    if kr is None or not username:
+        return
+    try:
+        kr.delete_password(EMAIL_KEYRING_SERVICE, username)
+    except Exception:
+        pass
+
+
 def realtime_provider():
     """Return ``(provider_name, creds)`` for the first fully-configured real-time
     quote provider, or ``(None, None)`` when none is set (yfinance-delayed).
