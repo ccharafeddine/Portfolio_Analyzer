@@ -40,6 +40,30 @@ from .settings import APP_NAME, ORG_NAME
 
 INTERVALS = ["On app launch", "Hourly", "Every 6 hours", "Daily"]
 
+# Common SMTP providers → (host, port, use_ssl, setup hint). Selecting one fills
+# the server/port/TLS fields; the user still supplies their address + app password.
+_SMTP_PRESETS = {
+    "Gmail": (
+        "smtp.gmail.com", 587, False,
+        "Gmail needs a 16-character App Password (Google Account → Security → "
+        "2-Step Verification → App passwords), not your normal password.",
+    ),
+    "Outlook / Office 365": (
+        "smtp.office365.com", 587, False,
+        "Use your full Microsoft email address. If sign-in is rejected, create an "
+        "app password (or ensure SMTP AUTH is enabled for your account).",
+    ),
+    "iCloud Mail": (
+        "smtp.mail.me.com", 587, False,
+        "iCloud requires an app-specific password (appleid.apple.com → Sign-In and "
+        "Security → App-Specific Passwords).",
+    ),
+    "Yahoo Mail": (
+        "smtp.mail.yahoo.com", 465, True,
+        "Yahoo requires an app password (Account Security → Generate app password).",
+    ),
+}
+
 
 class ScheduledReportsDialog(QDialog):
     generateNowRequested = Signal(str, object)  # (out_dir, [formats]) — batch
@@ -112,6 +136,16 @@ class ScheduledReportsDialog(QDialog):
         self._email_box.setFlat(True)
         ef = QFormLayout(self._email_box)
         ef.setContentsMargins(18, 4, 0, 0)
+        self.provider = QComboBox()
+        self.provider.addItem("Custom", "Custom")
+        for _name in _SMTP_PRESETS:
+            self.provider.addItem(_name, _name)
+        self.provider.currentIndexChanged.connect(self._apply_provider)
+        ef.addRow("Provider:", self.provider)
+        self._provider_hint = QLabel()
+        self._provider_hint.setObjectName("muted")
+        self._provider_hint.setWordWrap(True)
+        ef.addRow("", self._provider_hint)
         self.smtp_host = QLineEdit()
         self.smtp_host.setPlaceholderText("smtp.gmail.com")
         ef.addRow("SMTP server:", self.smtp_host)
@@ -124,6 +158,10 @@ class ScheduledReportsDialog(QDialog):
         port_row.addWidget(self.smtp_ssl)
         port_row.addStretch(1)
         ef.addRow("Port:", port_row)
+        # Editing server/port/TLS by hand drops the preset back to "Custom".
+        self.smtp_host.textChanged.connect(self._on_smtp_manual_edit)
+        self.smtp_port.valueChanged.connect(self._on_smtp_manual_edit)
+        self.smtp_ssl.toggled.connect(self._on_smtp_manual_edit)
         self.smtp_user = QLineEdit()
         self.smtp_user.setPlaceholderText("you@gmail.com")
         ef.addRow("Username:", self.smtp_user)
@@ -221,6 +259,7 @@ class ScheduledReportsDialog(QDialog):
         self.smtp_user.setText(s.value("smtp_username", "", type=str))
         self.smtp_from.setText(s.value("smtp_from", "", type=str))
         self.m_to.setText(s.value("morning_email_to", "", type=str))
+        self._detect_provider()  # reflect a saved host as its provider preset
         # Password lives in the keychain — never shown; a saved one is kept unless
         # the user types a new one.
         user = self.smtp_user.text().strip()
@@ -285,6 +324,48 @@ class ScheduledReportsDialog(QDialog):
         self.accept()
 
     # ── actions ──
+    def _apply_provider(self, *_a) -> None:
+        """Fill server/port/TLS from the chosen provider preset (no-op for Custom)."""
+        preset = _SMTP_PRESETS.get(self.provider.currentData())
+        if preset is None:
+            self._provider_hint.setText("")
+            return
+        host, port, ssl, hint = preset
+        for w in (self.smtp_host, self.smtp_port, self.smtp_ssl):
+            w.blockSignals(True)
+        self.smtp_host.setText(host)
+        self.smtp_port.setValue(port)
+        self.smtp_ssl.setChecked(ssl)
+        for w in (self.smtp_host, self.smtp_port, self.smtp_ssl):
+            w.blockSignals(False)
+        self._provider_hint.setText(hint)
+
+    def _on_smtp_manual_edit(self, *_a) -> None:
+        """When the fields diverge from the selected preset, revert to Custom."""
+        preset = _SMTP_PRESETS.get(self.provider.currentData())
+        if preset and (self.smtp_host.text().strip() != preset[0]
+                       or int(self.smtp_port.value()) != preset[1]
+                       or self.smtp_ssl.isChecked() != preset[2]):
+            self.provider.blockSignals(True)
+            self.provider.setCurrentIndex(0)  # Custom
+            self.provider.blockSignals(False)
+            self._provider_hint.setText("")
+
+    def _detect_provider(self) -> None:
+        """Select the provider whose preset matches the loaded server/port/TLS."""
+        host = self.smtp_host.text().strip().lower()
+        port = int(self.smtp_port.value())
+        ssl = self.smtp_ssl.isChecked()
+        for name, (h, p, s, hint) in _SMTP_PRESETS.items():
+            if host == h and port == p and ssl == s:
+                idx = self.provider.findData(name)
+                if idx >= 0:
+                    self.provider.blockSignals(True)
+                    self.provider.setCurrentIndex(idx)
+                    self.provider.blockSignals(False)
+                    self._provider_hint.setText(hint)
+                return
+
     def _sync_email_enabled(self, *_a) -> None:
         self._email_box.setEnabled(self.m_email_enable.isChecked())
         self.test_btn.setEnabled(self.m_email_enable.isChecked())
