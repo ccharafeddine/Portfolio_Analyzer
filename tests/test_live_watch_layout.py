@@ -15,14 +15,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-QtWidgets = pytest.importorskip("PySide6.QtWidgets")
-QtCore = pytest.importorskip("PySide6.QtCore")
-
-# A QApplication must exist before any QWidget is constructed; skip the whole
-# module if the platform plugin can't start (e.g. no libEGL on a bare runner).
+# Import Qt behind a broad guard and skip the whole module if it can't load —
+# the CI Ubuntu runner has no libEGL, so ``import PySide6.QtWidgets`` raises a
+# plain ImportError (not ModuleNotFoundError, so ``importorskip`` would re-raise
+# it). A QApplication must also exist before any QWidget is constructed.
 try:
+    from PySide6 import QtCore, QtWidgets
+
     _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-except Exception as exc:  # pragma: no cover - environment dependent
+except Exception as exc:  # pragma: no cover - headless runner without libEGL
     pytest.skip(f"Qt unavailable: {exc}", allow_module_level=True)
 
 from src.ui.live_watch_view import (  # noqa: E402  (must follow the QApplication guard)
