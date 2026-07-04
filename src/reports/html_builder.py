@@ -220,7 +220,7 @@ _HTML_TEMPLATE = Template("""\
   <div class="meta">
     Benchmark: {{ benchmark }}<br>
     Period: {{ start_date }} to {{ end_date }}<br>
-    Initial Capital: {{ capital }}<br>
+    {{ capital_line }}<br>
     Risk-Free Rate: {{ rf_rate }}<br>
     Generated: {{ generated_date }}
   </div>
@@ -283,6 +283,11 @@ _HTML_TEMPLATE = Template("""\
 
 {% if growth_chart_img %}
 <img class="chart-img" src="data:image/png;base64,{{ growth_chart_img }}" alt="Growth Chart">
+{% endif %}
+
+{% if active_alloc_img %}
+<h3>Portfolio Allocation</h3>
+<img class="chart-img" src="data:image/png;base64,{{ active_alloc_img }}" alt="Active Portfolio Allocation">
 {% endif %}
 
 <!-- Risk -->
@@ -713,13 +718,24 @@ def build_html_report(
     drawdown_chart_img = _export_chart_base64(chart_figures["drawdown"]) if "drawdown" in chart_figures else None
     frontier_chart_img = _export_chart_base64(chart_figures["frontier"]) if "frontier" in chart_figures else None
     corr_chart_img = _export_chart_base64(chart_figures["correlation"]) if "correlation" in chart_figures else None
+    active_alloc_img = _export_chart_base64(chart_figures["active_allocation"]) if "active_allocation" in chart_figures else None
+
+    _cash = float(getattr(results.config, "cash", 0.0) or 0.0)
+    if _cash > 0:
+        _invested = results.config.capital - _cash
+        capital_line = (
+            f"Total Capital: {_fmt_dollar(results.config.capital)} "
+            f"(invested {_fmt_dollar(_invested)} + cash {_fmt_dollar(_cash)})"
+        )
+    else:
+        capital_line = f"Initial Capital: {_fmt_dollar(results.config.capital)}"
 
     return _HTML_TEMPLATE.render(
         tickers_str=", ".join(results.config.tickers),
         benchmark=results.config.benchmark,
         start_date=str(results.config.start_date),
         end_date=str(results.config.end_date),
-        capital=_fmt_dollar(results.config.capital),
+        capital_line=capital_line,
         rf_rate=_fmt_pct(results.config.risk_free_rate),
         generated_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
         interp=interp,
@@ -742,4 +758,5 @@ def build_html_report(
         drawdown_chart_img=drawdown_chart_img,
         frontier_chart_img=frontier_chart_img,
         corr_chart_img=corr_chart_img,
+        active_alloc_img=active_alloc_img,
     )

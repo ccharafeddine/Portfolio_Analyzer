@@ -53,6 +53,20 @@ def report_figures(results) -> dict:
                 orp.expected_return, results.config.risk_free_rate,
                 asset_vols=vol, asset_returns=mu,
             )
+
+        # Active portfolio allocation — holdings scaled by the risky fraction,
+        # plus a Cash slice when a cash balance is held (cash as a holding).
+        cap = float(results.config.capital or 0.0)
+        cash = float(getattr(results.config, "cash", 0.0) or 0.0)
+        alloc = {t: float(w) for t, w in (results.config.weights or {}).items()}
+        if cash > 0 and cap > 0:
+            y = max(cap - cash, 0.0) / cap
+            alloc = {t: w * y for t, w in alloc.items()}
+            alloc["Cash"] = cash / cap
+        if alloc:
+            figs["active_allocation"] = charts.allocation_donut(
+                alloc, "Active Portfolio Allocation"
+            )
     except Exception:
         pass
     return figs

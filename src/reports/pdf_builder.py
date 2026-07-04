@@ -235,10 +235,18 @@ def build_pdf_report(
         styles["CoverSub"],
     ))
     elements.append(Spacer(1, 24))
+    _cash = float(getattr(results.config, "cash", 0.0) or 0.0)
+    if _cash > 0:
+        _capital_line = (
+            f"Total Capital: ${results.config.capital:,.0f} "
+            f"(invested ${results.config.capital - _cash:,.0f} + cash ${_cash:,.0f})"
+        )
+    else:
+        _capital_line = f"Capital: ${results.config.capital:,.0f}"
     meta_lines = [
         f"Benchmark: {results.config.benchmark}",
         f"Period: {results.config.start_date} to {results.config.end_date}",
-        f"Capital: ${results.config.capital:,.0f}",
+        _capital_line,
         f"Risk-Free Rate: {_pct(results.config.risk_free_rate)}",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
     ]
@@ -322,6 +330,13 @@ def build_pdf_report(
     # Growth chart
     if "growth" in chart_figures:
         img = _fig_to_image(chart_figures["growth"])
+        if img:
+            elements.append(Spacer(1, 8))
+            elements.append(img)
+
+    # Active portfolio allocation (holdings + cash slice)
+    if "active_allocation" in chart_figures:
+        img = _fig_to_image(chart_figures["active_allocation"])
         if img:
             elements.append(Spacer(1, 8))
             elements.append(img)

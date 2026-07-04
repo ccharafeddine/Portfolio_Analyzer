@@ -466,11 +466,20 @@ def generate_executive_summary(results: AnalysisResults) -> str:
     """Generate a concise executive summary covering key findings."""
     parts = []
 
+    _cash = float(getattr(results.config, "cash", 0.0) or 0.0)
+    if _cash > 0:
+        _capital_phrase = (
+            f"with ${results.config.capital:,.0f} total capital "
+            f"(${results.config.capital - _cash:,.0f} invested plus "
+            f"${_cash:,.0f} held in cash) "
+        )
+    else:
+        _capital_phrase = f"with ${results.config.capital:,.0f} initial capital "
     parts.append(
         f"This report analyzes a portfolio of {len(results.config.tickers)} assets "
         f"({', '.join(results.config.tickers)}) "
         f"benchmarked against {results.config.benchmark}, "
-        f"with ${results.config.capital:,.0f} initial capital "
+        f"{_capital_phrase}"
         f"from {results.config.start_date} to {results.config.end_date}."
     )
 

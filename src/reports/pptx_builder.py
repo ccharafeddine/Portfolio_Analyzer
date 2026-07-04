@@ -169,9 +169,17 @@ def build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
            48, bold=True)
     universe = ", ".join(cfg.tickers[:10]) + (" …" if len(cfg.tickers) > 10 else "")
     d.text(s, f"{universe}", Inches(0.62), Inches(3.7), Inches(12), Inches(0.6), 18, ACCENT)
+    _cash = float(getattr(cfg, "cash", 0.0) or 0.0)
+    if _cash > 0:
+        _cap_str = (
+            f"{_fmt_money(cfg.capital)} total "
+            f"({_fmt_money(cfg.capital - _cash)} invested + {_fmt_money(_cash)} cash)"
+        )
+    else:
+        _cap_str = f"{_fmt_money(cfg.capital)} invested"
     d.text(s,
            f"{cfg.start_str} to {cfg.end_str}    •    Benchmark {cfg.benchmark}    •    "
-           f"{_fmt_money(cfg.capital)} invested",
+           f"{_cap_str}",
            Inches(0.62), Inches(4.3), Inches(12), Inches(0.6), 14, MUTED)
 
     # ── Executive summary ──
@@ -198,6 +206,21 @@ def build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
         if growth:
             chart_slide("Growth of Capital", charts.growth_chart(growth, cfg.capital),
                         interp.get("performance"))
+    except Exception:
+        pass
+
+    try:
+        # Active portfolio allocation — holdings + a Cash slice when cash is held.
+        cap = float(cfg.capital or 0.0)
+        cash = float(getattr(cfg, "cash", 0.0) or 0.0)
+        alloc = {t: float(w) for t, w in (cfg.weights or {}).items()}
+        if cash > 0 and cap > 0:
+            y = max(cap - cash, 0.0) / cap
+            alloc = {t: w * y for t, w in alloc.items()}
+            alloc["Cash"] = cash / cap
+        if alloc:
+            chart_slide("Portfolio Allocation",
+                        charts.allocation_donut(alloc, "Active Portfolio Allocation"))
     except Exception:
         pass
 
