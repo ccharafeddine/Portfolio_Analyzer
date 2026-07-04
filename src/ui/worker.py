@@ -200,6 +200,40 @@ class QuotesWorker(QObject):
             self.failed.emit(str(e))
 
 
+class WatchlistWorker(QObject):
+    """Fetches delayed (or provider) quotes + best-effort names for the Live
+    Market Watch watchlist, off the UI thread. Decoupled from the analysis
+    pipeline. Emits ``done(dict[str, Quote])``; never raises on a bad symbol."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, tickers, use_cache: bool = True) -> None:
+        super().__init__()
+        self._tickers = list(tickers or [])
+        self._use_cache = bool(use_cache)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import market_data
+
+            from . import settings
+
+            provider, creds = settings.realtime_provider()
+            self.done.emit(
+                market_data.fetch_quotes(
+                    self._tickers,
+                    use_cache=self._use_cache,
+                    provider=provider,
+                    creds=creds,
+                    with_names=True,
+                )
+            )
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class IntradayWorker(QObject):
     """Fetches one ticker's 1-minute intraday frame off the UI thread for the
     Live Market Watch click-through chart. Emits ``done((ticker, DataFrame|None))``."""

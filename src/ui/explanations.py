@@ -417,6 +417,12 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "An upward-sloping curve is normal; an inverted one (short yields above long) has historically preceded recessions. Compare the latest level to its one-year change.",
         "why": "Rates are the discount rate for every asset. The macro backdrop shapes valuations, the risk-free rate, and what your portfolio is competing against.",
     },
+    "watchlist": {
+        "title": "Watchlist",
+        "what": "A personal list of symbols you want to track — stocks, ETFs, or crypto — with live (delayed) quotes, kept separate from the portfolio you analyze.",
+        "how": "Type a symbol and press Add; crypto shorthand like BTC becomes BTC-USD automatically. Each row shows the latest price and today's change, green when up and red when down. Click the ✕ (or right-click) to remove a row, and the column headers to sort. It refreshes on its own about once a minute while this screen is open, or immediately with Refresh.",
+        "why": "It lets you keep an eye on tickers you're considering or already follow without adding them to a portfolio or running a full analysis. The quotes are fetched independently, so nothing here touches your saved portfolios or results.",
+    },
     "data_exports": {
         "title": "Data Exports",
         "what": "The raw output files (CSVs) from the analysis, individually or as a ZIP.",

@@ -490,6 +490,40 @@ def fetch_calendar(tickers, use_cache: bool = True) -> list[CalendarEvent]:
 CACHE_TTL_QUOTES = 10  # seconds — just enough to dedupe near-simultaneous polls
 
 
+# ── Symbol normalization ─────────────────────────────────────────
+# Curated crypto shorthand -> yfinance's canonical dashed pair. yfinance prices
+# crypto as "<COIN>-USD" (e.g. BTC-USD). This is deliberately a CURATED allow-list,
+# NOT an "append -USD" heuristic: bare tickers like BTC collide with real equities
+# (BTC is Grayscale's Bitcoin Mini Trust ETF), so we only remap coins we explicitly
+# recognize and pass everything else through untouched. Kept as a plain dict so a
+# central symbol resolver can later replace this without changing any call site.
+_CRYPTO_BASES = [
+    "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "DOT", "LTC", "BCH", "LINK",
+    "AVAX", "MATIC", "UNI", "ATOM", "XLM", "ETC", "ALGO", "TRX", "SHIB", "XMR",
+]
+_CRYPTO_ALIASES: dict[str, str] = {}
+for _base in _CRYPTO_BASES:
+    _canonical = f"{_base}-USD"
+    _CRYPTO_ALIASES[_base] = _canonical            # BTC    -> BTC-USD
+    _CRYPTO_ALIASES[f"{_base}USD"] = _canonical    # BTCUSD -> BTC-USD
+
+_WS_RE = re.compile(r"\s+")
+
+
+def normalize_symbol(raw) -> str:
+    """Clean and canonicalize a user-typed symbol for yfinance.
+
+    Strips/uppercases, maps a curated set of crypto shorthands to their dashed
+    pair (BTC/BTCUSD -> BTC-USD), and passes valid equity/ETF/crypto symbols
+    through unchanged. Returns "" for empty or junk input (no alphanumerics),
+    which callers treat as unresolvable.
+    """
+    s = _WS_RE.sub("", str(raw or "").upper())
+    if not any(ch.isalnum() for ch in s):
+        return ""
+    return _CRYPTO_ALIASES.get(s, s)
+
+
 @dataclass
 class Quote:
     ticker: str
@@ -501,9 +535,11 @@ class Quote:
     day_low: Optional[float] = None
     volume: Optional[float] = None
     currency: Optional[str] = None
+    name: Optional[str] = None          # best-effort human-readable name
     as_of: Optional[str] = None         # ISO timestamp of the fetch
     source: str = "yfinance"            # data source that produced this quote
     realtime: bool = False              # True for a real-time provider feed
+    error: Optional[str] = None         # set when the per-symbol fetch failed
 
     @property
     def ok(self) -> bool:
@@ -531,7 +567,9 @@ def _f(v) -> Optional[float]:
     return f
 
 
-def fetch_quotes(tickers, use_cache: bool = True, provider=None, creds=None) -> dict[str, Quote]:
+def fetch_quotes(
+    tickers, use_cache: bool = True, provider=None, creds=None, with_names: bool = False
+) -> dict[str, Quote]:
     """Return a snapshot quote per ticker.
 
     Default source is yfinance ``fast_info`` (delayed). When ``provider`` is one
@@ -539,6 +577,10 @@ def fetch_quotes(tickers, use_cache: bool = True, provider=None, creds=None) -> 
     from that real-time feed instead; any provider failure falls back to
     yfinance so the strip never goes dark. Best-effort and Qt-free: a per-ticker
     failure yields an empty ``Quote`` (``ok`` False) rather than raising.
+
+    ``with_names=True`` additionally fills a best-effort human-readable name per
+    symbol (heavier ``.info``, long-TTL cached). Only the Live Market Watch
+    watchlist asks for names; the always-on ticker strip stays on the cheap path.
     """
     syms = [str(t).strip().upper() for t in (tickers or []) if str(t).strip()]
     syms = list(dict.fromkeys(syms))  # dedupe, preserve order
@@ -546,23 +588,29 @@ def fetch_quotes(tickers, use_cache: bool = True, provider=None, creds=None) -> 
         return {}
 
     cache_key = (provider or "yf", frozenset(syms))
+    out: Optional[dict[str, Quote]] = None
     if use_cache:
         hit = _QUOTE_CACHE.get(cache_key)
         if hit and (time.monotonic() - hit[0]) < CACHE_TTL_QUOTES:
-            return dict(hit[1])
+            out = dict(hit[1])
 
-    out: dict[str, Quote] = {}
-    if provider:
-        try:
-            out = _provider_quotes(provider, syms, creds)
-        except Exception:
-            out = {}
-    # Fill any gaps (or everything, if no provider) from yfinance-delayed.
-    missing = [t for t in syms if t not in out or not out[t].ok]
-    if missing:
-        out.update(_yfinance_quotes(missing))
+    if out is None:
+        out = {}
+        if provider:
+            try:
+                out = _provider_quotes(provider, syms, creds)
+            except Exception:
+                out = {}
+        # Fill any gaps (or everything, if no provider) from yfinance-delayed.
+        missing = [t for t in syms if t not in out or not out[t].ok]
+        if missing:
+            out.update(_yfinance_quotes(missing))
+        _QUOTE_CACHE[cache_key] = (time.monotonic(), dict(out))
 
-    _QUOTE_CACHE[cache_key] = (time.monotonic(), dict(out))
+    if with_names:
+        for sym, q in out.items():
+            if q.ok and not q.name:
+                q.name = _yf_name(sym)
     return out
 
 
@@ -583,10 +631,39 @@ def _yfinance_quotes(syms) -> dict[str, Quote]:
             q.volume = _f(_fi_get(fi, "last_volume"))
             cur = _fi_get(fi, "currency")
             q.currency = str(cur) if cur else None
-        except Exception:
-            pass  # leave q as an empty (not-ok) quote
+        except Exception as e:
+            q.error = str(e)  # leave q as an empty (not-ok) quote, flagged
         out[t] = q
     return out
+
+
+# ── Best-effort names (Live Market Watch watchlist) ──────────────
+# Names come from yfinance's heavier ``.info``; cached long since they rarely
+# change. Only the watchlist requests them (``with_names=True``) so the always-on
+# ticker strip stays on the cheap ``fast_info`` path.
+CACHE_TTL_NAMES = 24 * 60 * 60     # 24h for a resolved name
+CACHE_TTL_NAMES_MISS = 10 * 60     # 10m before retrying an unresolved one
+# symbol -> (monotonic_ts, name|None)
+_NAME_CACHE: dict[str, tuple[float, Optional[str]]] = {}
+
+
+def _yf_name(sym: str) -> Optional[str]:
+    """Best-effort display name for ``sym`` (long-TTL cached, never raises)."""
+    hit = _NAME_CACHE.get(sym)
+    if hit is not None:
+        ttl = CACHE_TTL_NAMES if hit[1] else CACHE_TTL_NAMES_MISS
+        if (time.monotonic() - hit[0]) < ttl:
+            return hit[1]
+    name: Optional[str] = None
+    if yf is not None:
+        try:
+            info = yf.Ticker(sym).info or {}
+            raw = info.get("shortName") or info.get("longName")
+            name = (str(raw).strip() or None) if raw else None
+        except Exception:
+            name = None
+    _NAME_CACHE[sym] = (time.monotonic(), name)
+    return name
 
 
 # ── Real-time providers ──────────────────────────────────────────

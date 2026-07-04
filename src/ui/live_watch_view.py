@@ -1,17 +1,20 @@
 """Live Market Watch — a distinct in-app section (a QStackedWidget page).
 
-A cockpit for the currently loaded portfolio, built on delayed quotes
-(``market_data.fetch_quotes``, typically 15–20 min behind the exchange):
+Two tabs, each with a quotes table plus a click-through intraday chart and a
+day-change heatmap (the shared :class:`ChartHeatmapPanel`):
 
-- a live portfolio header (weighted day change, day P&L, and — when cost basis
-  is set — market value vs. cost and unrealized P&L),
-- refresh controls (auto-refresh interval + a manual refresh) and an
-  "as of … · delayed" freshness stamp,
-- a sortable quotes table (ticker, last, change, day range, volume, weight).
+- **Portfolio** — a cockpit for the currently loaded portfolio, built on delayed
+  quotes (``market_data.fetch_quotes``): a live header (weighted day change, day
+  P&L, and — when cost basis is set — market value vs. cost and unrealized P&L),
+  refresh controls, an "as of … · delayed" freshness stamp, and a sortable
+  quotes table (ticker, last, change, day range, volume, weight).
+- **Watchlist** — a persistent, user-curated symbol list (:class:`WatchlistPanel`)
+  with its own quotes table, chart, and heatmap, fully decoupled from analysis.
 
-The view is passive about data: the main window owns the poll timer + worker and
-pushes snapshots in via :meth:`set_quotes`. It emits :attr:`refreshRequested`
-and :attr:`refreshIntervalChanged` for the main window to act on.
+The Portfolio tab is passive about data: the main window owns the poll timer +
+worker and pushes snapshots in via :meth:`set_quotes`. It emits
+:attr:`refreshRequested` and :attr:`refreshIntervalChanged` for the main window
+to act on. The Watchlist tab self-manages its own polling.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -29,19 +32,17 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
-
-from src.charts import plotly_charts as charts
 
 from . import theme
 from .quote_format import fmt_pct as _fmt_pct
 from .quote_format import fmt_price as _fmt_price
 from .quote_format import fmt_signed as _fmt_signed
 from .quote_format import fmt_volume as _fmt_volume
-from .widgets.plotly_widget import PlotlyWidget
-from .worker import IntradayWorker
+from .widgets.chart_heatmap_panel import ChartHeatmapPanel
 
 # (label, seconds) — 0 means auto-refresh off.
 REFRESH_OPTIONS = [("Off", 0), ("15s", 15), ("30s", 30), ("60s", 60)]
@@ -89,14 +90,6 @@ class LiveWatchView(QWidget):
         self._cash: float = 0.0
         self._quotes: dict = {}
 
-        # Intraday click-through chart state (self-managed background fetch).
-        self._selected: str | None = None
-        self._intraday_df = None
-        self._intr_thread: QThread | None = None
-        self._intr_worker: IntradayWorker | None = None
-        self._intr_fetching = False
-        self._intr_pending: str | None = None
-
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 10)
         root.setSpacing(10)
@@ -115,7 +108,13 @@ class LiveWatchView(QWidget):
         top.addWidget(self._stamp)
         root.addLayout(top)
 
-        # ── Live portfolio header (stat blocks) ──
+        # ── Portfolio tab: live header + controls + (quotes table | charts) ──
+        port_tab = QWidget()
+        pv = QVBoxLayout(port_tab)
+        pv.setContentsMargins(0, 8, 0, 0)
+        pv.setSpacing(10)
+
+        # Live portfolio header (stat blocks)
         self._header = QHBoxLayout()
         self._header.setSpacing(22)
         self._stats: dict[str, QLabel] = {}
@@ -124,13 +123,13 @@ class LiveWatchView(QWidget):
             self._stats[name] = value
             self._header.addLayout(block)
         self._header.addStretch(1)
-        root.addLayout(self._header)
+        pv.addLayout(self._header)
         # The Unrealized P&L stat doubles as a "set cost basis" affordance.
         unreal = self._stats["Unrealized P&L"]
         unreal.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
         unreal.linkActivated.connect(lambda _href: self.costBasisEditRequested.emit())
 
-        # ── Refresh controls ──
+        # Refresh controls
         controls = QHBoxLayout()
         controls.setSpacing(8)
         controls.addWidget(self._muted_label("Auto-refresh"))
@@ -153,9 +152,9 @@ class LiveWatchView(QWidget):
         self._alerts_btn.clicked.connect(self.alertsRequested.emit)
         controls.addWidget(self._alerts_btn)
         controls.addStretch(1)
-        root.addLayout(controls)
+        pv.addLayout(controls)
 
-        # ── Quotes table ──
+        # Quotes table
         self._table = QTableWidget(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)
         self._table.verticalHeader().setVisible(False)
@@ -170,26 +169,26 @@ class LiveWatchView(QWidget):
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_menu)
 
-        # ── Body: quotes table (left) | intraday + treemap (right) ──
-        chart_panel = QWidget()
-        cp = QVBoxLayout(chart_panel)
-        cp.setContentsMargins(0, 0, 0, 0)
-        cp.setSpacing(6)
-        self._chart_hint = QLabel("Click a holding to see its intraday chart")
-        self._chart_hint.setObjectName("muted")
-        cp.addWidget(self._chart_hint)
-        self._intraday = PlotlyWidget()
-        self._treemap = PlotlyWidget()
-        cp.addWidget(self._intraday, 3)
-        cp.addWidget(self._treemap, 2)
-
+        # Body: quotes table (left) | intraday + treemap heatmap (right)
+        self._chart = ChartHeatmapPanel()
         splitter = QSplitter(Qt.Horizontal)
         splitter.addWidget(self._table)
-        splitter.addWidget(chart_panel)
+        splitter.addWidget(self._chart)
         splitter.setStretchFactor(0, 5)
         splitter.setStretchFactor(1, 4)
         splitter.setChildrenCollapsible(False)
-        root.addWidget(splitter, 1)
+        pv.addWidget(splitter, 1)
+
+        # ── Watchlist tab: a persistent, user-curated symbol list with its own
+        # quotes table + intraday chart + heatmap. Fully self-contained. ──
+        from .watchlist_panel import WatchlistPanel
+
+        self._watchlist = WatchlistPanel()
+
+        self._tabs = QTabWidget()
+        self._tabs.addTab(port_tab, "Portfolio")
+        self._tabs.addTab(self._watchlist, "Watchlist")
+        root.addWidget(self._tabs, 1)
 
         self.retheme()
 
@@ -242,13 +241,8 @@ class LiveWatchView(QWidget):
         self._populate_table()
         self._update_header()
         self._update_stamp()
-        self._update_treemap()
-        # Auto-load the first holding's intraday chart on the first snapshot so
-        # the chart panel isn't empty until the user clicks.
-        if self._selected is None:
-            order = self._tickers or list(self._quotes.keys())
-            if order:
-                self._load_intraday(order[0])
+        order = self._tickers or list(self._quotes.keys())
+        self._chart.set_data(order, self._weights, self._quotes)
 
     # ── Rendering ──
     def _populate_table(self) -> None:
@@ -322,11 +316,11 @@ class LiveWatchView(QWidget):
                 txt += f"  ({_fmt_pct(unreal_pct)})"
             self._set_stat("Unrealized P&L", txt, unreal)
 
-    # ── Charts: intraday (click-through) + holdings treemap ──
+    # ── Charts: intraday (click-through) + holdings heatmap (delegated) ──
     def _on_cell_clicked(self, row: int, _col: int) -> None:
         item = self._table.item(row, 0)
         if item is not None:
-            self._load_intraday(item.text())
+            self._chart.load_intraday(item.text())
 
     def _on_table_menu(self, pos) -> None:
         from PySide6.QtWidgets import QMenu
@@ -336,78 +330,19 @@ class LiveWatchView(QWidget):
         if item is not None:
             sym = self._table.item(item.row(), 0).text()
             menu.addAction(f"Intraday chart · {sym}",
-                           lambda: self._load_intraday(sym))
+                           lambda: self._chart.load_intraday(sym))
         menu.addAction("Set cost basis…", self.costBasisEditRequested.emit)
         menu.exec(self._table.viewport().mapToGlobal(pos))
-
-    def _load_intraday(self, symbol: str) -> None:
-        symbol = (symbol or "").strip().upper()
-        if not symbol:
-            return
-        self._selected = symbol
-        self._chart_hint.setText(f"Intraday · {symbol}")
-        if self._intr_fetching:
-            self._intr_pending = symbol  # coalesce rapid clicks
-            return
-        self._intr_fetching = True
-        self._intr_thread = QThread(self)
-        self._intr_worker = IntradayWorker(symbol)
-        self._intr_worker.moveToThread(self._intr_thread)
-        self._intr_thread.started.connect(self._intr_worker.run)
-        self._intr_worker.done.connect(self._on_intraday)
-        self._intr_worker.failed.connect(self._on_intraday_failed)
-        self._intr_worker.done.connect(self._intr_thread.quit)
-        self._intr_worker.failed.connect(self._intr_thread.quit)
-        self._intr_thread.finished.connect(self._cleanup_intraday_thread)
-        self._intr_thread.start()
-
-    def _on_intraday(self, payload) -> None:
-        ticker, df = payload
-        self._intraday_df = df
-        self._render_intraday(ticker, df)
-
-    def _on_intraday_failed(self, _message: str) -> None:
-        pass  # best-effort; the chart just stays on its last content
-
-    def _render_intraday(self, ticker: str, df) -> None:
-        prev = getattr(self._quotes.get(ticker), "prev_close", None)
-        fig = charts.intraday_chart(df, ticker=ticker, prev_close=prev) if df is not None else None
-        self._intraday.set_figure(fig)
-
-    def _cleanup_intraday_thread(self) -> None:
-        if self._intr_worker is not None:
-            self._intr_worker.deleteLater()
-        if self._intr_thread is not None:
-            self._intr_thread.deleteLater()
-        self._intr_worker = None
-        self._intr_thread = None
-        self._intr_fetching = False
-        if self._intr_pending:
-            nxt, self._intr_pending = self._intr_pending, None
-            self._load_intraday(nxt)
-
-    def _update_treemap(self) -> None:
-        order = self._tickers or list(self._quotes.keys())
-        changes = {t: getattr(self._quotes.get(t), "change_pct", None) for t in order}
-        weights = self._weights or {t: 1.0 for t in order}  # equal tiles if no weights
-        fig = charts.holdings_treemap(order, weights, changes)
-        self._treemap.set_figure(fig)
 
     def reset_selection(self) -> None:
         """Forget the charted ticker so the next snapshot auto-loads the new
         portfolio's first holding; clear the intraday chart + hint."""
-        self._selected = None
-        self._intraday_df = None
-        self._intr_pending = None
-        self._intraday.set_figure(None)
-        self._chart_hint.setText("Click a holding to see its intraday chart")
+        self._chart.reset()
 
     def shutdown(self) -> None:
-        """Stop the intraday fetch thread cleanly (called on app close)."""
-        self._intr_pending = None
-        if self._intr_thread is not None and self._intr_thread.isRunning():
-            self._intr_thread.quit()
-            self._intr_thread.wait(3000)
+        """Stop the background fetch threads cleanly (called on app close)."""
+        self._chart.shutdown()
+        self._watchlist.shutdown()
 
     def _market_value_and_cost(self):
         """Return (market_value, invested_cost) when every holding has a positive
@@ -511,7 +446,5 @@ class LiveWatchView(QWidget):
         if self._quotes:
             self._update_header()
             self._populate_table()
-            self._update_treemap()
-        # Rebuild the intraday chart with the fresh chart palette.
-        if self._selected is not None and self._intraday_df is not None:
-            self._render_intraday(self._selected, self._intraday_df)
+        self._chart.retheme()
+        self._watchlist.retheme()
