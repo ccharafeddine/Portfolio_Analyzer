@@ -217,7 +217,11 @@ class MainWindow(QMainWindow):
         self.config_panel = ConfigPanel()
         self.config_panel.runRequested.connect(self._on_run_requested)
         self.config_panel.configChanged.connect(self._on_portfolio_changed)
-        self.sidebar = Sidebar(self.config_panel, title="Configuration")
+        # The app brand (logo + name) lives at the top of the config sidebar so the
+        # analysis workspace stays clean; it folds away when the sidebar collapses.
+        self.sidebar = Sidebar(
+            self.config_panel, title="Configuration", brand=self._build_header()
+        )
         # Menu "Run Analysis" triggers the same path as the panel button.
         self.act_run.triggered.connect(self.config_panel._on_run)
 
@@ -225,9 +229,17 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(main)
         main_layout.setContentsMargins(16, 14, 16, 8)
         main_layout.setSpacing(14)
-        main_layout.addWidget(self._build_header())
+        # Metric strip + a Live Market Watch shortcut on the far right (next to Beta).
         self.metric_strip = MetricStrip()
-        main_layout.addWidget(self.metric_strip)
+        metric_row = QHBoxLayout()
+        metric_row.setSpacing(12)
+        metric_row.addWidget(self.metric_strip, 1)
+        self.btn_live = QPushButton("Live Market Watch")
+        self.btn_live.setCursor(Qt.PointingHandCursor)
+        self.btn_live.setToolTip("Open Live Market Watch for this portfolio")
+        self.btn_live.clicked.connect(self._show_live_mode)
+        metric_row.addWidget(self.btn_live, 0, Qt.AlignVCenter)
+        main_layout.addLayout(metric_row)
         self.results_view = ResultsView()
         main_layout.addWidget(self.results_view, stretch=1)
         # When FRED macro loads, track the live short-term yield as the risk-free
@@ -263,21 +275,22 @@ class MainWindow(QMainWindow):
         self.live_watch_view.refreshRequested.connect(self._poll_quotes)
         self.live_watch_view.refreshIntervalChanged.connect(self._set_quotes_interval)
         self.live_watch_view.alertsRequested.connect(self._show_alerts)
+        self.live_watch_view.costBasisEditRequested.connect(self._edit_cost_basis)
         self._stack.addWidget(self.live_watch_view)    # page 2: Live Market Watch
         self.setCentralWidget(self._stack)
 
     def _build_header(self) -> QWidget:
         header = QWidget()
         row = QHBoxLayout(header)
-        row.setContentsMargins(2, 2, 2, 6)
-        row.setSpacing(14)
+        row.setContentsMargins(14, 12, 12, 12)
+        row.setSpacing(12)
 
         self._header_logo = QSvgWidget(mark_path())
         row.addWidget(self._header_logo)
 
         self._header_title = QLabel(__app_name__)
-        row.addWidget(self._header_title)
-        row.addStretch(1)
+        self._header_title.setWordWrap(True)
+        row.addWidget(self._header_title, 1)
         self._retheme_header()
         return header
 
@@ -533,6 +546,42 @@ class MainWindow(QMainWindow):
 
         AlertsDialog(self._alerts, tickers=universe, get_price=price_of, parent=self).exec()
         self._poll_quotes()  # alert tickers may have changed the poll union
+
+    def _edit_cost_basis(self) -> None:
+        """Set per-ticker cost basis (from Live Market Watch), then refresh the live
+        P&L, offer to save the changed portfolio, and re-run the analysis."""
+        from .cost_basis_dialog import CostBasisDialog
+
+        try:
+            cfg = self.config_panel.build_config()
+        except Exception as e:
+            QMessageBox.warning(self, "Set Cost Basis", f"Fix the configuration first:\n{e}")
+            return
+        tickers = list(cfg.tickers)
+
+        def price_of(ticker: str):
+            return getattr(self._last_quotes.get(ticker), "last", None)
+
+        dlg = CostBasisDialog(tickers, existing=dict(cfg.cost_basis or {}),
+                              get_price=price_of, parent=self)
+        if dlg.exec() != dlg.DialogCode.Accepted:
+            return
+        self.config_panel.set_cost_basis(dlg.values())
+
+        # Reflect the new basis in the live P&L right away.
+        self._refresh_watch_universe()
+        if self._last_quotes:
+            self.live_watch_view.set_quotes(self._last_quotes)
+
+        # The config changed — offer to save it.
+        if QMessageBox.question(
+            self, "Portfolio changed",
+            "Cost basis updated. Save this portfolio?",
+        ) == QMessageBox.Yes:
+            self._on_save_portfolio()
+
+        # Cost basis feeds tax/return figures — re-run so the analysis reflects it.
+        self.config_panel._on_run()
 
     def _apply_theme(self, key: str) -> None:
         theme.set_active(key)

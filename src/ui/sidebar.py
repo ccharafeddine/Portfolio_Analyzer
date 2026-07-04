@@ -31,7 +31,9 @@ class Sidebar(QFrame):
     EXPANDED_W = 400
     COLLAPSED_W = 46
 
-    def __init__(self, content: QWidget, title: str = "Configuration") -> None:
+    def __init__(
+        self, content: QWidget, title: str = "Configuration", brand: QWidget | None = None
+    ) -> None:
         super().__init__()
         self.setObjectName("sidebar")
         # Pin the expanded width (both min and max) so the layout can't shrink it
@@ -41,6 +43,13 @@ class Sidebar(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        # Optional brand row (app logo + name) pinned above the config header, so
+        # the app identity lives with the config panel and folds away on collapse.
+        self._brand = brand
+        if brand is not None:
+            brand.setObjectName("sidebarBrand")
+            outer.addWidget(brand)
 
         header = QWidget()
         header.setObjectName("sidebarHeader")
@@ -91,6 +100,8 @@ class Sidebar(QFrame):
             # Hide content immediately so it doesn't squish during the animation.
             self._content.setVisible(False)
             self._title.setVisible(False)
+            if self._brand is not None:
+                self._brand.setVisible(False)
             self._toggle.setIcon(self._icon_right)
         else:
             self._title.setVisible(True)
@@ -107,3 +118,5 @@ class Sidebar(QFrame):
         self.setFixedWidth(end)
         if not self._collapsed:
             self._content.setVisible(True)
+            if self._brand is not None:
+                self._brand.setVisible(True)

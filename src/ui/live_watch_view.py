@@ -73,6 +73,7 @@ class LiveWatchView(QWidget):
     refreshRequested = Signal()
     refreshIntervalChanged = Signal(int)  # seconds; 0 = off
     alertsRequested = Signal()
+    costBasisEditRequested = Signal()
 
     def __init__(
         self,
@@ -123,6 +124,10 @@ class LiveWatchView(QWidget):
             self._header.addLayout(block)
         self._header.addStretch(1)
         root.addLayout(self._header)
+        # The Unrealized P&L stat doubles as a "set cost basis" affordance.
+        unreal = self._stats["Unrealized P&L"]
+        unreal.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+        unreal.linkActivated.connect(lambda _href: self.costBasisEditRequested.emit())
 
         # ── Refresh controls ──
         controls = QHBoxLayout()
@@ -161,6 +166,8 @@ class LiveWatchView(QWidget):
         for c in range(1, len(_COLUMNS)):
             hdr.setSectionResizeMode(c, QHeaderView.Stretch)
         self._table.cellClicked.connect(self._on_cell_clicked)
+        self._table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_table_menu)
 
         # ── Body: quotes table (left) | intraday + treemap (right) ──
         chart_panel = QWidget()
@@ -303,7 +310,7 @@ class LiveWatchView(QWidget):
         mv, cost = self._market_value_and_cost()
         if mv is None:
             self._set_stat("Market Value", "—", None)
-            self._set_stat("Unrealized P&L", "set cost basis", None)
+            self._set_cost_basis_prompt()
         else:
             self._set_stat("Market Value", self._money(mv), None)
             unreal = mv - cost
@@ -318,6 +325,18 @@ class LiveWatchView(QWidget):
         item = self._table.item(row, 0)
         if item is not None:
             self._load_intraday(item.text())
+
+    def _on_table_menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self)
+        item = self._table.itemAt(pos)
+        if item is not None:
+            sym = self._table.item(item.row(), 0).text()
+            menu.addAction(f"Intraday chart · {sym}",
+                           lambda: self._load_intraday(sym))
+        menu.addAction("Set cost basis…", self.costBasisEditRequested.emit)
+        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _load_intraday(self, symbol: str) -> None:
         symbol = (symbol or "").strip().upper()
@@ -448,7 +467,23 @@ class LiveWatchView(QWidget):
             f"color:{color};font-size:{t.statval_pt}px;font-weight:700;"
             f"font-family:{t.mono};background:transparent;"
         )
+        lbl.setCursor(Qt.ArrowCursor)
         lbl.setText(text)
+
+    def _set_cost_basis_prompt(self) -> None:
+        """Render Unrealized P&L as a clickable 'set cost basis' link."""
+        lbl = self._stats.get("Unrealized P&L")
+        if lbl is None:
+            return
+        t = theme.ACTIVE
+        lbl.setStyleSheet(
+            f"font-size:{t.base_pt + 1}px;font-weight:700;background:transparent;"
+        )
+        lbl.setCursor(Qt.PointingHandCursor)
+        lbl.setText(
+            f"<a href='setcb' style='color:{t.accent};text-decoration:none;'>"
+            f"set cost basis ›</a>"
+        )
 
     def _on_interval_changed(self, _idx: int) -> None:
         self.refreshIntervalChanged.emit(self.current_interval())

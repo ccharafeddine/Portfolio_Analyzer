@@ -462,29 +462,31 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 
 ## Roadmap (v3)
 
-Planned for a future major release (more to be added):
+### Shipped
+
+**Theming**
+- [x] Additional themes — Frutiger Aero, Corporate Synthwave, and Superflat Pop, plus a Daylight light theme and High Contrast (Light/Dark). Charts flip the Plotly template by background luminance, so light themes render light end to end (not just the Qt chrome).
+
+**Live & Market Data** — a live layer over the analyzed portfolio. Data is **delayed** by default (polled from yfinance, typically 15–20 min behind the exchange, labelled "as of … · delayed"); a real-time provider key upgrades it in place. A shared `QuotesWorker` on a `QTimer` feeds the ticker strip and the Live Market Watch view so they never disagree.
+- [x] **Always-on ticker strip** — a full-width marquee of the holdings (symbol, last, day change %, theme-colored) in the bottom status bar; yields to the run progress bar and returns after. Slow scroll, pause on hover, click a symbol to open Live Market Watch.
+- [x] **Live Market Watch** — a third Run-menu mode (and a button on the metric row, next to Beta):
+  - [x] Sortable quotes table (ticker, last, change $/%, day range, volume, weight).
+  - [x] Live portfolio header — weighted day change, day P&L, and market value + unrealized P&L vs. cost basis.
+  - [x] Set cost basis inline — the "set cost basis" link or a row's right-click menu; updates live P&L, offers to save the portfolio, and re-runs the analysis.
+  - [x] Refresh controls (15 / 30 / 60s / off + manual) and an "as of … · delayed/real-time" stamp.
+  - [x] Intraday chart on row-click (1-day / 1-minute) and a holdings treemap sized by weight, shaded by day change.
+- [x] **Price alerts** — above/below a threshold, edge-triggered (fires once per crossing), delivered as a desktop notification. Manage via Settings → Price Alerts… or the Alerts… button; alerts fire even for tickers outside the loaded portfolio.
+- [x] **Real-time provider slots** — Finnhub / Polygon / Alpaca keys in the **API Keys** dialog (priority finnhub > polygon > alpaca). A configured key upgrades quotes to real-time, falling back to yfinance-delayed per symbol.
+
+**UX**
+- [x] App brand (logo + name) moved into the config sidebar — folds away when the sidebar collapses — so the analysis workspace stays clean.
+
+### Planned
+
+**Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, standalone watchlists independent of the loaded portfolio, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
 
 **Distribution**
 - [ ] Code-signing + notarization — remove the SmartScreen / Gatekeeper warnings on the installers (requires an Apple Developer ID and a Windows code-signing certificate).
-
-**Theming**
-- [ ] Additional themes (Frutiger Aero, Corporate Synthwave, Superflat Pop, incl. genuine light themes).
-
-**Live & Market Data**
-
-A live layer over the currently analyzed portfolio. Data is **delayed** by default (polled from yfinance, typically 15–20 min behind the exchange and always labelled "as of HH:MM:SS, delayed"); optional real-time is opt-in via a provider API key. Nothing streams for free, so "live" means poll-on-an-interval, animated. Reuses the existing `moveToThread` worker pattern and the `QStackedWidget` mode switch that already backs Compare Portfolios.
-
-- [ ] **Always-on ticker strip** — a horizontal marquee of the analyzed portfolio's holdings (symbol, last, day change %, theme-colored green/red) that fills the bottom status bar whenever it isn't showing an analysis progress bar. During a run the strip yields to the progress bar + Cancel, then returns when the run finishes. Slow scroll, pause on hover, click a symbol to open it in Live Market Watch.
-- [ ] **Live Market Watch** — a third mode in the Run menu (alongside Run Analysis and Compare Portfolios), rendered as a stacked page. A cockpit for the loaded portfolio:
-  - [ ] *Quotes table* — ticker, last, day change ($ and %), day range, volume, weight; sortable, theme-colored.
-  - [ ] *Live portfolio header* — current value vs. cost basis (we already store per-ticker cost basis), day P&L in $ and %.
-  - [ ] *Refresh controls* — auto-refresh interval (15s / 30s / 60s / off) + manual refresh + an "as of … delayed" freshness label.
-  - [ ] *Intraday chart* — click a row to load a 1-day / 1-minute chart for that ticker (reuses the WebEngine + Plotly path).
-  - [ ] *Holdings heatmap* — a treemap sized by portfolio weight, colored by day change %.
-- [ ] **Price alerts** (follow-on) — cross above/below a threshold, delivered as a desktop notification.
-- [ ] **Real-time provider slots** — optional API-key fields (Finnhub / Polygon / Alpaca free tiers offer websockets) added alongside the existing FMP / Alpha Vantage / FRED keys in Preferences, resolved through the same `get_api_key` path. yfinance-delayed stays the zero-config default; a configured key upgrades the same views to real-time.
-
-*Implementation sketch:* `market_data.fetch_quotes(tickers)` (short-TTL cache) → a `QuotesWorker` driven by a `QTimer` → shared by both the ticker strip and the Live Market Watch view so they never disagree. New files: `src/ui/ticker_strip.py`, `src/ui/live_watch_view.py`. Each gets a `retheme()` hook like the other views.
 
 ---
 

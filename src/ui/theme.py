@@ -612,6 +612,7 @@ def stylesheet(theme: Theme | None = None) -> str:
     QToolButton#collapsibleHeader:hover {{ color: {t.text}; }}
 
     QFrame#sidebar {{ background-color: {t.panel}; border-right: 1px solid {t.border}; }}
+    QWidget#sidebarBrand {{ border-bottom: 1px solid {t.border}; }}
     QWidget#sidebarHeader {{ border-bottom: 1px solid {t.border}; }}
     QLabel#sidebarTitle {{
         color: {t.text_muted}; font-size: {t.label_pt}px; font-weight: 700;

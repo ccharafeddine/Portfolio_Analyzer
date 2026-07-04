@@ -157,12 +157,26 @@ class ConfigPanel(QScrollArea):
         date_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         date_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.start_date = QDateEdit(QDate(2020, 1, 1))
-        self.end_date = QDateEdit(QDate(2025, 12, 31))
+        # End date defaults to today so a fresh analysis runs through the present.
+        self.end_date = QDateEdit(QDate.currentDate())
         for de in (self.start_date, self.end_date):
             de.setCalendarPopup(True)
             de.setDisplayFormat("yyyy-MM-dd")
         date_form.addRow("Start", self.start_date)
-        date_form.addRow("End", self.end_date)
+        # End field + a "Today" button that snaps it to the current date (handy after
+        # loading an older saved portfolio, whose stored end date may be stale).
+        end_row = QHBoxLayout()
+        end_row.setSpacing(6)
+        end_row.addWidget(self.end_date, 1)
+        self.end_today_btn = QPushButton("Today")
+        self.end_today_btn.setObjectName("secondary")
+        self.end_today_btn.setCursor(Qt.PointingHandCursor)
+        self.end_today_btn.setToolTip("Set the end date to today")
+        self.end_today_btn.clicked.connect(
+            lambda: self.end_date.setDate(QDate.currentDate())
+        )
+        end_row.addWidget(self.end_today_btn)
+        date_form.addRow("End", end_row)
         root.addLayout(date_form)
 
         # ── Settings ──
@@ -431,6 +445,18 @@ class ConfigPanel(QScrollArea):
             w = 1.0 / len(tickers) if tickers else 0.0
             return {t: round(w, 6) for t in tickers}
         return {t: float(s.value()) for t, s in self._weight_spins.items() if t in tickers}
+
+    def set_cost_basis(self, cost_basis: dict) -> None:
+        """Replace the cost-basis entry with ``{ticker: price}`` (positive only)."""
+        lines = []
+        for k, v in (cost_basis or {}).items():
+            try:
+                val = float(v)
+            except (TypeError, ValueError):
+                continue
+            if val > 0:
+                lines.append(f"{str(k).strip().upper()}: {val}")
+        self.cost_basis_edit.setPlainText("\n".join(lines))
 
     def _parse_cost_basis(self) -> dict[str, float]:
         """Parse the 'TICKER: price' lines into a dict (ignoring bad lines)."""
