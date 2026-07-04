@@ -32,6 +32,28 @@ def log_returns(prices: pd.DataFrame) -> pd.DataFrame:
     return np.log(prices / prices.shift(1)).iloc[1:]
 
 
+def blend_cash(
+    values: pd.Series, cash: float, rf_annual: float, periods_per_year: int = 252
+) -> pd.Series:
+    """Fold a cash balance into a portfolio value series as a buy-and-hold
+    risk-free sleeve held alongside the stocks.
+
+    ``values`` is the risky sleeve's daily dollar value. Cash starts at ``cash``
+    and compounds at the (daily) risk-free rate; the returned series is their sum.
+    Because the risky and cash sleeves are simply added (never rebalanced into
+    each other), the combined series' return/volatility/drawdown reflect the
+    honest cash drag: the risky fraction drifts up over time as stocks outgrow
+    cash. Returns ``values`` unchanged when there is no cash.
+    """
+    if not cash or cash <= 0 or values is None or values.empty:
+        return values
+    rf_daily = (1.0 + float(rf_annual)) ** (1.0 / periods_per_year) - 1.0
+    cash_path = float(cash) * (1.0 + rf_daily) ** np.arange(len(values))
+    blended = values + pd.Series(cash_path, index=values.index)
+    blended.name = values.name
+    return blended
+
+
 def annualize_return(
     returns: pd.Series, periods_per_year: int = 252
 ) -> float:

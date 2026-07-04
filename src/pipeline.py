@@ -319,10 +319,13 @@ class AnalysisPipeline:
         assets with different inception dates (rescale / cash) plus optional
         calendar rebalancing and transaction costs."""
         bt = self.config.backtest
+        # capital is the total account value; invest the risky portion (capital -
+        # cash) in the stocks, then fold the cash sleeve back in below.
+        invested = self.config.capital - self.config.cash
         result = build_backtest(
             prices=self.results.prices,
             weights=self.config.weights,
-            capital=self.config.capital,
+            capital=invested,
             rf_annual=self.config.risk_free_rate,
             inception_mode=bt.inception_mode,
             rebalance_frequency=bt.rebalance_frequency,
@@ -338,7 +341,15 @@ class AnalysisPipeline:
             raise ValueError("Backtest produced no portfolio values.")
         port_value.name = "Active"
 
-        self.results.active = PortfolioSeries("Active", port_value)
+        # Fold a cash balance in as a risk-free sleeve so the active portfolio's
+        # return/vol/drawdown reflect the honest cash drag (cash held alongside
+        # the stocks, growing at the risk-free rate).
+        active_value = T.blend_cash(
+            port_value, self.config.cash, self.config.risk_free_rate
+        )
+        active_value.name = "Active"
+
+        self.results.active = PortfolioSeries("Active", active_value)
         self.results.active.compute_sharpe(self.config.risk_free_rate)
 
     def _measure_performance(self) -> None:

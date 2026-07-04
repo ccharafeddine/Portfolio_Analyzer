@@ -329,10 +329,10 @@ Configuration happens in the sidebar; the UI builds a validated `PortfolioConfig
 |-----------|---------|-------------|
 | Tickers | AAPL, MSFT, NVDA, GLD, TLT | Any valid Yahoo Finance symbols |
 | Allocation | Equal (1/N) | Uncheck **Equal weights** to enter **by Weights** (target fractions) or **by Shares** (share counts). "Calculate weights" prices your shares to set Capital and derive weights |
-| Cash | $0 | Cash held alongside the stocks (shares mode). Recorded for total account value + P&L; the risk/return analysis runs on the stock weights (cash-as-a-holding is on the roadmap) |
+| Cash | $0 | Cash held alongside the stocks (shares mode), modeled as a **risk-free sleeve**: it dilutes the active portfolio's return / volatility / drawdown (the honest cash drag) and shows up as a slice in the Active Portfolio Allocation donut |
 | Benchmark | SPY | Single ticker for passive comparison |
 | Start / End Date | trailing 5 years (today − 5y → today) | Historical window; a "Today" button snaps End to the current date |
-| Capital | $1,000,000 | Invested (risky) value. Set automatically from shares × price in shares mode |
+| Capital | $1,000,000 | **Total account value** (invested + cash). In shares mode it's derived (read-only) from shares × price + cash; the analysis invests `capital − cash` in stocks and holds the cash |
 | Risk-Free Rate | 4.0% | For Sharpe, CAPM, Complete portfolio. Auto-tracks the live 3-month T-bill yield after a run when a FRED key is set |
 | Inception Mode | Rescale | How staggered start dates are handled (rescale weights vs hold cash) |
 | Rebalance Frequency | None | Calendar rebalancing cadence |
@@ -486,10 +486,9 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 **UX**
 - [x] App brand (logo + name) moved into the config sidebar — folds away when the sidebar collapses — so the analysis workspace stays clean.
 - [x] Enter holdings by **share count** (+ cash) and price them into weights & capital; default date range is the trailing 5 years; set cost basis inline from Live Market Watch.
+- [x] **Cash as a first-class holding** — a cash balance is modeled as a risk-free sleeve held alongside the stocks: the analysis invests `capital − cash`, folds the cash back in (so the active portfolio's return / volatility / drawdown reflect the honest cash drag), shows a Cash slice in the Active Portfolio Allocation donut, and Capital now represents the full account value.
 
 ### Planned
-
-**Cash as a first-class holding** (next up) — today a cash balance is recorded for total account value and P&L, but the risk/return analysis runs on the stock weights only, and the Capital field stays the invested amount. Model cash as a synthetic risk-free holding so it appears in allocation charts, properly dilutes portfolio risk/return (the honest "cash drag"), and lets Capital represent the full account.
 
 **Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, standalone watchlists independent of the loaded portfolio, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
 

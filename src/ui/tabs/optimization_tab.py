@@ -83,6 +83,18 @@ class OptimizationTab(WebTab):
             explain="efficient_frontier",
         )
 
+        # The user's actual account allocation — stock weights plus a Cash slice
+        # when a cash balance is held (cash as a first-class holding).
+        from src.ui.allocation import active_allocation_weights
+
+        active_alloc = active_allocation_weights(
+            dict(cfg.weights), cfg.capital, getattr(cfg, "cash", 0.0)
+        )
+        self.add_chart(
+            charts.allocation_donut(active_alloc, "Active Portfolio Allocation"),
+            height=360,
+        )
+
         # ORP weights + complete-portfolio donut
         weights_row = [charts.weights_bar(orp_opt.weights, "ORP Weights (Max-Sharpe)")]
         weights_keys = ["orp_weights"]

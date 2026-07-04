@@ -166,7 +166,7 @@ class ConfigPanel(QScrollArea):
         self.cash_input.setSingleStep(1_000)
         self.cash_input.setGroupSeparatorShown(True)
         self.cash_input.setPrefix("$ ")
-        self.cash_input.valueChanged.connect(self._update_sum)
+        self.cash_input.valueChanged.connect(self._on_cash_changed)
         cash_row.addWidget(self.cash_input, 1)
         self.cash_container.setVisible(False)
         wl.addWidget(self.cash_container)
@@ -185,6 +185,7 @@ class ConfigPanel(QScrollArea):
         self.weights_group.setVisible(False)
         self._weight_spins: dict[str, QDoubleSpinBox] = {}
         self._derived_weights: dict[str, float] = {}  # value-based, from shares×price
+        self._invested: float = 0.0  # last-computed Σ shares×price (stock value)
         self._calc_thread: QThread | None = None
         self._calc_worker = None
         self._calc_shares: dict[str, float] = {}
@@ -494,6 +495,13 @@ class ConfigPanel(QScrollArea):
         shares = self._alloc_is_shares()
         self.sync_btn.setVisible(shares)
         self.cash_container.setVisible(shares)
+        # In shares mode Capital is derived (invested + cash) and read-only; in
+        # weights mode the user sets the total capital directly.
+        self.capital.setReadOnly(shares)
+        self.capital.setToolTip(
+            "Total account value = invested + cash. Set by Calculate in shares mode."
+            if shares else ""
+        )
         self.sync_btn.setText("Calculate weights")
         self.sync_btn.setToolTip(
             "Fetch current prices, set Capital = shares × price, and derive the weights"
@@ -544,20 +552,29 @@ class ConfigPanel(QScrollArea):
         self.error_label.setStyleSheet(f"color: {theme.ACTIVE.red}; font-size: 12px;")
         self._update_sum()
 
+    def _on_cash_changed(self) -> None:
+        # Capital (total) tracks invested + cash once a calculation has run.
+        if self._invested > 0:
+            self._sync_capital_field()
+        self._update_sum()
+
+    def _sync_capital_field(self) -> None:
+        """Set the (read-only, in shares mode) Capital field to the total account
+        value = last-computed invested stock value + cash."""
+        self.capital.setValue(round(self._invested + self.cash_input.value()))
+
     def _update_total_value(self) -> None:
-        """Show 'Total account value = invested + cash' when a cash balance is set."""
+        """Break the total Capital into invested + cash when a cash balance is set."""
         lbl = getattr(self, "total_value_label", None)
         if lbl is None:
             return
         cash = self.cash_input.value() if hasattr(self, "cash_input") else 0.0
         if self._alloc_is_shares() and cash > 0:
-            cap = self.capital.value()
+            total = self.capital.value()  # Capital is the total account value
+            invested = max(total - cash, 0.0)
             t = theme.ACTIVE
             lbl.setStyleSheet(f"color: {t.text_slate}; font-size: 12px;")
-            lbl.setText(
-                f"Total account value ${cap + cash:,.0f}  "
-                f"(invested ${cap:,.0f} + cash ${cash:,.0f})"
-            )
+            lbl.setText(f"= invested ${invested:,.0f} + cash ${cash:,.0f}")
             lbl.setVisible(True)
         else:
             lbl.setVisible(False)
@@ -567,15 +584,9 @@ class ConfigPanel(QScrollArea):
         t = theme.ACTIVE
         if self._alloc_is_shares():
             if self._derived_weights:
-                cap = self.capital.value()
-                cash = self.cash_input.value()
+                total = self.capital.value()
                 self.sum_label.setStyleSheet(f"color: {t.green}; font-size: 12px;")
-                if cash > 0:
-                    self.sum_label.setText(
-                        f"Capital ${cap:,.0f} + Cash ${cash:,.0f} = ${cap + cash:,.0f}"
-                    )
-                else:
-                    self.sum_label.setText(f"Capital ${cap:,.0f} · weights set")
+                self.sum_label.setText(f"Total capital ${total:,.0f} · weights set")
             else:
                 self.sum_label.setStyleSheet(f"color: {t.text_muted}; font-size: 12px;")
                 self.sum_label.setText("also sets Capital from prices")
@@ -627,11 +638,17 @@ class ConfigPanel(QScrollArea):
             self.sum_label.setText("No prices available — try again")
             return
         self._derived_weights = weights
-        self.capital.setValue(round(capital))
+        # ``capital`` here is the invested stock value (Σ shares×price); the
+        # Capital field holds the TOTAL account value = invested + cash.
+        self._invested = capital
         cash = self.cash_input.value()
+        self._sync_capital_field()
         missing = [t for t in self._calc_shares if t not in prices]
         if cash > 0:
-            msg = f"Capital ${capital:,.0f} + Cash ${cash:,.0f} = ${capital + cash:,.0f}"
+            msg = (
+                f"Total ${capital + cash:,.0f} "
+                f"(invested ${capital:,.0f} + cash ${cash:,.0f})"
+            )
         else:
             msg = f"Capital ${capital:,.0f} · weights set"
         if missing:
@@ -803,8 +820,9 @@ class ConfigPanel(QScrollArea):
         self.benchmark.setText(c.benchmark)
         self.start_date.setDate(QDate(c.start_date.year, c.start_date.month, c.start_date.day))
         self.end_date.setDate(QDate(c.end_date.year, c.end_date.month, c.end_date.day))
-        self.capital.setValue(float(c.capital))
+        self.capital.setValue(float(c.capital))  # capital is the total account value
         self.cash_input.setValue(float(getattr(c, "cash", 0.0) or 0.0))
+        self._invested = max(float(c.capital) - float(getattr(c, "cash", 0.0) or 0.0), 0.0)
         self.set_risk_free_rate(float(c.risk_free_rate))
 
         # Allocation: shares mode if the config carries share counts; else weights

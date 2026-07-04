@@ -88,3 +88,44 @@ def test_config_cash_defaults_zero_and_roundtrips():
 def test_config_cash_cannot_be_negative():
     with pytest.raises(Exception):
         _cfg(cash=-5.0)
+
+
+def test_active_allocation_weights_adds_cash_slice():
+    from src.ui.allocation import active_allocation_weights
+
+    # capital is TOTAL: $100k total with $50k cash -> invested $50k, y = 0.5.
+    out = active_allocation_weights({"AAPL": 0.5, "MSFT": 0.5}, 100_000, 50_000)
+    assert abs(out["AAPL"] - 0.25) < 1e-9 and abs(out["MSFT"] - 0.25) < 1e-9
+    assert abs(out["Cash"] - 0.5) < 1e-9
+    assert abs(sum(out.values()) - 1.0) < 1e-9
+
+
+def test_active_allocation_no_cash_passthrough():
+    from src.ui.allocation import active_allocation_weights
+
+    w = {"AAPL": 0.6, "MSFT": 0.4}
+    out = active_allocation_weights(w, 100_000, 0)
+    assert out == w and "Cash" not in out
+
+
+def test_blend_cash_dilutes_return_and_vol():
+    import numpy as np
+    import pandas as pd
+
+    from src.data import transforms as T
+
+    idx = pd.date_range("2022-01-01", periods=252, freq="B")
+    # A volatile risky sleeve starting at $10k.
+    rng = np.random.default_rng(0)
+    rets = rng.normal(0.0008, 0.02, len(idx))
+    values = pd.Series(10_000 * np.cumprod(1 + rets), index=idx, name="Active")
+
+    blended = T.blend_cash(values, cash=10_000, rf_annual=0.04)
+    # Starts at invested + cash.
+    assert abs(blended.iloc[0] - (values.iloc[0] + 10_000)) < 1.0
+    # Cash sleeve halves the risky exposure -> lower volatility.
+    assert T.annualize_vol(blended.pct_change().dropna()) < T.annualize_vol(
+        values.pct_change().dropna()
+    )
+    # No cash -> unchanged.
+    assert T.blend_cash(values, 0, 0.04) is values

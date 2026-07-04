@@ -122,10 +122,11 @@ class PortfolioConfig(BaseModel):
     end_date: date
 
     # ── Capital & risk ──
-    capital: float = Field(1_000_000.0, gt=0)  # invested (risky) value — Σ shares×price
-    # Cash held alongside the risky portfolio. Recorded for total account value /
-    # P&L; the risk-return analysis runs on the risky ``weights`` (cash as a
-    # first-class holding is a roadmap item). Total account value = capital + cash.
+    capital: float = Field(1_000_000.0, gt=0)  # TOTAL account value (invested + cash)
+    # Cash held alongside the stocks, as a risk-free sleeve. The invested (risky)
+    # amount is ``capital - cash``; the pipeline builds the active portfolio from
+    # that and folds the cash back in (so return/vol/drawdown reflect the cash
+    # drag and cash shows as an allocation slice).
     cash: float = Field(0.0, ge=0.0)
     risk_free_rate: float = Field(0.04, ge=0.0, le=0.25)
 
@@ -184,6 +185,17 @@ class PortfolioConfig(BaseModel):
         if self.end_date <= self.start_date:
             raise ValueError(
                 f"end_date ({self.end_date}) must be after start_date ({self.start_date})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_cash(self) -> "PortfolioConfig":
+        # capital is the TOTAL account value; the invested (risky) amount is
+        # capital - cash, which must be positive.
+        if self.cash > 0 and self.cash >= self.capital:
+            raise ValueError(
+                f"cash (${self.cash:,.0f}) must be less than total capital "
+                f"(${self.capital:,.0f})"
             )
         return self
 

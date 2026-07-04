@@ -416,12 +416,13 @@ class LiveWatchView(QWidget):
             return None, None
         mv = 0.0
         cost = 0.0
+        invested_total = max(self._capital - self._cash, 0.0)  # capital is total now
         for sym, w in self._weights.items():
             cb = self._cost_basis.get(sym)
             last = getattr(self._quotes.get(sym), "last", None)
             if not isinstance(cb, (int, float)) or cb <= 0 or not isinstance(last, (int, float)):
                 return None, None
-            invested = self._capital * w
+            invested = invested_total * w
             shares = invested / cb
             mv += shares * last
             cost += invested
