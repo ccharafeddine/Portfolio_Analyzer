@@ -198,7 +198,11 @@ class NewsPanel(QWidget):
         lay.setSpacing(4)
 
         title = _html.escape(item.title or "")
-        url = _html.escape(item.url or "", quote=True)
+        # Only treat http(s) as a clickable link (setOpenExternalLinks hands the
+        # href straight to the OS); drop javascript:/data:/file: news URLs.
+        raw_url = (item.url or "").strip()
+        is_web = raw_url.lower().startswith(("http://", "https://"))
+        url = _html.escape(raw_url, quote=True) if is_web else ""
         title_html = (
             f"<a href='{url}' style='color:{t.text};text-decoration:none;"
             f"font-weight:600;'>{title}</a>" if url

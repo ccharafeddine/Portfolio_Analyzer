@@ -426,7 +426,10 @@ class LiveWatchView(QWidget):
                 wpct += w * pct
         day_pct = (wpct / wsum) if wsum > 0 else None
         self._set_stat("Day Change", _fmt_pct(day_pct), day_pct)
-        day_pnl = (self._capital * day_pct) if (day_pct is not None and self._capital) else None
+        # Day P&L is the move on the invested (risky) amount only — cash has no day
+        # change, and ``capital`` is the total account value (invested + cash).
+        invested = max(self._capital - self._cash, 0.0)
+        day_pnl = (invested * day_pct) if (day_pct is not None and invested) else None
         self._set_stat("Day P&L", self._money(day_pnl), day_pct)
 
         # Market value vs. cost basis — only when cost basis is set for all holdings.

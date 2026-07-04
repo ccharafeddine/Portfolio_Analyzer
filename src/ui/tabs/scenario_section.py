@@ -11,6 +11,7 @@ import html as _html
 import json
 
 from .. import theme
+from ..formatting import js_embed
 
 
 def scenario_html(model: dict) -> str:
@@ -128,7 +129,7 @@ def scenario_html(model: dict) -> str:
   window.scenRecalc();
 })();
 </script>"""
-    js = js.replace("__DATA__", data).replace("__TEXT__", t.text).replace("__GRID__", grid)
+    js = js.replace("__DATA__", js_embed(data)).replace("__TEXT__", t.text).replace("__GRID__", grid)
 
     body = (
         css

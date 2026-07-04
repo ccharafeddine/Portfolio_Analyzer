@@ -8,11 +8,29 @@ Validates everything at load time so analytics code can trust its inputs.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# A market symbol: letters, digits, and the punctuation real tickers use — ``.``
+# (BRK.B, 0700.HK), ``-`` (BTC-USD, BRK-B), ``^`` (^GSPC), ``=`` (ES=F, EURUSD=X).
+# Deliberately excludes ``< > " ' & / \\`` and whitespace so a crafted symbol from
+# an opened/shared portfolio file cannot inject markup into reports or web views
+# (defense-in-depth behind output escaping). NOTE: not applied to ``benchmark``,
+# which doubles as a free-text label for a blended benchmark.
+_SYMBOL_RE = re.compile(r"[A-Z0-9.\-^=]+")
+
+
+def _validate_symbol(sym: str) -> str:
+    if not _SYMBOL_RE.fullmatch(sym):
+        raise ValueError(
+            f"Invalid symbol {sym!r}: symbols may contain only letters, digits, "
+            "and the characters . - ^ ="
+        )
+    return sym
 
 
 # ──────────────────────────────────────────────────────────────
@@ -163,22 +181,23 @@ class PortfolioConfig(BaseModel):
     @field_validator("tickers", mode="before")
     @classmethod
     def uppercase_tickers(cls, v: list[str]) -> list[str]:
-        return [t.strip().upper() for t in v if t.strip()]
+        return [_validate_symbol(t.strip().upper()) for t in v if t.strip()]
 
     @field_validator("benchmark", mode="before")
     @classmethod
     def uppercase_benchmark(cls, v: str) -> str:
+        # Not charset-validated: with a blended benchmark this is a free-text label.
         return v.strip().upper()
 
     @field_validator("weights", mode="before")
     @classmethod
     def uppercase_weight_keys(cls, v: dict) -> dict:
-        return {k.strip().upper(): float(w) for k, w in v.items()}
+        return {_validate_symbol(k.strip().upper()): float(w) for k, w in v.items()}
 
     @field_validator("shares", "cost_basis", mode="before")
     @classmethod
     def uppercase_float_keys(cls, v: dict) -> dict:
-        return {k.strip().upper(): float(w) for k, w in (v or {}).items()}
+        return {_validate_symbol(k.strip().upper()): float(w) for k, w in (v or {}).items()}
 
     @model_validator(mode="after")
     def validate_dates(self) -> "PortfolioConfig":

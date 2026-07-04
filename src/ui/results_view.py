@@ -94,3 +94,10 @@ class ResultsView(QTabWidget):
         widget = self.widget(index)
         if hasattr(widget, "ensure_populated"):
             widget.ensure_populated()
+
+    def shutdown(self) -> None:
+        """Stop any tab's background fetch threads cleanly (called on app close)."""
+        for tab in (*self._tabs, self._macro_tab):
+            fn = getattr(tab, "shutdown", None)
+            if callable(fn):
+                fn()

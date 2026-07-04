@@ -318,4 +318,10 @@ class ComparisonView(QWidget):
         )
         self._set_status(self._status.text())
         self._report.mark_dirty()
+
+    def shutdown(self) -> None:
+        """Stop the background comparison thread cleanly (called on app close)."""
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(3000)
         self._report.ensure_populated()

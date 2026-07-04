@@ -33,11 +33,12 @@ class _ExternalLinkPage(QWebEnginePage):
             scheme = url.scheme()
             if scheme in ("http", "https"):
                 QDesktopServices.openUrl(url)
-                return False
-            if scheme == "app":
-                if self.app_link_handler:
-                    self.app_link_handler(url.toString())
-                return False
+            elif scheme == "app" and self.app_link_handler:
+                self.app_link_handler(url.toString())
+            # Refuse to navigate the in-app view for ANY clicked link — including
+            # untrusted schemes (javascript:, data:, file:) that could arrive in a
+            # network-sourced news URL. http(s) already went to the browser above.
+            return False
         return super().acceptNavigationRequest(url, nav_type, is_main_frame)
 
 
@@ -92,6 +93,8 @@ class RefreshableWebTab(WebTab):
 
     # ── Threading helper ──
     def _start(self, worker, on_done) -> None:
+        if self._fetching or self._thread is not None:
+            return  # a fetch is already in flight; ignore overlapping starts
         self._fetching = True
         self._refresh_btn.setEnabled(False)
         self._pending_on_done = on_done
@@ -106,8 +109,22 @@ class RefreshableWebTab(WebTab):
         worker.failed.connect(self._handle_failed)
         worker.done.connect(self._thread.quit)
         worker.failed.connect(self._thread.quit)
-        self._thread.finished.connect(worker.deleteLater)
+        self._thread.finished.connect(self._cleanup_thread)
         self._thread.start()
+
+    def _cleanup_thread(self) -> None:
+        if self._worker is not None:
+            self._worker.deleteLater()
+        if self._thread is not None:
+            self._thread.deleteLater()
+        self._worker = None
+        self._thread = None
+
+    def shutdown(self) -> None:
+        """Stop the background fetch thread cleanly (called on app close)."""
+        if self._thread is not None and self._thread.isRunning():
+            self._thread.quit()
+            self._thread.wait(3000)
 
     def _handle_done(self, payload) -> None:
         self._fetching = False

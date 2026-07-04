@@ -45,6 +45,7 @@ _HTML_TEMPLATE = Template("""\
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'">
 <title>Portfolio Analysis Report</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -487,7 +488,7 @@ any planned contributions and withdrawals.</p>
 </div>
 </body>
 </html>
-""")
+""", autoescape=True)
 
 
 # ---------------------------------------------------------------

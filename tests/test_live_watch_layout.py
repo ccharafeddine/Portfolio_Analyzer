@@ -137,3 +137,23 @@ def test_smoke_toggle_each_panel_off_then_on(tmp_path):
     assert v2.panel_visible(PANEL_WATCHLIST) is True
     assert v2._h_splitter.sizes() == sizes_h
     v2.shutdown()
+
+
+def test_day_pnl_uses_invested_not_total_capital(tmp_path):
+    """Day P&L must be computed on the invested amount (capital - cash), since cash
+    has no day move and capital is the total account value."""
+    from types import SimpleNamespace
+
+    from src.data.market_data import Quote
+
+    v = _build(_settings(tmp_path))
+    # $100k total, $30k cash → $70k invested; single holding up 1% today.
+    v.set_portfolio(SimpleNamespace(
+        tickers=["AAPL"], weights={"AAPL": 1.0}, cost_basis={},
+        capital=100_000.0, cash=30_000.0,
+    ))
+    v.set_quotes({"AAPL": Quote("AAPL", last=101.0, prev_close=100.0,
+                                change=1.0, change_pct=0.01)})
+    # 70_000 * 0.01 = 700 (would be 1,000 on the old total-capital basis).
+    assert v._stats["Day P&L"].text() == "$700"
+    v.shutdown()

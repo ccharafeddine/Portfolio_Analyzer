@@ -1019,19 +1019,28 @@ class MainWindow(QMainWindow):
             self.progress.setValue(0)
 
     def closeEvent(self, event) -> None:
-        """Wait for an in-flight analysis thread so it is not destroyed mid-run."""
+        """Wait for every in-flight worker thread so none is destroyed mid-run
+        (which aborts Qt with 'QThread: Destroyed while thread is still running')."""
         if getattr(self, "_quotes_timer", None) is not None:
             self._quotes_timer.stop()
+        if getattr(self, "_report_timer", None) is not None:
+            self._report_timer.stop()
         if self._thread is not None and self._thread.isRunning():
             self._cancelled = True
             self._thread.quit()
             self._thread.wait(5000)
-        qt = getattr(self, "_quotes_thread", None)
-        if qt is not None and qt.isRunning():
-            qt.quit()
-            qt.wait(3000)
-        if hasattr(self, "live_watch_view"):
-            self.live_watch_view.shutdown()
+        # Every other window-owned worker thread: stop and wait briefly.
+        for attr in ("_quotes_thread", "_upd_thread", "_rep_thread"):
+            t = getattr(self, attr, None)
+            if t is not None and t.isRunning():
+                t.quit()
+                t.wait(3000)
+        # Views/tabs that own their own fetch threads clean themselves up.
+        for owner in ("live_watch_view", "comparison_view", "results_view"):
+            view = getattr(self, owner, None)
+            fn = getattr(view, "shutdown", None)
+            if callable(fn):
+                fn()
         super().closeEvent(event)
 
     def _show_about(self) -> None:

@@ -165,6 +165,12 @@ class FundamentalsTab(RefreshableWebTab):
     def _on_statements_failed(self, _msg: str) -> None:
         self._stmt_fetching = None
 
+    def shutdown(self) -> None:
+        """Stop the background statements-fetch thread cleanly (called on app close)."""
+        if self._stmt_thread is not None and self._stmt_thread.isRunning():
+            self._stmt_thread.quit()
+            self._stmt_thread.wait(3000)
+
     # ── Rendering ──
     def _populate(self, results) -> None:
         items = self._items

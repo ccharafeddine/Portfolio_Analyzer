@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from .. import explanations
 from .. import theme
+from ..formatting import js_embed
 from ..widgets.plotly_widget import _ensure_plotly_js, _web_resources_dir
 
 
@@ -144,7 +145,7 @@ class WebTab(QWidget):
         return "\n".join(out)
 
     def _build_page(self) -> str:
-        figs_js = ",\n".join(f"'{cid}': {js}" for cid, js in self._figs.items())
+        figs_js = ",\n".join(f"'{cid}': {js_embed(js)}" for cid, js in self._figs.items())
         body = self._group_sections(self._html)
         return f"""<!DOCTYPE html><html><head>
 <meta charset='utf-8'/>

@@ -24,6 +24,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 import pandas as pd
 
@@ -717,7 +718,8 @@ def _polygon_quotes(syms, key) -> dict[str, Quote]:
     out: dict[str, Quote] = {}
     for t in syms:
         data = _http_get_json(
-            f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{t}",
+            "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/"
+            f"{quote(t, safe='')}",
             params={"apiKey": key},
         )
         tk = (data or {}).get("ticker") or {}

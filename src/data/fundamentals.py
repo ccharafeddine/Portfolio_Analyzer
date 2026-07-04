@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 try:
     import requests
@@ -176,7 +177,9 @@ def _from_yfinance(ticker: str) -> Fundamentals:
 def _enrich_fmp(items: list[Fundamentals], key: str) -> None:
     if not (requests and key and items):
         return
-    syms = ",".join(i.ticker for i in items)
+    # Encode each symbol (keep the commas as FMP's multi-symbol separator) so a
+    # crafted ticker can't reshape the request path.
+    syms = ",".join(quote(i.ticker, safe="") for i in items)
     resp = requests.get(
         f"https://financialmodelingprep.com/api/v3/profile/{syms}",
         params={"apikey": key},

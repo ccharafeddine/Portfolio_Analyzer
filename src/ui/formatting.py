@@ -39,3 +39,21 @@ def delta_str(v) -> Optional[str]:
     if _is_missing(v):
         return None
     return f"{v * 100:+.2f}%"
+
+
+def js_embed(s: str) -> str:
+    """Escape a serialized JSON/JS string for safe inclusion *inside* an inline
+    ``<script>`` element.
+
+    JSON does not escape ``<``/``>``/``&``, so an untrusted value containing
+    ``</script>`` (e.g. a crafted ticker in a chart label) would close the script
+    element early and let following markup execute. Replacing those three chars
+    with their ``\\uXXXX`` escapes is transparent to JS/JSON string parsing but
+    neutralizes the breakout. Use wherever ``fig.to_json()`` / ``json.dumps(...)``
+    is interpolated into an inline ``<script>``.
+    """
+    return (
+        s.replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
