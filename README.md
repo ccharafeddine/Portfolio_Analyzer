@@ -489,7 +489,7 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 
 ### Planned
 
-**Cash as a first-class holding** — today a cash balance is recorded for total account value and P&L, but the risk/return analysis runs on the stock weights only. Model cash as a synthetic risk-free holding so it appears in allocation charts and properly dilutes portfolio risk/return (the honest "cash drag").
+**Cash as a first-class holding** (next up) — today a cash balance is recorded for total account value and P&L, but the risk/return analysis runs on the stock weights only, and the Capital field stays the invested amount. Model cash as a synthetic risk-free holding so it appears in allocation charts, properly dilutes portfolio risk/return (the honest "cash drag"), and lets Capital represent the full account.
 
 **Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, standalone watchlists independent of the loaded portfolio, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
 

@@ -245,7 +245,15 @@ class ConfigPanel(QScrollArea):
         self.capital.setGroupSeparatorShown(True)
         self.capital.setValue(1_000_000)
         self.capital.setPrefix("$ ")
+        self.capital.valueChanged.connect(self._update_total_value)
         form.addRow(_field_label("Capital", "capital"), self.capital)
+        # Total account value = invested Capital + Cash. Shown only when a cash
+        # balance is set (shares mode), so the full number is visible even though
+        # Capital itself stays the invested amount the analysis uses.
+        self.total_value_label = QLabel()
+        self.total_value_label.setWordWrap(True)
+        self.total_value_label.setVisible(False)
+        form.addRow("", self.total_value_label)
 
         self.rf_rate = QDoubleSpinBox()
         self.rf_rate.setRange(0.0, 0.25)
@@ -536,7 +544,26 @@ class ConfigPanel(QScrollArea):
         self.error_label.setStyleSheet(f"color: {theme.ACTIVE.red}; font-size: 12px;")
         self._update_sum()
 
+    def _update_total_value(self) -> None:
+        """Show 'Total account value = invested + cash' when a cash balance is set."""
+        lbl = getattr(self, "total_value_label", None)
+        if lbl is None:
+            return
+        cash = self.cash_input.value() if hasattr(self, "cash_input") else 0.0
+        if self._alloc_is_shares() and cash > 0:
+            cap = self.capital.value()
+            t = theme.ACTIVE
+            lbl.setStyleSheet(f"color: {t.text_slate}; font-size: 12px;")
+            lbl.setText(
+                f"Total account value ${cap + cash:,.0f}  "
+                f"(invested ${cap:,.0f} + cash ${cash:,.0f})"
+            )
+            lbl.setVisible(True)
+        else:
+            lbl.setVisible(False)
+
     def _update_sum(self) -> None:
+        self._update_total_value()
         t = theme.ACTIVE
         if self._alloc_is_shares():
             if self._derived_weights:
