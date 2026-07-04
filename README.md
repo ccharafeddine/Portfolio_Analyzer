@@ -370,23 +370,55 @@ Two independent features live here:
 
 ## Testing
 
-The suite covers every analytics and data module — 90 tests:
+The suite covers every analytics, data, and desktop-support module — 215 tests:
 
 ```bash
 python -m pytest -q
 ```
+
+**Analytics & backtest**
 
 | Test file | Tests | Coverage |
 |-----------|-------|----------|
 | `test_portfolio.py` | 55 | Config, transforms, optimization, CAPM, risk, simulation, attribution, concentration, correlation regime, HRP, rebalance, exposure, income |
 | `test_backtest.py` | 7 | Inception handling (rescale vs cash), weight sums, transaction costs, coverage/effective-start |
 | `test_performance.py` | 6 | Capture, batting average, tracking error, information ratio |
+| `test_rebalance_trades.py` | 6 | Target/ORP rebalancing trade recommendations |
 | `test_planning.py` | 5 | Cashflow simulation, safe-withdrawal-rate search, plan outcomes |
+| `test_comparison.py` | 5 | Multi-portfolio comparison metrics |
+| `test_ts_attribution.py` | 4 | Time-series contribution to active return |
+| `test_scenario.py` | 4 | Scenario / factor-shock estimates |
+| `test_factor_models.py` | 4 | FF3 / Carhart / FF5 factor regressions |
+| `test_black_litterman.py` | 4 | Black-Litterman view blending |
+| `test_blended_benchmark.py` | 3 | Fixed-weight blended benchmark |
 | `test_tax.py` | 3 | Unrealized gains, harvest candidates, realized tax from rebalancing |
-| `test_market_data.py` | 8 | News normalization/dedupe, Alpha Vantage sentiment, FRED macro parsing, graceful failure |
-| `test_desktop_paths.py` | 6 | Cross-platform cache/output/export directory resolution |
+| `test_allocation.py` | 12 | Shares→weights/capital, active allocation with cash |
 
-Tests that would call yfinance use `unittest.mock.patch` to avoid network dependencies.
+**Data, reports & delivery**
+
+| Test file | Tests | Coverage |
+|-----------|-------|----------|
+| `test_quotes.py` | 17 | Delayed quotes, intraday/OHLC fetch, chart builders (treemap, day-change heatmap), formatting |
+| `test_market_data.py` | 9 | News normalization/dedupe, Alpha Vantage sentiment, FRED macro parsing, graceful failure |
+| `test_watchlist.py` | 8 | Watchlist store (add/dedupe/remove/reorder/seed), symbol normalization |
+| `test_security_fixes.py` | 8 | Symbol charset validation, inline-`<script>` escaping, report autoescape |
+| `test_fundamentals.py` | 7 | Fundamentals fetch, DCF, statements, graceful failure |
+| `test_morning_report.py` | 7 | Morning-brief math + escaping, SMTP emailer (mocked), keychain roundtrip |
+| `test_providers.py` | 6 | Real-time provider resolution (Finnhub/Polygon/Alpaca) + fallback |
+| `test_report_generation.py` | 4 | HTML/PDF report build |
+| `test_samples.py` | 3 | First-run sample-portfolio seeding |
+
+**Desktop & UI (Qt-guarded)**
+
+| Test file | Tests | Coverage |
+|-----------|-------|----------|
+| `test_alerts.py` | 8 | Price-alert edge-triggering, enable/re-arm, QSettings store |
+| `test_theme.py` | 5 | Theme tokens, chart-palette light/dark flip, scaling |
+| `test_updater.py` | 5 | Version comparison, release-check parsing |
+| `test_desktop_paths.py` | 6 | Cross-platform cache/output/export directory resolution |
+| `test_live_watch_layout.py` | 4 | Splitter + panel-visibility persistence, Day P&L (skips without a display) |
+
+Tests that would call yfinance / SMTP use `unittest.mock.patch` to avoid network dependencies, and Qt-dependent tests skip cleanly where no display or OS keychain is available (so the headless CI run stays green).
 
 ### Continuous Integration
 
