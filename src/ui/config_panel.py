@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PySide6.QtCore import QDate, QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QDate, QEvent, QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -129,26 +129,57 @@ class ConfigPanel(QScrollArea):
         self.equal_weights.toggled.connect(self._on_equal_toggled)
         root.addWidget(_row(self.equal_weights, _help("weights")))
 
-        # ── Weights (shown only when not equal-weighted) ──
-        self.weights_group = QGroupBox("Weights")
+        # ── Allocation (shown only when not equal-weighted): weights or shares ──
+        self.weights_group = QGroupBox("Allocation")
         wl = QVBoxLayout(self.weights_group)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Enter by"))
+        self.alloc_mode = QComboBox()
+        self.alloc_mode.addItem("Weights", "weights")
+        self.alloc_mode.addItem("Shares", "shares")
+        self.alloc_mode.setToolTip(
+            "Weights: target allocation fractions.\n"
+            "Shares: how many shares you hold — Calculate sets Capital and weights "
+            "from current prices."
+        )
+        self.alloc_mode.currentIndexChanged.connect(self._on_alloc_mode_changed)
+        mode_row.addWidget(self.alloc_mode)
+        mode_row.addStretch(1)
+        wl.addLayout(mode_row)
+
         self.weights_form = QFormLayout()
         self.weights_form.setLabelAlignment(Qt.AlignLeft)
         self.weights_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.weights_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         wl.addLayout(self.weights_form)
+
         sync_row = QHBoxLayout()
-        self.sync_btn = QPushButton("↻ Sync")
+        self.sync_btn = QPushButton("Calculate weights")
         self.sync_btn.setObjectName("secondary")
-        self.sync_btn.clicked.connect(self._rebuild_weights)
+        self.sync_btn.setCursor(Qt.PointingHandCursor)
+        self.sync_btn.clicked.connect(self._on_alloc_button)
         self.sum_label = QLabel("Sum: 0.0000")
+        self.sum_label.setWordWrap(True)
         sync_row.addWidget(self.sync_btn)
-        sync_row.addStretch(1)
-        sync_row.addWidget(self.sum_label)
+        sync_row.addSpacing(10)
+        sync_row.addWidget(self.sum_label, 1)
         wl.addLayout(sync_row)
         self.weights_group.setVisible(False)
         self._weight_spins: dict[str, QDoubleSpinBox] = {}
+        self._derived_weights: dict[str, float] = {}  # value-based, from shares×price
+        self._calc_thread: QThread | None = None
+        self._calc_worker = None
+        self._calc_shares: dict[str, float] = {}
         root.addWidget(self.weights_group)
+
+        # Keep the allocation rows in sync with the ticker list automatically
+        # (debounced), so there's no manual "sync" step in weights mode.
+        self._row_sync_timer = QTimer(self)
+        self._row_sync_timer.setSingleShot(True)
+        self._row_sync_timer.setInterval(500)
+        self._row_sync_timer.timeout.connect(self._auto_sync_rows)
+        self.tickers_edit.textChanged.connect(self._row_sync_timer.start)
 
         # ── Date range ──
         root.addWidget(_section_label("Date Range", "dates"))
@@ -405,26 +436,80 @@ class ConfigPanel(QScrollArea):
         self.weights_group.setVisible(not checked)
         if not checked:
             self._rebuild_weights()
+            self._update_alloc_ui()
 
-    def _rebuild_weights(self) -> None:
-        """Rebuild the weight spinboxes from the current ticker list, preserving
-        any values already entered for tickers that still exist."""
-        prior = {t: s.value() for t, s in self._weight_spins.items()}
+    def _auto_sync_rows(self) -> None:
+        """Rebuild the allocation rows to match the current ticker list. Runs
+        (debounced) whenever the tickers change, so weights/shares rows stay in
+        sync without a manual button."""
+        if not self.weights_group.isVisible():
+            return
+        if self._alloc_is_shares():
+            self._derived_weights = {}  # universe changed — force a recalculation
+        self._rebuild_weights(preserve=True)
+
+    # ── Allocation mode (weights vs shares) ──
+    def _alloc_is_shares(self) -> bool:
+        return self.alloc_mode.currentData() == "shares"
+
+    def _set_alloc_mode(self, mode: str) -> None:
+        idx = 1 if mode == "shares" else 0
+        self.alloc_mode.blockSignals(True)
+        self.alloc_mode.setCurrentIndex(idx)
+        self.alloc_mode.blockSignals(False)
+        self._update_alloc_ui()
+
+    def _on_alloc_mode_changed(self, _idx: int) -> None:
+        self._derived_weights = {}
+        self._rebuild_weights(preserve=False)  # values mean different things per mode
+        self._update_alloc_ui()
+
+    def _update_alloc_ui(self) -> None:
+        # The button only exists in shares mode now (weights rows auto-sync).
+        shares = self._alloc_is_shares()
+        self.sync_btn.setVisible(shares)
+        self.sync_btn.setText("Calculate weights")
+        self.sync_btn.setToolTip(
+            "Fetch current prices, set Capital = shares × price, and derive the weights"
+        )
+        self._update_sum()
+
+    def _on_alloc_button(self) -> None:
+        self._calculate_from_shares()
+
+    def _rebuild_weights(self, preserve: bool = True) -> None:
+        """Rebuild the allocation spinboxes from the current ticker list. In
+        weights mode the rows are target weights; in shares mode they are share
+        counts. Values for still-present tickers are preserved within a mode."""
+        prior = {t: s.value() for t, s in self._weight_spins.items()} if preserve else {}
         while self.weights_form.rowCount():
             self.weights_form.removeRow(0)
         self._weight_spins.clear()
 
         tickers = self._current_tickers()
-        default = round(1.0 / len(tickers), 4) if tickers else 0.0
+        shares_mode = self._alloc_is_shares()
+        default = 0.0 if shares_mode else (round(1.0 / len(tickers), 4) if tickers else 0.0)
         for t in tickers:
             spin = QDoubleSpinBox()
-            spin.setRange(0.0, 2.0)
-            spin.setDecimals(4)
-            spin.setSingleStep(0.01)
+            if shares_mode:
+                spin.setRange(0.0, 1_000_000_000.0)
+                spin.setDecimals(4)
+                spin.setSingleStep(1.0)
+                spin.setSuffix(" sh")
+                spin.valueChanged.connect(self._on_shares_changed)
+            else:
+                spin.setRange(0.0, 2.0)
+                spin.setDecimals(4)
+                spin.setSingleStep(0.01)
+                spin.valueChanged.connect(self._update_sum)
             spin.setValue(prior.get(t, default))
-            spin.valueChanged.connect(self._update_sum)
             self._weight_spins[t] = spin
             self.weights_form.addRow(t, spin)
+        self._update_sum()
+
+    def _on_shares_changed(self) -> None:
+        # Editing shares invalidates the last price-based calculation.
+        self._derived_weights = {}
         self._update_sum()
 
     def retheme(self) -> None:
@@ -434,18 +519,107 @@ class ConfigPanel(QScrollArea):
         self._update_sum()
 
     def _update_sum(self) -> None:
+        t = theme.ACTIVE
+        if self._alloc_is_shares():
+            if self._derived_weights:
+                self.sum_label.setStyleSheet(f"color: {t.green}; font-size: 12px;")
+                self.sum_label.setText(f"Capital ${self.capital.value():,.0f} · weights set")
+            else:
+                self.sum_label.setStyleSheet(f"color: {t.text_muted}; font-size: 12px;")
+                self.sum_label.setText("also sets Capital from prices")
+            return
         total = sum(s.value() for s in self._weight_spins.values())
         ok = abs(total - 1.0) <= 0.01
-        color = theme.ACTIVE.green if ok else theme.ACTIVE.red
+        color = t.green if ok else t.red
         self.sum_label.setStyleSheet(f"color: {color}; font-size: 12px;")
         self.sum_label.setText(f"Sum: {total:.4f}")
+
+    # ── Shares → capital + weights (async price fetch) ──
+    def _calculate_from_shares(self) -> None:
+        shares = {t: s.value() for t, s in self._weight_spins.items() if s.value() > 0}
+        if not shares:
+            self.sum_label.setStyleSheet(f"color: {theme.ACTIVE.red}; font-size: 12px;")
+            self.sum_label.setText("Enter share counts first")
+            return
+        if self._calc_thread is not None:
+            return  # a calculation is already running
+        from .worker import QuotesWorker
+
+        self._calc_shares = shares
+        self.sync_btn.setEnabled(False)
+        self.sum_label.setStyleSheet(f"color: {theme.ACTIVE.text_muted}; font-size: 12px;")
+        self.sum_label.setText("Fetching prices…")
+
+        self._calc_thread = QThread(self)
+        self._calc_worker = QuotesWorker(list(shares))
+        self._calc_worker.moveToThread(self._calc_thread)
+        self._calc_thread.started.connect(self._calc_worker.run)
+        self._calc_worker.done.connect(self._on_calc_quotes)
+        self._calc_worker.failed.connect(self._on_calc_failed)
+        self._calc_worker.done.connect(self._calc_thread.quit)
+        self._calc_worker.failed.connect(self._calc_thread.quit)
+        self._calc_thread.finished.connect(self._cleanup_calc)
+        self._calc_thread.start()
+
+    def _on_calc_quotes(self, quotes: dict) -> None:
+        from .allocation import shares_to_weights_and_capital
+
+        prices = {}
+        for t in self._calc_shares:
+            last = getattr(quotes.get(t), "last", None)
+            if isinstance(last, (int, float)) and last > 0:
+                prices[t] = last
+        weights, capital = shares_to_weights_and_capital(self._calc_shares, prices)
+        if not weights:
+            self.sum_label.setStyleSheet(f"color: {theme.ACTIVE.red}; font-size: 12px;")
+            self.sum_label.setText("No prices available — try again")
+            return
+        self._derived_weights = weights
+        self.capital.setValue(round(capital))
+        missing = [t for t in self._calc_shares if t not in prices]
+        msg = f"Capital ${capital:,.0f} · weights set"
+        if missing:
+            msg += f" · no price: {', '.join(missing)}"
+        self.sum_label.setStyleSheet(f"color: {theme.ACTIVE.green}; font-size: 12px;")
+        self.sum_label.setText(msg)
+
+    def _on_calc_failed(self, _message: str) -> None:
+        self.sum_label.setStyleSheet(f"color: {theme.ACTIVE.red}; font-size: 12px;")
+        self.sum_label.setText("Price fetch failed — check your connection")
+
+    def _cleanup_calc(self) -> None:
+        if self._calc_worker is not None:
+            self._calc_worker.deleteLater()
+        if self._calc_thread is not None:
+            self._calc_thread.deleteLater()
+        self._calc_worker = None
+        self._calc_thread = None
+        self.sync_btn.setEnabled(True)
 
     # ── Build config ──
     def _weights_dict(self, tickers: list[str]) -> dict[str, float]:
         if self.equal_weights.isChecked() or not self._weight_spins:
             w = 1.0 / len(tickers) if tickers else 0.0
             return {t: round(w, 6) for t in tickers}
+        if self._alloc_is_shares():
+            # Prefer the price-based weights from the last Calculate; otherwise fall
+            # back to share-count proportions so a run still validates.
+            if self._derived_weights:
+                return {t: w for t, w in self._derived_weights.items() if t in tickers}
+            shares = {t: s.value() for t, s in self._weight_spins.items()
+                      if t in tickers and s.value() > 0}
+            total = sum(shares.values())
+            if total > 0:
+                return {t: v / total for t, v in shares.items()}
+            w = 1.0 / len(tickers) if tickers else 0.0
+            return {t: round(w, 6) for t in tickers}
         return {t: float(s.value()) for t, s in self._weight_spins.items() if t in tickers}
+
+    def _shares_dict(self) -> dict[str, float]:
+        """Share counts when in shares mode (else empty)."""
+        if self.equal_weights.isChecked() or not self._alloc_is_shares():
+            return {}
+        return {t: float(s.value()) for t, s in self._weight_spins.items() if s.value() > 0}
 
     def set_cost_basis(self, cost_basis: dict) -> None:
         """Replace the cost-basis entry with ``{ticker: price}`` (positive only)."""
@@ -576,19 +750,28 @@ class ConfigPanel(QScrollArea):
         self.capital.setValue(float(c.capital))
         self.set_risk_free_rate(float(c.risk_free_rate))
 
-        # Weights: treat as equal-weight when every weight matches 1/N.
+        # Allocation: shares mode if the config carries share counts; else weights
+        # (equal when every weight matches 1/N).
         weights = dict(c.weights or {})
+        shares = dict(getattr(c, "shares", {}) or {})
         n = len(c.tickers)
-        equal = (not weights) or (
-            n > 0 and all(abs(weights.get(t, 0.0) - 1.0 / n) <= 1e-4 for t in c.tickers)
+        equal = (not shares) and (
+            (not weights)
+            or (n > 0 and all(abs(weights.get(t, 0.0) - 1.0 / n) <= 1e-4 for t in c.tickers))
         )
         self.equal_weights.setChecked(equal)
         self.weights_group.setVisible(not equal)
+        self._derived_weights = {}
+        self._set_alloc_mode("shares" if shares else "weights")
         if not equal:
-            self._rebuild_weights()
+            self._rebuild_weights(preserve=False)
+            source = shares if shares else weights
             for t, spin in self._weight_spins.items():
-                if t in weights:
-                    spin.setValue(float(weights[t]))
+                if t in source:
+                    spin.setValue(float(source[t]))
+            # The saved weights were derived from these shares × price at save time.
+            if shares:
+                self._derived_weights = dict(weights)
             self._update_sum()
 
         # Advanced
@@ -717,6 +900,7 @@ class ConfigPanel(QScrollArea):
                 transaction_cost_bps=float(self.cost_bps.value()),
             ),
             cost_basis=self._parse_cost_basis(),
+            shares=self._shares_dict(),
             tax=TaxConfig(
                 enabled=self.tax_enabled.isChecked(),
                 short_term_rate=float(self.tax_st.value()),

@@ -138,6 +138,12 @@ class PortfolioConfig(BaseModel):
     # ── Cost basis (per-ticker average cost per share; empty = infer from purchase) ──
     cost_basis: dict[str, float] = Field(default_factory=dict)
 
+    # ── Share counts (optional; how the user entered the portfolio). When set, the
+    # desktop UI derived ``weights`` + ``capital`` from shares × live price. Purely
+    # informational for the analysis (which runs off weights); kept so a real
+    # holdings portfolio round-trips on save/load. ──
+    shares: dict[str, float] = Field(default_factory=dict)
+
     # ── Sub-configs ──
     complete_portfolio: CompletePortfolioConfig = Field(
         default_factory=CompletePortfolioConfig
@@ -163,6 +169,11 @@ class PortfolioConfig(BaseModel):
     @classmethod
     def uppercase_weight_keys(cls, v: dict) -> dict:
         return {k.strip().upper(): float(w) for k, w in v.items()}
+
+    @field_validator("shares", "cost_basis", mode="before")
+    @classmethod
+    def uppercase_float_keys(cls, v: dict) -> dict:
+        return {k.strip().upper(): float(w) for k, w in (v or {}).items()}
 
     @model_validator(mode="after")
     def validate_dates(self) -> "PortfolioConfig":
