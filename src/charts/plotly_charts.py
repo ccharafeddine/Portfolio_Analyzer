@@ -1664,3 +1664,76 @@ def holdings_treemap(tickers, weights: dict, changes: dict):
         margin=dict(l=8, r=8, t=44, b=8),
     )
     return fig
+
+
+def day_change_heatmap(symbols, changes: dict):
+    """A tiled *grid* heatmap of today's day-change % for a set of symbols —
+    green for gains, red for losses, shaded by magnitude.
+
+    Distinct from :func:`holdings_treemap` (weight-sized tiles) and from
+    :func:`correlation_heatmap` (pairwise ρ matrix): this is an equal-tile grid
+    keyed only on the day move, so every symbol reads at the same size. It
+    consumes live-quote data — ``changes`` is ``{symbol: fraction}`` where 0.012
+    means +1.2% — not analysis results.
+
+    Symbols with no numeric change render as neutral (background) tiles so the
+    grid stays complete. Returns ``None`` for an empty universe or when *no*
+    symbol has a usable day change (nothing to shade), theme-aware via the module
+    palette / :func:`_apply_layout`.
+    """
+    import math
+
+    syms = [str(s) for s in (symbols or []) if s]
+    if not syms:
+        return None
+    vals = [changes.get(s) if changes else None for s in syms]
+    live = [abs(float(v)) for v in vals if isinstance(v, (int, float)) and v == v]
+    if not live:
+        return None  # all quotes missing/failed — nothing to shade
+
+    n = len(syms)
+    cols = max(1, math.ceil(math.sqrt(n)))
+    rows = math.ceil(n / cols)
+    # Symmetric color bound scaled to the day's biggest mover, clamped to a
+    # sane [±1%, ±5%] window so a flat day still shows tint and an outlier
+    # doesn't wash everything else out.
+    bound = min(5.0, max(1.0, max(live) * 100.0))
+
+    z = [[None] * cols for _ in range(rows)]
+    text = [[""] * cols for _ in range(rows)]
+    for i, sym in enumerate(syms):
+        r, c = divmod(i, cols)
+        v = vals[i]
+        if isinstance(v, (int, float)) and v == v:
+            z[r][c] = float(v) * 100.0
+            text[r][c] = f"<b>{sym}</b><br>{v * 100:+.2f}%"
+        else:
+            z[r][c] = 0.0  # neutral tile — blends into the background
+            text[r][c] = f"<b>{sym}</b><br>—"
+
+    fig = go.Figure(go.Heatmap(
+        z=z,
+        text=text,
+        texttemplate="%{text}",
+        textfont=dict(size=12, color=TEXT_COLOR),
+        colorscale=[[0.0, _DOWN], [0.5, BG_COLOR], [1.0, _UP]],
+        zmid=0,
+        zmin=-bound,
+        zmax=bound,
+        xgap=3,
+        ygap=3,
+        hovertemplate="%{text}<extra></extra>",
+        colorbar=dict(
+            title=dict(text="Δ%", font=dict(color=MUTED_COLOR)),
+            tickfont=dict(color=MUTED_COLOR),
+        ),
+    ))
+    _apply_layout(
+        fig,
+        title=dict(text="Day change · heatmap", font=dict(size=15, color=TEXT_COLOR)),
+        margin=dict(l=8, r=8, t=44, b=8),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, ticks=""),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, ticks="",
+                   autorange="reversed"),
+    )
+    return fig

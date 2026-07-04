@@ -146,6 +146,11 @@ class WatchlistPanel(QWidget):
         self._render()
         self.retheme()
 
+    def chart_panel(self) -> ChartHeatmapPanel:
+        """The shared intraday/treemap/day-change panel, so the host can apply the
+        same panel-visibility toggles it applies to the Portfolio cockpit."""
+        return self._chart
+
     # ── Add / remove ──
     def _on_add(self) -> None:
         raw = self._input.text()

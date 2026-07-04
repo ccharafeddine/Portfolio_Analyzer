@@ -103,10 +103,12 @@ def realtime_provider():
 class AppSettings:
     """UI-state settings backed by ``QSettings`` (PySide6 required)."""
 
-    def __init__(self) -> None:
-        from PySide6.QtCore import QSettings
+    def __init__(self, settings=None) -> None:
+        if settings is None:
+            from PySide6.QtCore import QSettings
 
-        self._s = QSettings(ORG_NAME, APP_NAME)
+            settings = QSettings(ORG_NAME, APP_NAME)
+        self._s = settings
 
     # ── Window geometry ──
     def save_geometry(self, window) -> None:

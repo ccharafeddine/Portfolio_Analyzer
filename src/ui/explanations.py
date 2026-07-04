@@ -423,6 +423,12 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Type a symbol and press Add; crypto shorthand like BTC becomes BTC-USD automatically. Each row shows the latest price and today's change, green when up and red when down. Click the ✕ (or right-click) to remove a row, and the column headers to sort. It refreshes on its own about once a minute while this screen is open, or immediately with Refresh.",
         "why": "It lets you keep an eye on tickers you're considering or already follow without adding them to a portfolio or running a full analysis. The quotes are fetched independently, so nothing here touches your saved portfolios or results.",
     },
+    "day_change_heatmap": {
+        "title": "Day-Change Heatmap",
+        "what": "A tiled grid of your symbols shaded by today's percentage move — green for gains, red for losses, brighter with bigger moves.",
+        "how": "Scan for color, not numbers: a wall of green is a broad up day, mostly red a down day. One bright tile against a calm grid flags an outlier mover worth a look.",
+        "why": "It turns a table of quotes into an at-a-glance risk picture, so you see where today's action is concentrated without reading every row.",
+    },
     "data_exports": {
         "title": "Data Exports",
         "what": "The raw output files (CSVs) from the analysis, individually or as a ZIP.",

@@ -149,6 +149,43 @@ def test_holdings_treemap_builds_and_skips_zero_weight():
     assert charts.holdings_treemap([], {}, {}) is None
 
 
+def test_day_change_heatmap_builds_for_normal_input():
+    from src.charts import plotly_charts as charts
+
+    symbols = ["AAPL", "MSFT", "NVDA", "TSLA", "SPY"]
+    changes = {"AAPL": 0.012, "MSFT": -0.008, "NVDA": 0.031, "TSLA": -0.024, "SPY": 0.003}
+    fig = charts.day_change_heatmap(symbols, changes)
+    assert fig is not None and len(fig.data) == 1
+    hm = fig.data[0]
+    # Every symbol appears in the tile text; the grid is roughly square (5 -> 3x2).
+    flat_text = " ".join(t for row in hm.text for t in row)
+    for s in symbols:
+        assert s in flat_text
+    assert len(hm.z) == 2 and len(hm.z[0]) == 3          # rows x cols
+    # Color bound is symmetric and clamped to the [±1%, ±5%] window.
+    assert hm.zmax == 3.1 and hm.zmin == -3.1
+
+
+def test_day_change_heatmap_handles_partial_and_missing_quotes():
+    from src.charts import plotly_charts as charts
+
+    # A symbol with no quote still tiles (neutral), as long as *someone* has a move.
+    fig = charts.day_change_heatmap(["AAPL", "ZZZZ"], {"AAPL": 0.01})
+    assert fig is not None
+    flat_text = " ".join(t for row in fig.data[0].text for t in row)
+    assert "AAPL" in flat_text and "ZZZZ" in flat_text
+
+
+def test_day_change_heatmap_none_on_empty_or_all_failed():
+    from src.charts import plotly_charts as charts
+
+    assert charts.day_change_heatmap([], {}) is None            # empty universe
+    assert charts.day_change_heatmap(None, None) is None        # nothing at all
+    # All quotes failed (no numeric change anywhere) -> nothing to shade.
+    assert charts.day_change_heatmap(["AAPL", "MSFT"], {"AAPL": None}) is None
+    assert charts.day_change_heatmap(["AAPL"], {"AAPL": float("nan")}) is None
+
+
 def test_live_watch_formatting_helpers():
     # Qt-free module (CI's headless runner can't import PySide6.QtWidgets).
     from src.ui.quote_format import fmt_price, fmt_signed, fmt_volume, fmt_pct
