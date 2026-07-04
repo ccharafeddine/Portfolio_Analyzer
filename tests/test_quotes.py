@@ -128,6 +128,52 @@ def test_fetch_intraday_none_on_empty_or_error():
         assert market_data.fetch_intraday("AAPL", use_cache=False) is None
 
 
+def test_fetch_ohlc_maps_timeframe_and_returns_frame():
+    calls = {}
+
+    def history(**kw):
+        calls.update(kw)
+        return _intraday_df()
+
+    mock_yf = SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=history))
+    with patch.object(market_data, "yf", mock_yf):
+        out = market_data.fetch_ohlc("AAPL", "5D", use_cache=False)
+    assert out is not None and "Close" in out.columns
+    # 5D maps to yfinance period=5d / interval=5m.
+    assert calls["period"] == "5d" and calls["interval"] == "5m"
+
+
+def test_fetch_ohlc_unknown_timeframe_falls_back_to_default():
+    calls = {}
+
+    def history(**kw):
+        calls.update(kw)
+        return _intraday_df()
+
+    with patch.object(market_data, "yf", SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=history))):
+        market_data.fetch_ohlc("AAPL", "bogus", use_cache=False)
+    # Falls back to the 1D default (1d / 1m).
+    assert calls["period"] == "1d" and calls["interval"] == "1m"
+
+
+def test_fetch_ohlc_none_on_empty_error_or_no_yfinance():
+    import pandas as pd
+
+    empty_yf = SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=lambda **kw: pd.DataFrame()))
+    with patch.object(market_data, "yf", empty_yf):
+        assert market_data.fetch_ohlc("AAPL", "1D", use_cache=False) is None
+
+    def boom(**kw):
+        raise RuntimeError("network")
+
+    err_yf = SimpleNamespace(Ticker=lambda t: SimpleNamespace(history=boom))
+    with patch.object(market_data, "yf", err_yf):
+        assert market_data.fetch_ohlc("AAPL", "1D", use_cache=False) is None
+
+    with patch.object(market_data, "yf", None):
+        assert market_data.fetch_ohlc("AAPL", "1D", use_cache=False) is None
+
+
 def test_intraday_chart_builds_figure():
     from src.charts import plotly_charts as charts
 

@@ -423,6 +423,12 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Type a symbol and press Add; crypto shorthand like BTC becomes BTC-USD automatically. Each row shows the latest price and today's change, green when up and red when down. Click the ✕ (or right-click) to remove a row, and the column headers to sort. It refreshes on its own about once a minute while this screen is open, or immediately with Refresh.",
         "why": "It lets you keep an eye on tickers you're considering or already follow without adding them to a portfolio or running a full analysis. The quotes are fetched independently, so nothing here touches your saved portfolios or results.",
     },
+    "price_chart": {
+        "title": "Price Chart",
+        "what": "A TradingView-style candlestick chart of the selected symbol, with a volume histogram and switchable timeframes (1D through 5Y).",
+        "how": "Each candle is one period: the body spans open-to-close (green up, red down) and the wicks the high/low. Use the timeframe buttons to zoom from intraday minutes out to multi-year weekly bars; on intraday, the dotted line marks the previous close.",
+        "why": "Candlesticks show not just where price ended but how it got there — the intraday range, momentum, and where buyers or sellers took control — which a single line hides.",
+    },
     "day_change_heatmap": {
         "title": "Day-Change Heatmap",
         "what": "A tiled grid of your symbols shaded by today's percentage move — green for gains, red for losses, brighter with bigger moves.",

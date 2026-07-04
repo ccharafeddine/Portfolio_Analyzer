@@ -812,3 +812,55 @@ def fetch_intraday(ticker: str, use_cache: bool = True):
 CACHE_TTL_INTRADAY = 60  # seconds
 # symbol -> (monotonic_ts, DataFrame)
 _INTRADAY_CACHE: dict[str, tuple[float, object]] = {}
+
+
+# ── Multi-timeframe OHLC (TradingView-style price chart) ──────────
+# The Live Market Watch price chart offers TradingView-style timeframe buttons.
+# Each maps to a yfinance (period, interval) pair. Sub-daily intervals are capped
+# by yfinance to short lookbacks (1m<=7d, 5m/30m<=60d), which the periods respect.
+OHLC_TIMEFRAMES: dict[str, tuple[str, str]] = {
+    "1D": ("1d", "1m"),
+    "5D": ("5d", "5m"),
+    "1M": ("1mo", "30m"),
+    "6M": ("6mo", "1d"),
+    "1Y": ("1y", "1d"),
+    "5Y": ("5y", "1wk"),
+}
+DEFAULT_TIMEFRAME = "1D"
+# A timeframe is "intraday" (sub-daily bars → timestamped x-axis) vs daily+.
+INTRADAY_TIMEFRAMES = {"1D", "5D", "1M"}
+
+CACHE_TTL_OHLC = 30  # seconds — dedupe rapid selection/timeframe clicks
+# (symbol, timeframe) -> (monotonic_ts, DataFrame)
+_OHLC_CACHE: dict[tuple[str, str], tuple[float, object]] = {}
+
+
+def fetch_ohlc(ticker: str, timeframe: str = DEFAULT_TIMEFRAME, use_cache: bool = True):
+    """Return an OHLCV frame for one ticker at a TradingView-style ``timeframe``
+    (one of :data:`OHLC_TIMEFRAMES`), or ``None``.
+
+    Best-effort and Qt-free: any failure (no data, network, delisted, unknown
+    timeframe) returns ``None`` so the chart just stays blank. A short in-memory
+    TTL cache dedupes the bursts from rapid row / timeframe clicks. Powers the
+    Live Market Watch candlestick chart (fed OHLCV, not just a close line).
+    """
+    sym = str(ticker or "").strip().upper()
+    tf = timeframe if timeframe in OHLC_TIMEFRAMES else DEFAULT_TIMEFRAME
+    if not sym or yf is None:
+        return None
+
+    key = (sym, tf)
+    if use_cache:
+        hit = _OHLC_CACHE.get(key)
+        if hit and (time.monotonic() - hit[0]) < CACHE_TTL_OHLC:
+            return hit[1]
+
+    period, interval = OHLC_TIMEFRAMES[tf]
+    try:
+        df = yf.Ticker(sym).history(period=period, interval=interval)
+    except Exception:
+        return None
+    if df is None or getattr(df, "empty", True):
+        return None
+    _OHLC_CACHE[key] = (time.monotonic(), df)
+    return df

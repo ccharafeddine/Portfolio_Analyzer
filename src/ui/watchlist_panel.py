@@ -78,30 +78,30 @@ class WatchlistPanel(QWidget):
         root.setContentsMargins(0, 8, 0, 0)
         root.setSpacing(8)
 
-        # ── Header: title + help, then add box + refresh ──
-        head = QHBoxLayout()
-        head.setSpacing(8)
-        self._title = QLabel("Watchlist")
-        head.addWidget(self._title)
-        head.addWidget(InfoLabel(tooltip_html("watchlist")))
-        head.addStretch(1)
+        # ── Add controls: input + Add + Refresh, sitting directly above the table
+        # (top-left, over the Symbol/Last/Chg% columns), with the help "?" at the
+        # far right of the row. ──
         self._input = QLineEdit()
         self._input.setPlaceholderText("Add symbol (e.g. NVDA, BTC)")
-        self._input.setMaximumWidth(220)
+        self._input.setMaximumWidth(240)
         self._input.setClearButtonEnabled(True)
         self._input.returnPressed.connect(self._on_add)
-        head.addWidget(self._input)
         self._add_btn = QPushButton("Add")
         self._add_btn.setObjectName("secondary")
         self._add_btn.setCursor(Qt.PointingHandCursor)
         self._add_btn.clicked.connect(self._on_add)
-        head.addWidget(self._add_btn)
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.setObjectName("secondary")
         self._refresh_btn.setCursor(Qt.PointingHandCursor)
         self._refresh_btn.clicked.connect(lambda: self._poll(force=True))
-        head.addWidget(self._refresh_btn)
-        root.addLayout(head)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        controls.addWidget(self._input)
+        controls.addWidget(self._add_btn)
+        controls.addWidget(self._refresh_btn)
+        controls.addStretch(1)
+        controls.addWidget(InfoLabel(tooltip_html("watchlist")))
 
         # ── Inline, non-blocking notice (hidden until an add is rejected) ──
         self._notice = QLabel("")
@@ -109,7 +109,6 @@ class WatchlistPanel(QWidget):
         self._notice_timer = QTimer(self)
         self._notice_timer.setSingleShot(True)
         self._notice_timer.timeout.connect(lambda: self._notice.setVisible(False))
-        root.addWidget(self._notice)
 
         # ── Table ──
         self._table = QTableWidget(0, len(_COLUMNS))
@@ -128,10 +127,20 @@ class WatchlistPanel(QWidget):
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_menu)
 
-        # ── Chart + heatmap on the right, mirroring the Portfolio tab ──
-        self._chart = ChartHeatmapPanel()
+        # ── Left column: add controls + notice + table, stacked ──
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.setSpacing(8)
+        lv.addLayout(controls)
+        lv.addWidget(self._notice)
+        lv.addWidget(self._table, 1)
+
+        # ── Cockpit on the right, mirroring the Portfolio tab. Watchlist symbols
+        # aren't weighted, so its heatmap is the equal-tile grid. ──
+        self._chart = ChartHeatmapPanel(heatmap_style="grid")
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._table)
+        splitter.addWidget(left)
         splitter.addWidget(self._chart)
         splitter.setStretchFactor(0, 5)
         splitter.setStretchFactor(1, 4)
@@ -183,8 +192,8 @@ class WatchlistPanel(QWidget):
             return
         if col == _REMOVE_COL:
             self._remove(item.text())
-        else:  # any other cell charts that symbol's intraday
-            self._chart.load_intraday(item.text())
+        else:  # any other cell charts that symbol + loads its news
+            self._chart.load_symbol(item.text())
 
     def _on_menu(self, pos) -> None:
         item = self._table.itemAt(pos)
@@ -315,9 +324,6 @@ class WatchlistPanel(QWidget):
     # ── Theming ──
     def retheme(self) -> None:
         t = theme.ACTIVE
-        self._title.setStyleSheet(
-            f"color:{t.text};font-size:{t.heading_pt}px;font-weight:700;"
-        )
         self._notice.setStyleSheet(
             f"color:{t.red};font-size:{t.base_pt - 1}px;background:transparent;"
         )

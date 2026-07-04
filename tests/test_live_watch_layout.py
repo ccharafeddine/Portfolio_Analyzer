@@ -27,9 +27,11 @@ except Exception as exc:  # pragma: no cover - headless runner without libEGL
     pytest.skip(f"Qt unavailable: {exc}", allow_module_level=True)
 
 from src.ui.live_watch_view import (  # noqa: E402  (must follow the QApplication guard)
-    PANEL_DAYCHANGE,
-    PANEL_PRICE,
-    PANEL_TREEMAP,
+    _KEY_H_SPLIT,
+    _KEY_V_SPLIT,
+    PANEL_CHART,
+    PANEL_HEATMAP,
+    PANEL_NEWS,
     PANEL_WATCHLIST,
     LiveWatchView,
 )
@@ -53,27 +55,27 @@ def test_panel_visibility_round_trips(tmp_path):
 
     v1 = _build(settings)
     # Toggle a distinctive mixed pattern (some off, some on).
-    v1.set_panel_visible(PANEL_PRICE, False)
-    v1.set_panel_visible(PANEL_TREEMAP, True)
-    v1.set_panel_visible(PANEL_DAYCHANGE, False)
+    v1.set_panel_visible(PANEL_CHART, False)
+    v1.set_panel_visible(PANEL_NEWS, True)
+    v1.set_panel_visible(PANEL_HEATMAP, False)
     v1.set_panel_visible(PANEL_WATCHLIST, False)
     v1.shutdown()  # persists
 
     # A freshly built view over the same settings restores the exact pattern.
     v2 = _build(settings)
-    assert v2.panel_visible(PANEL_PRICE) is False
-    assert v2.panel_visible(PANEL_TREEMAP) is True
-    assert v2.panel_visible(PANEL_DAYCHANGE) is False
+    assert v2.panel_visible(PANEL_CHART) is False
+    assert v2.panel_visible(PANEL_NEWS) is True
+    assert v2.panel_visible(PANEL_HEATMAP) is False
     assert v2.panel_visible(PANEL_WATCHLIST) is False
 
     # ...and it actually applied to the widgets, not just the tracking dict.
-    assert v2._chart._price_box.isHidden() is True
-    assert v2._chart._daychange_box.isHidden() is True
-    assert v2._chart._treemap.isHidden() is False
+    assert v2._chart._chart_box.isHidden() is True
+    assert v2._chart._heatmap_box.isHidden() is True
+    assert v2._chart._news.isHidden() is False
     assert v2._tabs.isTabVisible(v2._watchlist_tab_index) is False
     # The menu actions reflect the restored state too.
-    assert v2._panel_actions[PANEL_PRICE].isChecked() is False
-    assert v2._panel_actions[PANEL_TREEMAP].isChecked() is True
+    assert v2._panel_actions[PANEL_CHART].isChecked() is False
+    assert v2._panel_actions[PANEL_NEWS].isChecked() is True
     v2.shutdown()
 
 
@@ -86,14 +88,27 @@ def test_splitter_geometry_round_trips(tmp_path):
     v1._save_layout()
     saved_h = bytes(v1._h_splitter.saveState())
     saved_v = bytes(v1._chart.splitter().saveState())
+    sizes_h = v1._h_splitter.sizes()
+    sizes_v = v1._chart.splitter().sizes()
     v1.shutdown()
 
+    # Write side: settings holds exactly the QByteArray v1 serialized.
+    assert bytes(settings.get(_KEY_H_SPLIT)) == saved_h
+    assert bytes(settings.get(_KEY_V_SPLIT)) == saved_v
+
+    # Read side: a fresh view restores that geometry from settings. (Offscreen,
+    # an unshown splitter clamps to min sizes rather than preserving the exact
+    # pixel ratio, so we assert the restored sizes match the saved view and are
+    # non-default — which a never-saved view is not.)
     v2 = _build(settings)
-    # restoreState -> saveState reproduces identical bytes for the same child
-    # count, proving the geometry was restored from settings.
-    assert bytes(v2._h_splitter.saveState()) == saved_h
-    assert bytes(v2._chart.splitter().saveState()) == saved_v
+    assert v2._h_splitter.sizes() == sizes_h
+    assert v2._chart.splitter().sizes() == sizes_v
+
+    fresh = _build(AppSettings(
+        QtCore.QSettings(str(tmp_path / "fresh.ini"), QtCore.QSettings.IniFormat)))
+    assert fresh._h_splitter.sizes() != sizes_h  # unsaved default differs
     v2.shutdown()
+    fresh.shutdown()
 
 
 def test_smoke_toggle_each_panel_off_then_on(tmp_path):
@@ -102,7 +117,7 @@ def test_smoke_toggle_each_panel_off_then_on(tmp_path):
     settings = _settings(tmp_path)
 
     v1 = _build(settings)
-    keys = [PANEL_PRICE, PANEL_TREEMAP, PANEL_DAYCHANGE, PANEL_WATCHLIST]
+    keys = [PANEL_CHART, PANEL_NEWS, PANEL_HEATMAP, PANEL_WATCHLIST]
     for k in keys:  # off
         v1.set_panel_visible(k, False)
         assert v1.panel_visible(k) is False
@@ -110,15 +125,15 @@ def test_smoke_toggle_each_panel_off_then_on(tmp_path):
         v1.set_panel_visible(k, True)
         assert v1.panel_visible(k) is True
     # Leave one off to make the restored state non-trivial, and resize a splitter.
-    v1.set_panel_visible(PANEL_DAYCHANGE, False)
+    v1.set_panel_visible(PANEL_HEATMAP, False)
     v1._h_splitter.setSizes([400, 600])
     v1._save_layout()
-    saved_h = bytes(v1._h_splitter.saveState())
+    sizes_h = v1._h_splitter.sizes()
     v1.shutdown()
 
     v2 = _build(settings)
-    assert v2.panel_visible(PANEL_DAYCHANGE) is False
-    assert v2.panel_visible(PANEL_PRICE) is True
+    assert v2.panel_visible(PANEL_HEATMAP) is False
+    assert v2.panel_visible(PANEL_CHART) is True
     assert v2.panel_visible(PANEL_WATCHLIST) is True
-    assert bytes(v2._h_splitter.saveState()) == saved_h
+    assert v2._h_splitter.sizes() == sizes_h
     v2.shutdown()

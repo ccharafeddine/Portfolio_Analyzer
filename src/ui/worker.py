@@ -234,9 +234,35 @@ class WatchlistWorker(QObject):
             self.failed.emit(str(e))
 
 
-class IntradayWorker(QObject):
-    """Fetches one ticker's 1-minute intraday frame off the UI thread for the
-    Live Market Watch click-through chart. Emits ``done((ticker, DataFrame|None))``."""
+class OhlcWorker(QObject):
+    """Fetches one ticker's OHLCV frame at a TradingView-style timeframe off the
+    UI thread for the Live Market Watch candlestick chart. Emits
+    ``done((ticker, timeframe, DataFrame|None))`` so a stale reply can be matched
+    against the currently-selected symbol + timeframe and dropped."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, ticker: str, timeframe: str) -> None:
+        super().__init__()
+        self._ticker = str(ticker or "")
+        self._timeframe = str(timeframe or "")
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import market_data
+
+            df = market_data.fetch_ohlc(self._ticker, self._timeframe)
+            self.done.emit((self._ticker, self._timeframe, df))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+class SymbolNewsWorker(QObject):
+    """Fetches recent news for a single symbol off the UI thread for the Live
+    Market Watch news panel. Emits ``done((ticker, list[NewsItem]))``; never
+    raises (a failed fetch yields an empty list)."""
 
     done = Signal(object)
     failed = Signal(str)
@@ -250,7 +276,12 @@ class IntradayWorker(QObject):
         try:
             from src.data import market_data
 
-            self.done.emit((self._ticker, market_data.fetch_intraday(self._ticker)))
+            from . import settings
+
+            av_key = settings.get_api_key("ALPHAVANTAGE_API_KEY")
+            items = market_data.fetch_ticker_news([self._ticker], av_key=av_key,
+                                                  per_ticker=12, total_cap=12)
+            self.done.emit((self._ticker, items))
         except Exception as e:
             self.failed.emit(str(e))
 

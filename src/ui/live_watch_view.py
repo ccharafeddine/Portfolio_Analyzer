@@ -47,9 +47,9 @@ from .quote_format import fmt_signed as _fmt_signed
 from .quote_format import fmt_volume as _fmt_volume
 from .settings import AppSettings
 from .widgets.chart_heatmap_panel import (
-    PANEL_DAYCHANGE,
-    PANEL_PRICE,
-    PANEL_TREEMAP,
+    PANEL_CHART,
+    PANEL_HEATMAP,
+    PANEL_NEWS,
     ChartHeatmapPanel,
 )
 
@@ -63,9 +63,9 @@ _COLUMNS = ["Ticker", "Last", "Chg", "Chg %", "Day Range", "Volume", "Weight"]
 # ChartHeatmapPanel; "watchlist" toggles the Watchlist tab's visibility.
 PANEL_WATCHLIST = "watchlist"
 _PANELS = [
-    (PANEL_PRICE, "Price chart", True),
-    (PANEL_TREEMAP, "Holdings treemap", True),
-    (PANEL_DAYCHANGE, "Day-change heatmap", True),
+    (PANEL_CHART, "Price chart", True),
+    (PANEL_NEWS, "News", True),
+    (PANEL_HEATMAP, "Heatmap", True),
     (PANEL_WATCHLIST, "Watchlist tab", True),
 ]
 
@@ -199,7 +199,8 @@ class LiveWatchView(QWidget):
         self._table.customContextMenuRequested.connect(self._on_table_menu)
 
         # Body: quotes table (left) | charts cockpit (right), user-resizable.
-        self._chart = ChartHeatmapPanel()
+        # Portfolio holdings are weighted, so its heatmap is the weight-sized treemap.
+        self._chart = ChartHeatmapPanel(heatmap_style="treemap")
         self._h_splitter = QSplitter(Qt.Horizontal)
         self._h_splitter.addWidget(self._table)
         self._h_splitter.addWidget(self._chart)
@@ -446,7 +447,7 @@ class LiveWatchView(QWidget):
     def _on_cell_clicked(self, row: int, _col: int) -> None:
         item = self._table.item(row, 0)
         if item is not None:
-            self._chart.load_intraday(item.text())
+            self._chart.load_symbol(item.text())
 
     def _on_table_menu(self, pos) -> None:
         from PySide6.QtWidgets import QMenu
@@ -455,8 +456,8 @@ class LiveWatchView(QWidget):
         item = self._table.itemAt(pos)
         if item is not None:
             sym = self._table.item(item.row(), 0).text()
-            menu.addAction(f"Intraday chart · {sym}",
-                           lambda: self._chart.load_intraday(sym))
+            menu.addAction(f"Chart · {sym}",
+                           lambda: self._chart.load_symbol(sym))
         menu.addAction("Set cost basis…", self.costBasisEditRequested.emit)
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
