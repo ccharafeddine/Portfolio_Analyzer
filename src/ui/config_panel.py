@@ -156,8 +156,9 @@ class ConfigPanel(QScrollArea):
         date_form.setLabelAlignment(Qt.AlignLeft)
         date_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         date_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        self.start_date = QDateEdit(QDate(2020, 1, 1))
-        # End date defaults to today so a fresh analysis runs through the present.
+        # Default range = the trailing 5 years (today − 5y → today), so a fresh
+        # analysis covers a sensible recent window out of the box.
+        self.start_date = QDateEdit(QDate.currentDate().addYears(-5))
         self.end_date = QDateEdit(QDate.currentDate())
         for de in (self.start_date, self.end_date):
             de.setCalendarPopup(True)
