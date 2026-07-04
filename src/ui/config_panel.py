@@ -154,6 +154,23 @@ class ConfigPanel(QScrollArea):
         self.weights_form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         wl.addLayout(self.weights_form)
 
+        # Cash held alongside the stocks (shares mode only). Kept separate from the
+        # invested Capital; total account value = Capital + Cash.
+        self.cash_container = QWidget()
+        cash_row = QHBoxLayout(self.cash_container)
+        cash_row.setContentsMargins(0, 4, 0, 0)
+        cash_row.addWidget(QLabel("Cash"))
+        self.cash_input = QDoubleSpinBox()
+        self.cash_input.setRange(0.0, 1_000_000_000.0)
+        self.cash_input.setDecimals(0)
+        self.cash_input.setSingleStep(1_000)
+        self.cash_input.setGroupSeparatorShown(True)
+        self.cash_input.setPrefix("$ ")
+        self.cash_input.valueChanged.connect(self._update_sum)
+        cash_row.addWidget(self.cash_input, 1)
+        self.cash_container.setVisible(False)
+        wl.addWidget(self.cash_container)
+
         sync_row = QHBoxLayout()
         self.sync_btn = QPushButton("Calculate weights")
         self.sync_btn.setObjectName("secondary")
@@ -465,9 +482,10 @@ class ConfigPanel(QScrollArea):
         self._update_alloc_ui()
 
     def _update_alloc_ui(self) -> None:
-        # The button only exists in shares mode now (weights rows auto-sync).
+        # The button + cash field only exist in shares mode (weights rows auto-sync).
         shares = self._alloc_is_shares()
         self.sync_btn.setVisible(shares)
+        self.cash_container.setVisible(shares)
         self.sync_btn.setText("Calculate weights")
         self.sync_btn.setToolTip(
             "Fetch current prices, set Capital = shares × price, and derive the weights"
@@ -522,8 +540,15 @@ class ConfigPanel(QScrollArea):
         t = theme.ACTIVE
         if self._alloc_is_shares():
             if self._derived_weights:
+                cap = self.capital.value()
+                cash = self.cash_input.value()
                 self.sum_label.setStyleSheet(f"color: {t.green}; font-size: 12px;")
-                self.sum_label.setText(f"Capital ${self.capital.value():,.0f} · weights set")
+                if cash > 0:
+                    self.sum_label.setText(
+                        f"Capital ${cap:,.0f} + Cash ${cash:,.0f} = ${cap + cash:,.0f}"
+                    )
+                else:
+                    self.sum_label.setText(f"Capital ${cap:,.0f} · weights set")
             else:
                 self.sum_label.setStyleSheet(f"color: {t.text_muted}; font-size: 12px;")
                 self.sum_label.setText("also sets Capital from prices")
@@ -576,8 +601,12 @@ class ConfigPanel(QScrollArea):
             return
         self._derived_weights = weights
         self.capital.setValue(round(capital))
+        cash = self.cash_input.value()
         missing = [t for t in self._calc_shares if t not in prices]
-        msg = f"Capital ${capital:,.0f} · weights set"
+        if cash > 0:
+            msg = f"Capital ${capital:,.0f} + Cash ${cash:,.0f} = ${capital + cash:,.0f}"
+        else:
+            msg = f"Capital ${capital:,.0f} · weights set"
         if missing:
             msg += f" · no price: {', '.join(missing)}"
         self.sum_label.setStyleSheet(f"color: {theme.ACTIVE.green}; font-size: 12px;")
@@ -748,6 +777,7 @@ class ConfigPanel(QScrollArea):
         self.start_date.setDate(QDate(c.start_date.year, c.start_date.month, c.start_date.day))
         self.end_date.setDate(QDate(c.end_date.year, c.end_date.month, c.end_date.day))
         self.capital.setValue(float(c.capital))
+        self.cash_input.setValue(float(getattr(c, "cash", 0.0) or 0.0))
         self.set_risk_free_rate(float(c.risk_free_rate))
 
         # Allocation: shares mode if the config carries share counts; else weights
@@ -882,6 +912,7 @@ class ConfigPanel(QScrollArea):
             start_date=self.start_date.date().toPython(),
             end_date=self.end_date.date().toPython(),
             capital=float(self.capital.value()),
+            cash=float(self.cash_input.value()) if self._alloc_is_shares() else 0.0,
             risk_free_rate=float(self.rf_rate.value()),
             short_sales=self.allow_shorts.isChecked(),
             max_weight_bound=float(self.max_bound.value()),

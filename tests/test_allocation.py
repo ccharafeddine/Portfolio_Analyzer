@@ -71,3 +71,20 @@ def test_config_without_shares_still_valid():
     data = _cfg().model_dump(mode="json")
     data.pop("shares", None)
     assert PortfolioConfig.model_validate(data).shares == {}
+
+
+def test_config_cash_defaults_zero_and_roundtrips():
+    assert _cfg().cash == 0.0
+    c = _cfg(cash=10_000.0)
+    assert c.cash == 10_000.0
+    reloaded = PortfolioConfig.model_validate(c.model_dump(mode="json"))
+    assert reloaded.cash == 10_000.0
+    # Older files without a cash key still load.
+    data = _cfg().model_dump(mode="json")
+    data.pop("cash", None)
+    assert PortfolioConfig.model_validate(data).cash == 0.0
+
+
+def test_config_cash_cannot_be_negative():
+    with pytest.raises(Exception):
+        _cfg(cash=-5.0)

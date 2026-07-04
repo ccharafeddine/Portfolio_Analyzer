@@ -122,7 +122,11 @@ class PortfolioConfig(BaseModel):
     end_date: date
 
     # ── Capital & risk ──
-    capital: float = Field(1_000_000.0, gt=0)
+    capital: float = Field(1_000_000.0, gt=0)  # invested (risky) value — Σ shares×price
+    # Cash held alongside the risky portfolio. Recorded for total account value /
+    # P&L; the risk-return analysis runs on the risky ``weights`` (cash as a
+    # first-class holding is a roadmap item). Total account value = capital + cash.
+    cash: float = Field(0.0, ge=0.0)
     risk_free_rate: float = Field(0.04, ge=0.0, le=0.25)
 
     # ── Optimization constraints ──

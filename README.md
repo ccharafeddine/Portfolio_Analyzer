@@ -47,9 +47,12 @@ Every result is paired with a plain-English explanation, so the app is usable by
 - **Retirement / withdrawal planning** — Monte Carlo with contributions, withdrawals, inflation, a goal target, and a solved safe-withdrawal rate.
 - **Compare Portfolios** — a separate in-app section (menubar → Compare Portfolios) that runs a fast comparison of 2–6 saved portfolios (plus the current one) side by side: overlaid growth/drawdown, a return/risk metrics table, return correlation, allocation/concentration, and holdings overlap.
 - **Live News & Macro** — per-holding headlines (free via yfinance, no key needed), enriched with sentiment when an Alpha Vantage key is added. A FRED key reveals a Macro tab (Treasury curve + key rates) and auto-tracks the live 3-month T-bill as the risk-free rate for the next run. Optional API keys are entered in Settings and stored locally.
+- **Live Market Watch** — an always-on ticker strip across the bottom of the window plus a dedicated cockpit (Run → Live Market Watch, or the button by the metric strip): a live quotes table, portfolio day P&L and unrealized P&L vs. cost basis, a click-through intraday chart, and a holdings treemap. Quotes are yfinance-**delayed** by default; a Finnhub / Polygon / Alpaca key upgrades them to real-time.
+- **Price alerts** — get a desktop notification when a holding crosses a price threshold (Settings → Price Alerts…).
+- **Real portfolios by shares** — enter your actual holdings as share counts (and a cash balance); the app fetches prices to set Capital and derive weights. Or set cost basis inline from Live Market Watch.
 - **Client-ready reports** — HTML, PDF, and a polished dark PowerPoint deck, each with proper disclosures. Plus a complete CSV data pack with a README manifest.
 - **Explain-everything UX** — a circled "?" beside every chart and section title reveals what it is, how to read it, and why it matters; a Beginner mode expands these into inline plain-English blurbs.
-- **Three switchable themes** — Bloomberg Terminal (default), Modern Institutional, and Minimal Premium — plus an adjustable UI scale.
+- **Switchable themes** — Bloomberg Terminal (default), Modern Institutional, Minimal Premium, three aesthetic themes (Frutiger Aero, Corporate Synthwave, Superflat Pop), a genuine light theme (Daylight), and High Contrast (Light/Dark) — plus an adjustable UI scale.
 
 ---
 
@@ -57,7 +60,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 
 | Category | Capabilities |
 |----------|-------------|
-| **Portfolio Construction** | Active (custom weights), Passive (benchmark), ORP (Max-Sharpe), HRP (Hierarchical Risk Parity), Rebalanced, Complete (ORP + risk-free blend) |
+| **Portfolio Construction** | Active (custom weights **or share counts + cash**, priced live into weights & capital), Passive (benchmark), ORP (Max-Sharpe), HRP (Hierarchical Risk Parity), Rebalanced, Complete (ORP + risk-free blend) |
 | **Backtest Engine** | Inception-aware series builder (rescale or cash modes for staggered start dates), calendar + asset-entry rebalancing, per-trade transaction costs, coverage timeline, full trade log |
 | **Optimization** | Mean-variance efficient frontier, Capital Allocation Line, Max-Sharpe portfolio, HRP clustering + dendrogram, concentration metrics |
 | **Performance Measurement** | Up/down capture, capture ratio, batting average, tracking error, information ratio, rolling alpha/beta, dual-window (max vs common) return/risk summary |
@@ -68,9 +71,10 @@ Every result is paired with a plain-English explanation, so the app is usable by
 | **Forecasting & Planning** | Parametric and bootstrap Monte Carlo (fan charts, probability of loss); retirement/withdrawal plan with contributions, withdrawals, inflation, goal funding, and safe-withdrawal-rate search |
 | **Fundamentals** | Per-holding valuation, profitability, growth, balance-sheet health, dividends, and upcoming earnings/ex-dividend dates (yfinance; FMP DCF fair value when keyed) |
 | **Market Context** | Per-holding news (yfinance baseline, no key; Alpha Vantage sentiment when keyed), FRED Treasury curve + key rates, on-demand Refresh and auto-refresh each run |
+| **Live Market Watch** | Always-on ticker strip, live quotes table, portfolio day P&L + unrealized P&L vs. cost basis (with cash), click-through intraday chart, holdings treemap, price alerts (desktop notifications); yfinance-delayed by default, real-time via Finnhub / Polygon / Alpaca key |
 | **Reports** | Automated interpretation engine, standalone HTML report, PDF report (reportlab), client-facing PowerPoint deck (python-pptx + kaleido), each with disclosures |
 | **Data Export** | ~22 CSV files + `summary.json` + a `README.txt` manifest, individually or as a ZIP |
-| **UI/UX** | 8-tab native app, 29 Plotly chart types, 3 themes, collapsible animated sections, collapsible config sidebar, adjustable scale, hover explanations, Beginner mode |
+| **UI/UX** | 11-tab native app, always-on ticker strip, 30+ Plotly chart types, 9 themes (incl. light + high-contrast), collapsible animated sections, collapsible config sidebar (app brand in it), adjustable scale, hover explanations, Beginner mode |
 
 ---
 
@@ -324,10 +328,11 @@ Configuration happens in the sidebar; the UI builds a validated `PortfolioConfig
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | Tickers | AAPL, MSFT, NVDA, GLD, TLT | Any valid Yahoo Finance symbols |
-| Weights | Equal (1/N) | Per-ticker or equal-weight |
+| Allocation | Equal (1/N) | Uncheck **Equal weights** to enter **by Weights** (target fractions) or **by Shares** (share counts). "Calculate weights" prices your shares to set Capital and derive weights |
+| Cash | $0 | Cash held alongside the stocks (shares mode). Recorded for total account value + P&L; the risk/return analysis runs on the stock weights (cash-as-a-holding is on the roadmap) |
 | Benchmark | SPY | Single ticker for passive comparison |
-| Start / End Date | analysis period | Historical window |
-| Capital | $1,000,000 | Starting investment |
+| Start / End Date | trailing 5 years (today − 5y → today) | Historical window; a "Today" button snaps End to the current date |
+| Capital | $1,000,000 | Invested (risky) value. Set automatically from shares × price in shares mode |
 | Risk-Free Rate | 4.0% | For Sharpe, CAPM, Complete portfolio. Auto-tracks the live 3-month T-bill yield after a run when a FRED key is set |
 | Inception Mode | Rescale | How staggered start dates are handled (rescale weights vs hold cash) |
 | Rebalance Frequency | None | Calendar rebalancing cadence |
@@ -339,15 +344,16 @@ Configuration happens in the sidebar; the UI builds a validated `PortfolioConfig
 
 Tax and Planning are enabled by default; unchecking either removes its analysis (and its report sections) entirely.
 
-### Optional API keys (Settings → Preferences…)
+### Optional API keys (Settings → API Keys…)
 
-All optional and stored locally (via `QSettings`, or a `.env`/env var). The app is fully functional without them.
+All optional and stored locally (via `QSettings`, or a `.env`/env var). The app is fully functional without them. Keys are gitignored and never leave the machine except in HTTPS requests to their own provider.
 
 | Key | Unlocks |
 |-----|---------|
 | FRED | Reveals the **Macro** tab: Treasury yield curve + macro rates (free from the St. Louis Fed) |
 | Alpha Vantage | Additional news articles + per-article sentiment on the **News** tab (yfinance headlines work without it) |
 | FMP | DCF fair-value estimate on the **Fundamentals** tab (yfinance fundamentals work without it) |
+| Finnhub / Polygon / Alpaca | Real-time quotes in Live Market Watch + the ticker strip (yfinance-delayed without a key; priority Finnhub → Polygon → Alpaca) |
 
 ---
 
@@ -480,8 +486,11 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 
 **UX**
 - [x] App brand (logo + name) moved into the config sidebar — folds away when the sidebar collapses — so the analysis workspace stays clean.
+- [x] Enter holdings by **share count** (+ cash) and price them into weights & capital; default date range is the trailing 5 years; set cost basis inline from Live Market Watch.
 
 ### Planned
+
+**Cash as a first-class holding** — today a cash balance is recorded for total account value and P&L, but the risk/return analysis runs on the stock weights only. Model cash as a synthetic risk-free holding so it appears in allocation charts and properly dilutes portfolio risk/return (the honest "cash drag").
 
 **Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, standalone watchlists independent of the loaded portfolio, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
 

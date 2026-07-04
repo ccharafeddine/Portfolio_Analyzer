@@ -86,6 +86,7 @@ class LiveWatchView(QWidget):
         self._weights: dict[str, float] = {}
         self._cost_basis: dict[str, float] = {}
         self._capital: float = 0.0
+        self._cash: float = 0.0
         self._quotes: dict = {}
 
         # Intraday click-through chart state (self-managed background fetch).
@@ -219,6 +220,7 @@ class LiveWatchView(QWidget):
         self._weights = dict(getattr(config, "weights", {}) or {})
         self._cost_basis = dict(getattr(config, "cost_basis", {}) or {})
         self._capital = float(getattr(config, "capital", 0.0) or 0.0)
+        self._cash = float(getattr(config, "cash", 0.0) or 0.0)
 
     def tickers(self) -> list[str]:
         return list(self._tickers)
@@ -423,6 +425,11 @@ class LiveWatchView(QWidget):
             shares = invested / cb
             mv += shares * last
             cost += invested
+        # Cash held alongside the stocks: adds to both value and cost (no gain), so
+        # the total market value is complete and the unrealized % reflects cash drag.
+        if self._cash:
+            mv += self._cash
+            cost += self._cash
         return mv, cost
 
     def _money(self, v) -> str:
