@@ -435,7 +435,6 @@ The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` 
 - **Style factor tilts are return-based proxies**; the Attribution tab also shows true Fama-French factor loadings (FF3 / Carhart 4 / FF5) regressed against the Ken French daily factors when reachable.
 - **Monte Carlo assumes i.i.d. (parametric) or stationary (bootstrap) returns**, neither of which captures regime changes or structural breaks. Retirement projections recenter the mean to an expected-return assumption to reduce look-ahead bias, but remain illustrative.
 - **Reports require kaleido for embedded chart images.** It is included in `requirements-desktop.txt`; without it, reports still generate with all text and tables (the PowerPoint's charts, however, depend on it).
-```
 
 ---
 
