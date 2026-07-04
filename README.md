@@ -355,6 +355,17 @@ All optional and stored locally (via `QSettings`, or a `.env`/env var). The app 
 | FMP | DCF fair-value estimate on the **Fundamentals** tab (yfinance fundamentals work without it) |
 | Finnhub / Polygon / Alpaca | Real-time quotes in Live Market Watch + the ticker strip (yfinance-delayed without a key; priority Finnhub → Polygon → Alpaca) |
 
+### Scheduled reports & the daily morning report (Settings → Scheduled Reports…)
+
+Two independent features live here:
+
+- **Daily Morning Report** — a light **Morning Brief** (weighted day change, day P&L, per-holding moves, today's earnings / ex-dividend dates, and latest news) for your chosen portfolio, delivered every morning at a time you pick (default **07:00 local**). It fires while the app is running and **catches up on the next launch** if a day was missed. Delivery is a **desktop notification** (click it to open the brief) and, optionally, **email** with the full analytical report attached.
+- **Batch reports** — generate the full analytical report (PDF / HTML) for *all* saved portfolios on an interval while the app runs, or via a one-line command you paste into Windows Task Scheduler / cron to run even when the app is closed.
+
+**Email setup:** tick **Email it (SMTP)**, pick your **Provider** — Gmail, Outlook / Office 365, iCloud, or Yahoo (or **Custom**) — to auto-fill the server, port, and TLS mode, then enter your email address and recipient(s) and hit **Send test email**.
+
+> Most providers require an **app password**, not your normal login password (e.g. Google Account → Security → 2-Step Verification → App passwords). The password is stored in your **OS keychain** (Windows Credential Locker / macOS Keychain) — never in the app's settings, a `.env`, or on disk.
+
 ---
 
 ## Testing
@@ -479,9 +490,18 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
   - [x] Live portfolio header — weighted day change, day P&L, and market value + unrealized P&L vs. cost basis.
   - [x] Set cost basis inline — the "set cost basis" link or a row's right-click menu; updates live P&L, offers to save the portfolio, and re-runs the analysis.
   - [x] Refresh controls (15 / 30 / 60s / off + manual) and an "as of … · delayed/real-time" stamp.
-  - [x] Intraday chart on row-click (1-day / 1-minute) and a holdings treemap sized by weight, shaded by day change.
+- [x] **Persistent Watchlist** — a second tab: a user-curated symbol list (add / remove / sort, crypto shorthand like `BTC` → `BTC-USD`), saved across sessions and fully decoupled from the analyzed portfolio.
+- [x] **Configurable panel dashboard** — the right-hand cockpit is a resizable, nested-splitter layout whose panels toggle via a **Panels ▾** menu and whose geometry + visibility persist. Panels: price chart, per-symbol news, and a day-change heatmap (a weight-sized **treemap** on the Portfolio tab, an equal-tile **grid** on the Watchlist).
+- [x] **TradingView-style price chart** — candlesticks + volume + crosshair with switchable timeframes (1D / 5D / 1M / 6M / 1Y / 5Y), powered by the vendored, offline TradingView **Lightweight Charts** library and driven by the selected symbol.
+- [x] **Per-symbol news panel** — recent headlines (publisher, time, sentiment) for whichever symbol the chart is showing; click to open the article.
 - [x] **Price alerts** — above/below a threshold, edge-triggered (fires once per crossing), delivered as a desktop notification. Manage via Settings → Price Alerts… or the Alerts… button; alerts fire even for tickers outside the loaded portfolio.
 - [x] **Real-time provider slots** — Finnhub / Polygon / Alpaca keys in the **API Keys** dialog (priority finnhub > polygon > alpaca). A configured key upgrades quotes to real-time, falling back to yfinance-delayed per symbol.
+
+**Reports & delivery**
+- [x] **Daily Morning Report** — a light Morning Brief (day change, day P&L, today's earnings / ex-dividend, news) delivered every morning by desktop notification and optional email (SMTP, with one-click Gmail / Outlook / iCloud / Yahoo presets), the full report attached. Fires at a chosen clock time with launch catch-up; the email password is kept in the OS keychain. See **Configuration → Scheduled reports & the daily morning report** above for email setup.
+
+**Hardening**
+- [x] Full logic + security audit — HTML/PDF report output autoescaped (+ CSP), `</script>`-breakout escaping in web views, ticker/symbol charset validation, request-path URL-encoding, link-scheme allowlist, corrected cash-aware Day P&L, and clean worker-thread shutdown on exit.
 
 **UX**
 - [x] App brand (logo + name) moved into the config sidebar — folds away when the sidebar collapses — so the analysis workspace stays clean.
@@ -490,7 +510,7 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 
 ### Planned
 
-**Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, standalone watchlists independent of the loaded portfolio, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
+**Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
 
 **Distribution**
 - [ ] Code-signing + notarization — remove the SmartScreen / Gatekeeper warnings on the installers (requires an Apple Developer ID and a Windows code-signing certificate).
