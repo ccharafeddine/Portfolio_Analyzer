@@ -199,6 +199,27 @@ def test_watchlist_reorder_and_shared_feed():
     wp.shutdown()
 
 
+def test_row_flasher_paints_then_fades():
+    from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
+
+    from src.ui.widgets.cell_flash import RowFlasher
+
+    t = QTableWidget(2, 2)
+    for r in range(2):
+        t.setItem(r, 0, QTableWidgetItem(f"S{r}"))
+        t.setItem(r, 1, QTableWidgetItem("x"))
+    f = RowFlasher(t, sym_col=0, steps=3)
+
+    f.flash("S1", up=True)
+    assert t.item(1, 1).background().color().alpha() > 0     # row S1 highlighted
+    assert "S1" in f._active
+
+    for _ in range(3):
+        f._tick()
+    assert t.item(1, 1).background().color().alpha() == 0     # faded out
+    assert "S1" not in f._active
+
+
 def test_day_pnl_uses_invested_not_total_capital(tmp_path):
     """Day P&L must be computed on the invested amount (capital - cash), since cash
     has no day move and capital is the total account value."""

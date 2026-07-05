@@ -32,6 +32,7 @@ from .explanations import tooltip_html
 from .quote_format import fmt_price as _fmt_price
 from .quote_format import fmt_signed as _fmt_signed
 from .watchlist import WatchlistStore
+from .widgets.cell_flash import RowFlasher
 from .widgets.chart_heatmap_panel import ChartHeatmapPanel
 from .widgets.info_label import InfoLabel
 from .worker import WatchlistWorker
@@ -113,6 +114,7 @@ class WatchlistPanel(QWidget):
         super().__init__(parent)
         self._store = store if store is not None else WatchlistStore()
         self._quotes: dict = {}
+        self._prev_last: dict[str, float] = {}   # for price-flash
         self._thread: QThread | None = None
         self._worker: WatchlistWorker | None = None
         self._in_flight = False
@@ -163,6 +165,7 @@ class WatchlistPanel(QWidget):
         self._table.setSelectionMode(QTableWidget.SingleSelection)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
         self._table.rowsReordered.connect(self._on_reorder)
+        self._flasher = RowFlasher(self._table, sym_col=0)
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -317,6 +320,13 @@ class WatchlistPanel(QWidget):
                 pct_item.setForeground(QColor(t.green if pct >= 0 else t.red))
             else:
                 pct_item.setForeground(QColor(t.text_muted))
+            # Price-flash on a changed last.
+            if isinstance(last, (int, float)) and last == last:
+                sym = item0.text()
+                prev = self._prev_last.get(sym)
+                if isinstance(prev, (int, float)) and last != prev:
+                    self._flasher.flash(sym, last > prev)
+                self._prev_last[sym] = last
 
     # ── Quote polling (worker thread) ──
     def _poll(self, force: bool = False) -> None:

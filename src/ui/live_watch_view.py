@@ -45,12 +45,13 @@ from .quote_format import fmt_price as _fmt_price
 from .quote_format import fmt_signed as _fmt_signed
 from .quote_format import fmt_volume as _fmt_volume
 from .settings import AppSettings
+from .widgets.cell_flash import RowFlasher
 from .widgets.chart_heatmap_panel import ChartHeatmapPanel
 from .widgets.market_clock import MarketClock
 
 # (label, seconds) — 0 means auto-refresh off.
 REFRESH_OPTIONS = [("Off", 0), ("15s", 15), ("30s", 30), ("60s", 60)]
-DEFAULT_INTERVAL = 30
+DEFAULT_INTERVAL = 15
 
 _COLUMNS = ["Ticker", "Last", "Chg", "Chg %", "Day Range", "Volume", "Weight"]
 
@@ -102,6 +103,7 @@ class LiveWatchView(QWidget):
         self._capital: float = 0.0
         self._cash: float = 0.0
         self._quotes: dict = {}
+        self._prev_last: dict[str, float] = {}   # for price-flash
 
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 10)
@@ -187,6 +189,7 @@ class LiveWatchView(QWidget):
         self._table.cellClicked.connect(self._on_cell_clicked)
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_menu)
+        self._flasher = RowFlasher(self._table, sym_col=0)
 
         # Body: a drag-and-drop grid cockpit — the quotes table + chart + news +
         # heatmap are movable/resizable cards. Portfolio holdings are weighted, so
@@ -312,6 +315,7 @@ class LiveWatchView(QWidget):
     def set_quotes(self, quotes: dict) -> None:
         self._quotes = dict(quotes or {})
         self._populate_table()
+        self._flash_price_changes()
         self._update_header()
         self._update_stamp()
         order = self._tickers or list(self._quotes.keys())
@@ -322,6 +326,17 @@ class LiveWatchView(QWidget):
         # first open (the main poll includes watchlist symbols when the ticker
         # scroller source is Watchlist/Both — the default).
         self._watchlist.feed_shared_quotes(self._quotes)
+
+    def _flash_price_changes(self) -> None:
+        """Pulse a row green/red when its last price changed since the prior snapshot."""
+        for sym, q in self._quotes.items():
+            last = getattr(q, "last", None)
+            if not isinstance(last, (int, float)) or last != last:
+                continue
+            prev = self._prev_last.get(sym)
+            if isinstance(prev, (int, float)) and last != prev:
+                self._flasher.flash(sym, last > prev)
+            self._prev_last[sym] = last
 
     # ── Rendering ──
     def _populate_table(self) -> None:
