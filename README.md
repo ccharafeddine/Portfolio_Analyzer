@@ -1,6 +1,24 @@
-# Portfolio Analyzer
+<p align="center">
+  <img src="src/ui/assets/logo.svg" alt="Portfolio Analyzer logo" width="132" height="132">
+</p>
 
-[![CI](https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml)
+<h1 align="center">Portfolio Analyzer</h1>
+
+<p align="center">
+  A native desktop portfolio-analytics app — backtest, optimize, measure risk, plan retirement, and watch your holdings live, with a plain-English explanation for every result.
+</p>
+
+<p align="center">
+  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml"><img src="https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/releases"><img src="https://img.shields.io/github/v/release/ccharafeddine/Portfolio_Analyzer?color=7C3AED&label=release" alt="Latest release"></a>
+  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/releases"><img src="https://img.shields.io/github/downloads/ccharafeddine/Portfolio_Analyzer/total?color=22D3EE&label=downloads" alt="Total downloads"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Platform: Windows and macOS">
+  <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white" alt="Built with PySide6 / Qt6">
+  <img src="https://img.shields.io/badge/tests-237%20passing-brightgreen" alt="237 tests passing">
+</p>
+
+---
 
 A native desktop portfolio-analytics application built with Python and PySide6 (Qt6). It runs an 18-step analysis pipeline covering an inception-aware backtest engine, portfolio optimization, performance measurement, risk decomposition, factor and sector attribution, income tracking, tax-aware analysis, retirement/withdrawal planning, and Monte Carlo forecasting — plus a live News & Macro tab for market context — all rendered as interactive Plotly charts in a switchable, Bloomberg-style dark UI, with client-ready HTML, PDF, and PowerPoint reports plus a full CSV data pack.
 
