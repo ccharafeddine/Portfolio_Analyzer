@@ -45,32 +45,44 @@ _NEG_INF = float("-inf")
 class _ReorderTable(QTableWidget):
     """A table whose rows are reordered by drag-and-drop. We drive the reorder
     through a signal (never letting Qt's flaky internal move mangle the cells);
-    the host reorders its data and re-renders."""
+    the host reorders its data and re-renders. ``rowsReordered`` carries the source
+    row and the *final* insertion index (i.e. after the source is removed)."""
 
-    rowsReordered = Signal(int, int)  # from_row, to_row
+    rowsReordered = Signal(int, int)
 
     def __init__(self, rows: int, cols: int, parent=None) -> None:
         super().__init__(rows, cols, parent)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.InternalMove)
+        # QTableWidget defaults to OVERWRITE-on-drop; turn it off so a drop inserts
+        # between rows (shifting the rest) instead of replacing the target.
+        self.setDragDropOverwriteMode(False)
         self.setDropIndicatorShown(True)
         self.setDefaultDropAction(Qt.MoveAction)
+        self._drag_row = -1
+
+    def startDrag(self, actions) -> None:  # noqa: N802
+        # Capture the dragged row now — currentRow() can change to the hovered row
+        # during the drag, which would otherwise corrupt the drop target.
+        self._drag_row = self.currentRow()
+        super().startDrag(actions)
 
     def dropEvent(self, event) -> None:  # noqa: N802
-        if event.source() is not self:
+        src, self._drag_row = self._drag_row, -1
+        if event.source() is not self or src < 0:
             event.ignore()
             return
-        src = self.currentRow()
         idx = self.indexAt(event.position().toPoint())
-        dst = idx.row() if idx.isValid() else self.rowCount() - 1
-        if self.dropIndicatorPosition() == QAbstractItemView.BelowItem:
-            dst += 1
-        if dst > src:
+        if idx.isValid():
+            dst = idx.row() + (1 if self.dropIndicatorPosition()
+                               == QAbstractItemView.BelowItem else 0)
+        else:
+            dst = self.rowCount()          # dropped in the empty area → end
+        if dst > src:                       # account for removing the source first
             dst -= 1
-        dst = max(0, min(dst, self.rowCount() - 1))
         event.accept()
-        if src >= 0 and src != dst:
+        if dst != src:
             self.rowsReordered.emit(src, dst)
 
 

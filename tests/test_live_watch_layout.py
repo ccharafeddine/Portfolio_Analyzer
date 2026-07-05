@@ -182,15 +182,20 @@ def test_watchlist_reorder_and_shared_feed():
             self.d[k] = v
 
     store = WatchlistStore(settings=_Fake(), seed=False)
-    for s in ("AAA", "BBB", "CCC"):
+    for s in ("AAA", "BBB", "CCC", "DDD"):
         store.add(s)
     wp = WatchlistPanel(store=store)
 
-    wp._on_reorder(0, 2)                                  # drag AAA to the bottom
-    assert store.symbols() == ["BBB", "CCC", "AAA"]
+    wp._on_reorder(0, 3)                                  # drag AAA to the bottom
+    assert store.symbols() == ["BBB", "CCC", "DDD", "AAA"]
+    wp._on_reorder(3, 0)                                  # drag it back to the top
+    assert store.symbols() == ["AAA", "BBB", "CCC", "DDD"]
+    wp._on_reorder(1, 2)                                  # BBB between CCC and DDD
+    assert store.symbols() == ["AAA", "CCC", "BBB", "DDD"]
+    assert len(store.symbols()) == 4                     # never loses/duplicates a symbol
 
-    wp.feed_shared_quotes({"BBB": Quote("BBB", last=10.0, prev_close=9.0, change_pct=0.11)})
-    assert wp._chart.selected() == "BBB"                 # first symbol auto-selected
+    wp.feed_shared_quotes({"AAA": Quote("AAA", last=10.0, prev_close=9.0, change_pct=0.11)})
+    assert wp._chart.selected() == "AAA"                 # first symbol auto-selected
     wp.shutdown()
 
 
