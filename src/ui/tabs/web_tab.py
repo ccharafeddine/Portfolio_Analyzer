@@ -18,13 +18,12 @@ to inline blurbs in Beginner mode.
 from __future__ import annotations
 
 import html as _html
-import json
 import re
 from typing import Callable, Optional
 
 import math
 import pandas as pd
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QTimer, QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
@@ -57,6 +56,9 @@ class WebTab(QWidget):
         self._view.settings().setAttribute(
             QWebEngineSettings.WebAttribute.ShowScrollBars, True
         )
+        # A page loaded while this tab is hidden lays its Plotly charts out at zero
+        # size; refit them once the load finishes (and again on show, below).
+        self._view.loadFinished.connect(lambda _ok: self._resize_plots())
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self._view)
@@ -97,12 +99,31 @@ class WebTab(QWidget):
         self._post_script = ""  # one-shot; don't repeat on later renders
         self._dirty = False
 
+    def showEvent(self, event) -> None:
+        """When this tab becomes visible, make sure it's populated and refit the
+        charts — the web view only gets its real size once shown, so charts that
+        were drawn while it was hidden would otherwise stay collapsed until the
+        next relayout (the 'switch away and back to see it' glitch)."""
+        super().showEvent(event)
+        self.ensure_populated()
+        self._resize_plots()
+
+    def _resize_plots(self) -> None:
+        # Deferred a tick so Qt finishes showing/sizing the view before Plotly
+        # measures the container.
+        QTimer.singleShot(0, self._do_resize_plots)
+
+    def _do_resize_plots(self) -> None:
+        self._view.page().runJavaScript(
+            "if(window.Plotly){var n=document.querySelectorAll('.js-plotly-plot');"
+            "for(var i=0;i<n.length;i++){try{Plotly.Plots.resize(n[i]);}catch(e){}}}"
+        )
+
     def _populate(self, results) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
 
     # ── Page assembly ──
     def _render_blank(self) -> None:
-        t = theme.ACTIVE
         self._view.setHtml(
             f"<html><head>{self._css()}</head><body>"
             f"<div class='empty'>Run an analysis to populate this tab.</div>"
