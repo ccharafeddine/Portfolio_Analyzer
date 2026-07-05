@@ -278,7 +278,9 @@ class WatchlistPanel(QWidget):
         sym = syms.pop(src)
         syms.insert(max(0, min(dst, len(syms))), sym)
         self._store.reorder(syms)
-        self._render()
+        # Rebuild on the next tick — AFTER Qt's own post-drop handling (which would
+        # otherwise delete the dragged row) — from the store's correct full order.
+        QTimer.singleShot(0, self._render)
         self.changed.emit()
 
     def feed_shared_quotes(self, quotes: dict) -> None:
