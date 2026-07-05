@@ -57,7 +57,9 @@ def seed_sample_portfolios(settings=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     written = 0
     for name in SAMPLE_SPECS:
-        dest = out_dir / f"{name}.json"
+        # Marked "(Sample)" in the filename so the bundled/seeded portfolios are
+        # clearly distinguishable from the user's own in File → Open.
+        dest = out_dir / f"{name} (Sample).json"
         if dest.exists():
             continue
         try:

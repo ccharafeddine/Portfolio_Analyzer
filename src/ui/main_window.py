@@ -18,11 +18,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -190,6 +188,19 @@ class MainWindow(QMainWindow):
         self.act_toggle_sidebar.triggered.connect(lambda: self.sidebar.toggle())
         view_menu.addAction(self.act_toggle_sidebar)
 
+        # Ticker Scroller source (bottom strip): Portfolio / Watchlist / Both.
+        scroller_menu = view_menu.addMenu("Ticker Scroller")
+        self._strip_source = self._settings.value("ticker_strip_source", "both", type=str)
+        self._scroller_group = QActionGroup(self)
+        self._scroller_group.setExclusive(True)
+        for key, label in (("portfolio", "Portfolio"), ("watchlist", "Watchlist"),
+                           ("both", "Both")):
+            act = QAction(label, self, checkable=True)
+            act.setChecked(self._strip_source == key)
+            act.triggered.connect(lambda _=False, k=key: self._set_strip_source(k))
+            self._scroller_group.addAction(act)
+            scroller_menu.addAction(act)
+
         view_menu.addSeparator()
         self.act_beginner = QAction("Beginner mode (explanations)", self, checkable=True)
         self.act_beginner.setChecked(explanations.is_beginner_mode())
@@ -318,21 +329,8 @@ class MainWindow(QMainWindow):
         # mutually exclusive — see ``_set_running``). Transient status messages
         # go through the status bar's own auto-clearing ``showMessage`` so there
         # is no permanent indicator eating into the strip.
-        # Source selector for the strip: portfolio, watchlist, or both merged.
-        self._strip_source = self._settings.value("ticker_strip_source", "portfolio", type=str)
-        self._strip_source_btn = QToolButton()
-        self._strip_source_btn.setPopupMode(QToolButton.InstantPopup)
-        self._strip_source_btn.setAutoRaise(True)
-        self._strip_source_btn.setCursor(Qt.PointingHandCursor)
-        src_menu = QMenu(self._strip_source_btn)
-        for key, label in (("portfolio", "Portfolio"), ("watchlist", "Watchlist"),
-                           ("both", "Both")):
-            act = src_menu.addAction(label)
-            act.triggered.connect(lambda _=False, k=key: self._set_strip_source(k))
-        self._strip_source_btn.setMenu(src_menu)
-        self._update_strip_source_btn()
-        sb.addWidget(self._strip_source_btn)
-
+        # The ticker strip's source (portfolio / watchlist / both) is chosen from
+        # the View → Ticker Scroller menu; ``_strip_source`` is set there.
         self.ticker_strip = TickerStrip()
         self.ticker_strip.symbolClicked.connect(self._on_ticker_clicked)
         sb.addWidget(self.ticker_strip, 1)
@@ -530,16 +528,9 @@ class MainWindow(QMainWindow):
             return list(dict.fromkeys([*portfolio, *self._watchlist_symbols()]))
         return portfolio
 
-    def _update_strip_source_btn(self) -> None:
-        label = {"portfolio": "Portfolio", "watchlist": "Watchlist",
-                 "both": "Both"}.get(self._strip_source, "Portfolio")
-        self._strip_source_btn.setText(f" {label} ▾ ")
-        self._strip_source_btn.setToolTip("Choose what the ticker strip shows")
-
     def _set_strip_source(self, key: str) -> None:
         self._strip_source = key
         self._settings.setValue("ticker_strip_source", key)
-        self._update_strip_source_btn()
         # Re-order immediately from the last snapshot, then poll (watchlist symbols
         # may not have been fetched yet under the previous source).
         if self._last_quotes:
@@ -1245,7 +1236,6 @@ class MainWindow(QMainWindow):
         # the idle status label + ticker strip; the strip returns when the run ends.
         self.btn_cancel.setVisible(running)
         self.ticker_strip.setVisible(not running)
-        self._strip_source_btn.setVisible(not running)
         self.progress.setVisible(running)
         if running:
             self.progress.setValue(0)

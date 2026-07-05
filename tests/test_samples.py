@@ -34,20 +34,22 @@ def test_seed_writes_and_is_idempotent(tmp_path, monkeypatch):
     n = samples.seed_sample_portfolios(s)
     assert n == len(samples.SAMPLE_SPECS)
     files = sorted(p.name for p in tmp_path.glob("*.json"))
-    assert files == sorted(f"{name}.json" for name in samples.SAMPLE_SPECS)
+    # Seeded files are marked "(Sample)" in the filename.
+    assert files == sorted(f"{name} (Sample).json" for name in samples.SAMPLE_SPECS)
 
     # Second call is a no-op (flag set).
     assert samples.seed_sample_portfolios(s) == 0
 
     # Saved samples round-trip back to valid configs.
-    cfg = PortfolioConfig.load(str(tmp_path / "Classic 60-40.json"))
+    cfg = PortfolioConfig.load(str(tmp_path / "Classic 60-40 (Sample).json"))
     assert cfg.benchmark == "SPY"
     assert set(cfg.weights) == {"SPY", "AGG"}
 
 
 def test_seed_skips_existing_files(tmp_path, monkeypatch):
     monkeypatch.setattr(samples.paths, "portfolios_dir", lambda: tmp_path)
-    (tmp_path / "Classic 60-40.json").write_text("{}")  # pre-existing, must not clobber
+    # Pre-existing seeded file must not be clobbered.
+    (tmp_path / "Classic 60-40 (Sample).json").write_text("{}")
     n = samples.seed_sample_portfolios(None)  # no settings -> not flag-guarded
     assert n == len(samples.SAMPLE_SPECS) - 1
-    assert (tmp_path / "Classic 60-40.json").read_text() == "{}"
+    assert (tmp_path / "Classic 60-40 (Sample).json").read_text() == "{}"

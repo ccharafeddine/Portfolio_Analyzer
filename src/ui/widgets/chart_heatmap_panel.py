@@ -59,7 +59,8 @@ PANEL_ALLOC = "alloc"
 PANEL_EVENTS = "events"
 PANEL_ALERTS = "alerts"
 
-# Default card size (cols, rows) for auto-flow placement via the grid engine.
+# Default card size (cols, rows) for the initial auto-flow placement (used only
+# for a panel with no entry in the shipped default layout below).
 _SIZES = {
     PANEL_TABLE: (4, 8),
     PANEL_CHART: (8, 8),
@@ -70,6 +71,20 @@ _SIZES = {
     PANEL_ALLOC: (4, 4),
     PANEL_EVENTS: (6, 4),
     PANEL_ALERTS: (6, 4),
+}
+
+# The curated default arrangement shipped with the app (a fresh install with no
+# saved layout gets this). Each is {panel_id: [x, y, w, h], "__hidden__": [...]}.
+_DEFAULT_LAYOUT_PORTFOLIO = {
+    "table": [0, 0, 4, 13], "chart": [4, 0, 8, 22], "news": [0, 22, 4, 19],
+    "heatmap": [4, 22, 4, 19], "movers": [2, 13, 2, 9], "contrib": [0, 13, 2, 9],
+    "alloc": [10, 22, 2, 19], "events": [8, 22, 2, 12], "alerts": [8, 34, 2, 7],
+    "__hidden__": [],
+}
+_DEFAULT_LAYOUT_WATCHLIST = {
+    "table": [0, 0, 4, 9], "chart": [4, 0, 8, 10], "news": [0, 11, 4, 5],
+    "heatmap": [4, 10, 6, 6], "movers": [10, 10, 2, 6], "events": [0, 9, 2, 2],
+    "alerts": [2, 9, 2, 2], "__hidden__": [],
 }
 
 
@@ -176,14 +191,17 @@ class ChartHeatmapPanel(QWidget):
             self._settings.set(self._layout_key, json.dumps(self._dash.save_layout()))
 
     def _restore_layout(self) -> None:
-        if self._settings is None or not self._layout_key:
-            return
-        raw = self._settings.get(self._layout_key, "")
-        if raw:
-            try:
-                self._dash.restore_layout(json.loads(raw))
-            except Exception:
-                pass
+        # A user's saved layout wins; otherwise apply the shipped default arrangement.
+        if self._settings is not None and self._layout_key:
+            raw = self._settings.get(self._layout_key, "")
+            if raw:
+                try:
+                    self._dash.restore_layout(json.loads(raw))
+                    return
+                except Exception:
+                    pass
+        default = _DEFAULT_LAYOUT_PORTFOLIO if self._is_portfolio else _DEFAULT_LAYOUT_WATCHLIST
+        self._dash.restore_layout(dict(default))
 
     def selected(self) -> Optional[str]:
         return self._selected

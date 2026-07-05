@@ -24,8 +24,13 @@ INDICES_KEY = "watchlist/indices_seeded"
 
 # Market-context indices seeded at the front of every watchlist (once).
 INDEX_STARTERS = ["^GSPC", "^IXIC", "^DJI", "^VIX"]
-# First-run starters (only ever seeded once), mirroring the sample-portfolio seed.
-STARTERS = INDEX_STARTERS + ["SPY", "AAPL", "BTC-USD"]
+# First-run starters (only ever seeded once): the curated default watchlist —
+# indices, crypto, the SPDR sector ETFs, and a spot-BTC ETF.
+STARTERS = INDEX_STARTERS + [
+    "BTC-USD", "ETH-USD",
+    "XLC", "XLY", "XLP", "XLE", "XLF", "XLV", "XLI", "XLB", "XLRE", "XLK", "XLU",
+    "IBIT",
+]
 
 
 def _default_settings():
