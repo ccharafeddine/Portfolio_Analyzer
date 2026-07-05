@@ -177,6 +177,7 @@ class EventsPanel(_StackPanel):
     def __init__(self) -> None:
         super().__init__(["Ticker", "Event", "When"])
         self._universe: list[str] = []
+        self._fetching: list[str] = []   # the universe the in-flight fetch was started for
         self._thread: Optional[QThread] = None
         self._worker: Optional[CalendarWorker] = None
         self._empty("No holdings yet.")
@@ -190,8 +191,9 @@ class EventsPanel(_StackPanel):
             self._empty("No holdings yet.")
             return
         if self._thread is not None:
-            return  # a fetch is already running; it'll reflect the latest universe soon
+            return  # a fetch is running; _cleanup re-fires if the universe drifted
         self._empty("Loading upcoming events…")
+        self._fetching = list(tickers)
         self._thread = QThread(self)
         self._worker = CalendarWorker(tickers)
         self._worker.moveToThread(self._thread)
@@ -226,6 +228,10 @@ class EventsPanel(_StackPanel):
             self._thread.deleteLater()
         self._worker = None
         self._thread = None
+        # If the universe changed while that fetch was in flight, fetch again now.
+        if self._universe and self._universe != self._fetching:
+            pending, self._universe = self._universe, []
+            self.set_universe(pending)
 
     def shutdown(self) -> None:
         if self._thread is not None and self._thread.isRunning():
@@ -257,7 +263,10 @@ class AllocationPanel(QWidget):
         invested = max(float(capital or 0.0) - float(cash or 0.0), 0.0)
         alloc = self._live_weights(weights, quotes or {}, invested, cost_basis or {})
         title = "Live allocation" if alloc is not None else "Target allocation"
-        alloc = alloc if alloc is not None else dict(weights)
+        if alloc is None:
+            # Fallback to target weights, renormalized so the slices (+ Cash) sum to 1.
+            total = sum(v for v in weights.values() if isinstance(v, (int, float)))
+            alloc = {k: v / total for k, v in weights.items()} if total > 0 else dict(weights)
         if cash and capital:
             y = invested / float(capital)
             alloc = {k: v * y for k, v in alloc.items()}

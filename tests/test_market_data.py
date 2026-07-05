@@ -6,11 +6,19 @@ fake requests.get. Caching is disabled so tests are deterministic.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.data import market_data as md
+
+
+def test_http_get_json_fails_closed_on_exception():
+    """A raising requests.get must return None, never propagate an error string
+    that embeds the API key (token=/apiKey=) to the UI."""
+    with patch.object(md, "requests") as rq:
+        rq.get.side_effect = Exception("connect failed for token=SECRET")
+        assert md._http_get_json("https://x/api", params={"token": "SECRET"}) is None
 
 
 # ── yfinance news ──

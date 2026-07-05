@@ -684,10 +684,15 @@ def _provider_quotes(provider: str, syms, creds) -> dict[str, Quote]:
 def _http_get_json(url: str, params=None, headers=None, timeout: int = 6):
     if requests is None:
         return None
-    r = requests.get(url, params=params, headers=headers, timeout=timeout)
-    if r.status_code != 200:
+    # Fail closed: a requests exception message embeds the full URL, which would
+    # leak the provider API key (token=/apiKey=) into any surfaced error string.
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=timeout)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:
         return None
-    return r.json()
 
 
 def _finnhub_quotes(syms, key) -> dict[str, Quote]:

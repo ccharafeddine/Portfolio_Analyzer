@@ -983,7 +983,10 @@ class MainWindow(QMainWindow):
         nxt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if nxt <= now:
             nxt += timedelta(days=1)
-        ms = int((nxt - now).total_seconds() * 1000)
+        # Use POSIX timestamps (which resolve local DST via the OS) so the timer is
+        # armed for the REAL elapsed time, not the naive wall-clock delta — otherwise
+        # a DST transition overnight fires the report ~1h off.
+        ms = int((nxt.timestamp() - now.timestamp()) * 1000)
         if self._morning_timer is None:
             self._morning_timer = QTimer(self)
             self._morning_timer.setSingleShot(True)

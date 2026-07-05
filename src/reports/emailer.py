@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import mimetypes
 import smtplib
+import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
 from pathlib import Path
+
+
+def _clean_header(value: str) -> str:
+    """Strip CR/LF so a crafted subject/recipient can't inject SMTP headers."""
+    return (value or "").replace("\r", " ").replace("\n", " ").strip()
 
 
 @dataclass
@@ -32,10 +38,10 @@ class SmtpConfig:
 def _build_message(cfg: SmtpConfig, to_addrs, subject: str, html_body: str,
                    attachments=None) -> EmailMessage:
     msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = cfg.sender
+    msg["Subject"] = _clean_header(subject)
+    msg["From"] = _clean_header(cfg.sender)
     to_list = [to_addrs] if isinstance(to_addrs, str) else list(to_addrs)
-    msg["To"] = ", ".join(a for a in to_list if a)
+    msg["To"] = ", ".join(_clean_header(a) for a in to_list if a and a.strip())
     # Plain-text fallback + the real HTML body.
     msg.set_content("Your Portfolio Analyzer morning brief is attached / below. "
                     "View this message in an HTML-capable client.")
@@ -56,14 +62,17 @@ def send_email(cfg: SmtpConfig, to_addrs, subject: str, html_body: str,
     """Send an HTML email (optionally with attachments). Raises on failure so the
     caller can surface the exact SMTP error."""
     msg = _build_message(cfg, to_addrs, subject, html_body, attachments)
+    # Verify the server certificate + hostname (default context) so an on-path
+    # attacker can't present a rogue cert and capture the SMTP credential.
+    ctx = ssl.create_default_context()
     if cfg.use_ssl:
-        with smtplib.SMTP_SSL(cfg.host, int(cfg.port), timeout=cfg.timeout) as s:
+        with smtplib.SMTP_SSL(cfg.host, int(cfg.port), timeout=cfg.timeout, context=ctx) as s:
             s.login(cfg.username, cfg.password)
             s.send_message(msg)
     else:
         with smtplib.SMTP(cfg.host, int(cfg.port), timeout=cfg.timeout) as s:
             s.ehlo()
-            s.starttls()
+            s.starttls(context=ctx)
             s.ehlo()
             s.login(cfg.username, cfg.password)
             s.send_message(msg)

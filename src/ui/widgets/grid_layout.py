@@ -16,6 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 DEFAULT_COLS = 12
+# Hard bound on a card's row span/origin, so a corrupt or hostile saved layout
+# can't carry an absurd height that degrades the whole grid to sub-pixel rows.
+_MAX_ROWS = 200
 
 
 @dataclass
@@ -41,9 +44,10 @@ def clamp(item: GridItem, cols: int = DEFAULT_COLS,
           min_w: int = 1, min_h: int = 1) -> GridItem:
     """Clamp an item to valid bounds: span within [min, cols], origin on-grid."""
     item.w = max(min_w, min(int(item.w), cols))
-    item.h = max(min_h, int(item.h))
+    # Bound height too (a hostile/corrupt saved layout could carry an absurd h).
+    item.h = max(min_h, min(int(item.h), _MAX_ROWS))
     item.x = max(0, min(int(item.x), cols - item.w))
-    item.y = max(0, int(item.y))
+    item.y = max(0, min(int(item.y), _MAX_ROWS))
     return item
 
 

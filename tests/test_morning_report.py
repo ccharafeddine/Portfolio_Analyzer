@@ -83,6 +83,31 @@ def test_send_email_ssl_path_and_multiple_recipients():
     inst.send_message.assert_called_once()
 
 
+def test_send_email_verifies_tls_context():
+    """Both TLS paths must pass an SSL context so the server cert is verified."""
+    inst = MagicMock()
+    with patch.object(emailer.smtplib, "SMTP", return_value=_ctx(inst)):
+        send_email(SmtpConfig(host="smtp.x", port=587, username="u@x", password="pw"),
+                   "to@x", "Subj", "<p>hi</p>")
+    assert inst.starttls.call_args.kwargs.get("context") is not None
+
+    with patch.object(emailer.smtplib, "SMTP_SSL", return_value=_ctx(MagicMock())) as mk:
+        send_email(SmtpConfig(host="smtp.x", port=465, username="u@x", password="pw",
+                              use_ssl=True), "to@x", "S", "<p>x</p>")
+    assert mk.call_args.kwargs.get("context") is not None
+
+
+def test_build_message_strips_header_crlf_injection():
+    """A CRLF in the subject/recipient must not smuggle extra SMTP headers."""
+    cfg = SmtpConfig(host="h", port=587, username="u@x", password="pw")
+    msg = emailer._build_message(
+        cfg, "victim@x\r\nBcc: evil@x", "Hi\r\nX-Injected: 1", "<p>hi</p>")
+    for h in ("Subject", "To", "From"):
+        assert "\r" not in (msg[h] or "") and "\n" not in (msg[h] or "")
+    assert msg.get_all("Bcc") is None
+    assert msg.get_all("X-Injected") is None
+
+
 def test_build_message_has_html_alt_and_pdf_attachment(tmp_path):
     p = tmp_path / "report.pdf"
     p.write_bytes(b"%PDF-1.4 fake")

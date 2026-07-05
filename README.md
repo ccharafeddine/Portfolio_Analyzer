@@ -28,6 +28,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
   - [Data](#11-data)
 - [Roadmap (v2)](#roadmap-v2)
 - [Roadmap (v3)](#roadmap-v3)
+- [Roadmap (v4)](#roadmap-v4)
 - [Release Notes](#release-notes)
 - [Pipeline Architecture](#pipeline-architecture)
 - [Project Structure](#project-structure)
@@ -47,7 +48,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 - **Retirement / withdrawal planning** — Monte Carlo with contributions, withdrawals, inflation, a goal target, and a solved safe-withdrawal rate.
 - **Compare Portfolios** — a separate in-app section (menubar → Compare Portfolios) that runs a fast comparison of 2–6 saved portfolios (plus the current one) side by side: overlaid growth/drawdown, a return/risk metrics table, return correlation, allocation/concentration, and holdings overlap.
 - **Live News & Macro** — per-holding headlines (free via yfinance, no key needed), enriched with sentiment when an Alpha Vantage key is added. A FRED key reveals a Macro tab (Treasury curve + key rates) and auto-tracks the live 3-month T-bill as the risk-free rate for the next run. Optional API keys are entered in Settings and stored locally.
-- **Live Market Watch** — an always-on ticker strip across the bottom of the window plus a dedicated cockpit (Run → Live Market Watch, or the button by the metric strip): a live quotes table, portfolio day P&L and unrealized P&L vs. cost basis, a click-through intraday chart, and a holdings treemap. Quotes are yfinance-**delayed** by default; a Finnhub / Polygon / Alpaca key upgrades them to real-time.
+- **Live Market Watch** — an always-on ticker strip across the bottom of the window plus a dedicated cockpit (Run → Live Market Watch, or the button by the metric strip). The cockpit is a **free-form, snap-to-grid dashboard** of drag-and-resize cards — quotes, a TradingView-style intraday chart, per-symbol news, a day-change heatmap/treemap, Top Movers, Day P&L Contributors, a live Allocation donut, Upcoming Events, and Active Alerts — with a market-session **clock + opening/closing bell** and **price-flash** on every change, across a Portfolio and a persistent, drag-reorderable Watchlist. Quotes are yfinance-**delayed** (15s default) by default; a Finnhub / Polygon / Alpaca key upgrades them to real-time.
 - **Price alerts** — get a desktop notification when a holding crosses a price threshold (Settings → Price Alerts…).
 - **Real portfolios by shares** — enter your actual holdings as share counts (and a cash balance); the app fetches prices to set Capital and derive weights. Or set cost basis inline from Live Market Watch.
 - **Client-ready reports** — HTML, PDF, and a polished dark PowerPoint deck, each with proper disclosures. Plus a complete CSV data pack with a README manifest.
@@ -71,7 +72,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 | **Forecasting & Planning** | Parametric and bootstrap Monte Carlo (fan charts, probability of loss); retirement/withdrawal plan with contributions, withdrawals, inflation, goal funding, and safe-withdrawal-rate search |
 | **Fundamentals** | Per-holding valuation, profitability, growth, balance-sheet health, dividends, and upcoming earnings/ex-dividend dates (yfinance; FMP DCF fair value when keyed) |
 | **Market Context** | Per-holding news (yfinance baseline, no key; Alpha Vantage sentiment when keyed), FRED Treasury curve + key rates, on-demand Refresh and auto-refresh each run |
-| **Live Market Watch** | Always-on ticker strip, live quotes table, portfolio day P&L + unrealized P&L vs. cost basis (with cash), click-through intraday chart, holdings treemap, price alerts (desktop notifications); yfinance-delayed by default, real-time via Finnhub / Polygon / Alpaca key |
+| **Live Market Watch** | Always-on ticker strip (View → Ticker Scroller source), a free-form snap-to-grid cockpit (quotes, candlestick chart, per-symbol news, heatmap/treemap, Top Movers, Day P&L Contributors, live Allocation, Upcoming Events, Active Alerts) across Portfolio + drag-reorderable Watchlist, market-session clock + bell, price-flash, portfolio day P&L + unrealized P&L vs. cost basis (with cash), price alerts; yfinance-delayed (15s) by default, real-time via Finnhub / Polygon / Alpaca key |
 | **Reports** | Automated interpretation engine, standalone HTML report, PDF report (reportlab), client-facing PowerPoint deck (python-pptx + kaleido), each with disclosures |
 | **Data Export** | ~22 CSV files + `summary.json` + a `README.txt` manifest, individually or as a ZIP |
 | **UI/UX** | 11-tab native app, always-on ticker strip, 30+ Plotly chart types, 9 themes (incl. light + high-contrast), collapsible animated sections, collapsible config sidebar (app brand in it), adjustable scale, hover explanations, Beginner mode |
@@ -370,7 +371,7 @@ Two independent features live here:
 
 ## Testing
 
-The suite covers every analytics, data, and desktop-support module — 215 tests:
+The suite covers every analytics, data, and desktop-support module — 237 tests:
 
 ```bash
 python -m pytest -q
@@ -399,14 +400,15 @@ python -m pytest -q
 | Test file | Tests | Coverage |
 |-----------|-------|----------|
 | `test_quotes.py` | 17 | Delayed quotes, intraday/OHLC fetch, chart builders (treemap, day-change heatmap), formatting |
-| `test_market_data.py` | 9 | News normalization/dedupe, Alpha Vantage sentiment, FRED macro parsing, graceful failure |
-| `test_watchlist.py` | 8 | Watchlist store (add/dedupe/remove/reorder/seed), symbol normalization |
+| `test_market_data.py` | 10 | News normalization/dedupe, Alpha Vantage sentiment, FRED macro parsing, fail-closed HTTP (no key leak), graceful failure |
+| `test_watchlist.py` | 9 | Watchlist store (add/dedupe/remove/reorder/seed), symbol normalization, curated starters |
 | `test_security_fixes.py` | 8 | Symbol charset validation, inline-`<script>` escaping, report autoescape |
+| `test_market_session.py` | 7 | NYSE session state, holiday calendar (incl. Good Friday), DST, next open/close |
 | `test_fundamentals.py` | 7 | Fundamentals fetch, DCF, statements, graceful failure |
-| `test_morning_report.py` | 7 | Morning-brief math + escaping, SMTP emailer (mocked), keychain roundtrip |
+| `test_morning_report.py` | 9 | Morning-brief math + escaping, SMTP emailer (TLS-verified, CRLF-safe, mocked), keychain roundtrip |
 | `test_providers.py` | 6 | Real-time provider resolution (Finnhub/Polygon/Alpaca) + fallback |
 | `test_report_generation.py` | 4 | HTML/PDF report build |
-| `test_samples.py` | 3 | First-run sample-portfolio seeding |
+| `test_samples.py` | 3 | First-run sample-portfolio seeding (marked "(Sample)") |
 
 **Desktop & UI (Qt-guarded)**
 
@@ -416,7 +418,8 @@ python -m pytest -q
 | `test_theme.py` | 5 | Theme tokens, chart-palette light/dark flip, scaling |
 | `test_updater.py` | 5 | Version comparison, release-check parsing |
 | `test_desktop_paths.py` | 6 | Cross-platform cache/output/export directory resolution |
-| `test_live_watch_layout.py` | 4 | Splitter + panel-visibility persistence, Day P&L (skips without a display) |
+| `test_grid_layout.py` | 6 | Snap-grid engine: overlap/clamp/collision-resolve/auto-flow placement |
+| `test_live_watch_layout.py` | 9 | Grid-cockpit panel visibility + cell persistence, drag/edge-resize, watchlist drag-reorder, price-flash, cash-aware Day P&L (skips without a display) |
 
 Tests that would call yfinance / SMTP use `unittest.mock.patch` to avoid network dependencies, and Qt-dependent tests skip cleanly where no display or OS keychain is available (so the headless CI run stays green).
 
@@ -523,9 +526,14 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
   - [x] Set cost basis inline — the "set cost basis" link or a row's right-click menu; updates live P&L, offers to save the portfolio, and re-runs the analysis.
   - [x] Refresh controls (15 / 30 / 60s / off + manual) and an "as of … · delayed/real-time" stamp.
 - [x] **Persistent Watchlist** — a second tab: a user-curated symbol list (add / remove / sort, crypto shorthand like `BTC` → `BTC-USD`), saved across sessions and fully decoupled from the analyzed portfolio.
-- [x] **Configurable panel dashboard** — the right-hand cockpit is a resizable, nested-splitter layout whose panels toggle via a **Panels ▾** menu and whose geometry + visibility persist. Panels: price chart, per-symbol news, and a day-change heatmap (a weight-sized **treemap** on the Portfolio tab, an equal-tile **grid** on the Watchlist).
+- [x] **Free-form grid cockpit** — the right-hand dashboard is a snap-to-grid of independent cards you drag by the header and resize from any edge or corner; overlaps reflow automatically and the arrangement + visibility persist per tab. Cards are added/removed from a **＋ Panels** library, and a curated default layout ships with the app.
+- [x] **Cockpit panels** — price chart, per-symbol news, day-change heatmap (weight-sized **treemap** on Portfolio, equal-tile **grid** on Watchlist), **Top Movers**, **Day P&L Contributors**, a live **Allocation** donut (value-weighted with drift when cost basis is known, else target, with a Cash slice), **Upcoming Events** (earnings / ex-dividend, fetched off-thread), and **Active Alerts** (distance-to-fire).
 - [x] **TradingView-style price chart** — candlesticks + volume + crosshair with switchable timeframes (1D / 5D / 1M / 6M / 1Y / 5Y), powered by the vendored, offline TradingView **Lightweight Charts** library and driven by the selected symbol.
 - [x] **Per-symbol news panel** — recent headlines (publisher, time, sentiment) for whichever symbol the chart is showing; click to open the article.
+- [x] **Market clock + opening/closing bell** — a top-right session status (pre-market / open / after-hours / closed) with a live countdown to the next change, honoring the NYSE holiday calendar; a synthesized bell rings at the open and close (mutable).
+- [x] **Price-flash + faster default refresh** — a row pulses green/red when its last price changes on a refresh; the default delayed cadence is now 15s.
+- [x] **Persistent watchlist, curated & reorderable** — ships with a default set (indices, SPDR sector ETFs, crypto, spot-BTC ETF); rows reorder by drag-and-drop, and market-context indices seed at the front.
+- [x] **Ticker Scroller source in the View menu** — point the bottom strip at the Portfolio, the Watchlist, or Both (View → Ticker Scroller).
 - [x] **Price alerts** — above/below a threshold, edge-triggered (fires once per crossing), delivered as a desktop notification. Manage via Settings → Price Alerts… or the Alerts… button; alerts fire even for tickers outside the loaded portfolio.
 - [x] **Real-time provider slots** — Finnhub / Polygon / Alpaca keys in the **API Keys** dialog (priority finnhub > polygon > alpaca). A configured key upgrades quotes to real-time, falling back to yfinance-delayed per symbol.
 
@@ -533,7 +541,7 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 - [x] **Daily Morning Report** — a light Morning Brief (day change, day P&L, today's earnings / ex-dividend, news) delivered every morning by desktop notification and optional email (SMTP, with one-click Gmail / Outlook / iCloud / Yahoo presets), the full report attached. Fires at a chosen clock time with launch catch-up; the email password is kept in the OS keychain. See **Configuration → Scheduled reports & the daily morning report** above for email setup.
 
 **Hardening**
-- [x] Full logic + security audit — HTML/PDF report output autoescaped (+ CSP), `</script>`-breakout escaping in web views, ticker/symbol charset validation, request-path URL-encoding, link-scheme allowlist, corrected cash-aware Day P&L, and clean worker-thread shutdown on exit.
+- [x] Full logic + security audit (twice) — HTML/PDF/brief output autoescaped (+ CSP), `</script>`-breakout escaping in web views, ticker/symbol charset validation, request-path URL-encoding, link-scheme allowlist, corrected cash-aware Day P&L, and clean worker-thread shutdown on exit. The v3 pass additionally hardened SMTP delivery (verified TLS certificate/hostname, CRLF-sanitized headers), fail-closed quote HTTP (no API-key leakage into error text), a bounded grid-layout restore, a fixed stale-universe events fetch, and a DST-correct morning-report timer.
 
 **UX**
 - [x] App brand (logo + name) moved into the config sidebar — folds away when the sidebar collapses — so the analysis workspace stays clean.
@@ -542,7 +550,11 @@ All v2 themes shipped as of **v2.0.0**. Grouped by theme:
 
 ### Planned
 
-**Bring Live Market Watch to life** — make it feel genuinely live rather than polled: per-row intraday sparklines, price-flash animations on change, a market-open/closed clock with pre/post-market state, and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
+**Bring Live Market Watch further to life** — the market clock + bell and price-flash shipped above; still on the list: per-row intraday sparklines (best suited to the wider Portfolio table) and richer alert conditions (% moves, crossing back, one-shot vs. repeating).
+
+---
+
+## Roadmap (v4)
 
 **Distribution**
 - [ ] Code-signing + notarization — remove the SmartScreen / Gatekeeper warnings on the installers (requires an Apple Developer ID and a Windows code-signing certificate).
@@ -594,3 +606,12 @@ Completed the entire v2 roadmap:
 - **Portfolio depth** — multi-portfolio comparison, blended benchmarks, Black-Litterman views, real Fama-French factor loadings.
 - **Analytics** — rebalancing/trade recommendations, interactive scenario builder, time-series benchmark-relative attribution.
 - **Platform & polish** — auto-update (Settings → Check for Updates), first-run sample portfolios, and scheduled/automated report generation (in-app scheduler + headless CLI).
+
+### v3.0.0 — Live, themed, and delivered
+The v3 vision: a genuinely live market layer, a themeable UI, and automated delivery.
+- **Live Market Watch cockpit** — a free-form, snap-to-grid dashboard of drag-and-resize cards with a **＋ Panels** library and a curated default layout: quotes, TradingView-style candlestick chart, per-symbol news, day-change heatmap/treemap, **Top Movers**, **Day P&L Contributors**, a live **Allocation** donut, **Upcoming Events**, and **Active Alerts** — across a Portfolio and a persistent, reorderable Watchlist.
+- **Feels live** — a market-session clock with an opening/closing **bell** (NYSE holiday-aware), **price-flash** on quote changes, a 15s default refresh, an always-on ticker strip (source selectable in View → Ticker Scroller), price alerts, and real-time provider slots (Finnhub / Polygon / Alpaca).
+- **Nine themes** — Frutiger Aero, Corporate Synthwave, Superflat Pop, a Daylight light theme, and High Contrast (Light/Dark) join the originals; charts flip their template by background luminance.
+- **Daily Morning Report** — a Morning Brief by desktop notification and optional email (TLS-verified SMTP with Gmail/Outlook/iCloud/Yahoo presets, app password in the OS keychain), full report attached, with launch catch-up.
+- **Cash as a first-class holding**, **share-count entry**, inline cost basis, and an app brand tucked into the sidebar.
+- **Hardening** — two full security + logic audits; see the v3 **Hardening** note above.
