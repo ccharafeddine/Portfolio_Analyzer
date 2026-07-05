@@ -17,7 +17,7 @@ and ``chart_palette()`` returns the colors used to theme the Plotly charts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 # Default categorical chart series — mirrors plotly_charts.COLORS so the
 # original themes (Terminal/Institutional/Minimal) keep today's palette when
@@ -208,11 +208,11 @@ FRUTIGER = Theme(
     border_light="#DCEBF6",
     accent="#0FB0E7",
     accent_hover="#0C97C7",
-    accent_text="#FFFFFF",
+    accent_text="#0A2230",  # dark ink on the bright glossy aqua (~6.5:1, on-brand)
     text="#10222E",
     text_muted="#5E7A8A",
     text_slate="#3E5A6A",
-    green="#2FBF57",
+    green="#1E9E48",  # deepened so gains read on white cards (~3.5:1, was 2.4:1)
     red="#E5484D",
     chart_bg="#FFFFFF",
     chart_grid="rgba(60, 120, 150, 0.12)",
@@ -297,7 +297,7 @@ SUPERFLAT = Theme(
     text="#16130F",
     text_muted="#6B6459",
     text_slate="#4A443B",
-    green="#2FC24E",
+    green="#199444",  # deepened so gains read on white cards (~3.9:1, was 2.4:1)
     red="#FF473E",
     chart_bg="#FFFFFF",
     chart_grid="rgba(20, 20, 20, 0.10)",

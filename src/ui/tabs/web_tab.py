@@ -88,6 +88,9 @@ class WebTab(QWidget):
     def ensure_populated(self) -> None:
         if not self._dirty:
             return
+        # Keep the view's base colour in sync with the (possibly just-switched)
+        # theme, so a dark→light theme change doesn't flash a dark backdrop.
+        self._view.page().setBackgroundColor(QColor(theme.ACTIVE.chart_bg))
         self._html = []
         self._figs = {}
         self._chart_i = 0
@@ -266,7 +269,7 @@ class WebTab(QWidget):
     color:{t.text_muted};text-decoration:none;font-size:{t.base_pt - 1}px;
     font-weight:600;transition:all .12s}}
   .chip:hover{{border-color:{t.accent};color:{t.text}}}
-  .chip.active{{background:{t.accent};border-color:{t.accent};color:#fff}}
+  .chip.active{{background:{t.accent};border-color:{t.accent};color:{t.accent_text}}}
   ::-webkit-scrollbar{{width:12px;height:12px}}
   ::-webkit-scrollbar-track{{background:transparent}}
   ::-webkit-scrollbar-thumb{{background:{t.border_light};border-radius:7px;
