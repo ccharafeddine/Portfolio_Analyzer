@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -64,7 +63,8 @@ class WatchlistPanel(QWidget):
     # host wants to react. Not required for the panel to function on its own.
     changed = Signal()
 
-    def __init__(self, store: WatchlistStore | None = None, parent=None) -> None:
+    def __init__(self, store: WatchlistStore | None = None, parent=None,
+                 settings=None, layout_key: str = "") -> None:
         super().__init__(parent)
         self._store = store if store is not None else WatchlistStore()
         self._quotes: dict = {}
@@ -136,16 +136,14 @@ class WatchlistPanel(QWidget):
         lv.addWidget(self._notice)
         lv.addWidget(self._table, 1)
 
-        # ── Cockpit on the right, mirroring the Portfolio tab. Watchlist symbols
-        # aren't weighted, so its heatmap is the equal-tile grid. ──
-        self._chart = ChartHeatmapPanel(heatmap_style="grid")
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(left)
-        splitter.addWidget(self._chart)
-        splitter.setStretchFactor(0, 5)
-        splitter.setStretchFactor(1, 4)
-        splitter.setChildrenCollapsible(False)
-        root.addWidget(splitter, 1)
+        # ── Grid cockpit, mirroring the Portfolio tab: the watchlist (add controls
+        # + table) is one card alongside the chart, news, and heatmap. Watchlist
+        # symbols aren't weighted, so its heatmap is the equal-tile grid. ──
+        self._chart = ChartHeatmapPanel(
+            heatmap_style="grid", table_widget=left, table_title="Watchlist",
+            settings=settings, layout_key=layout_key,
+        )
+        root.addWidget(self._chart, 1)
 
         # ── Auto-refresh timer (started/stopped by show/hide events) ──
         self._timer = QTimer(self)

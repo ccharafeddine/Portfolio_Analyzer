@@ -1,31 +1,32 @@
-"""The Live Market Watch right-hand cockpit: price chart + news + a heatmap.
+"""The Live Market Watch cockpit — a drag-and-drop grid of four panels.
 
-Both the Portfolio and Watchlist tabs show the same stacked cockpit, laid out as
-a resizable vertical :class:`QSplitter` of three individually toggleable panels:
+Both the Portfolio and Watchlist tabs show the same cockpit, laid out as a
+free-form snap grid (:class:`GridDashboard`) of distinct, movable/resizable cards:
 
+- the **quotes table** (passed in by the host — portfolio holdings or the
+  watchlist), titled ``"table"``;
 - a **TradingView-style candlestick chart** (``"chart"``) with timeframe buttons
-  (1D…5Y), driven by the selected symbol (:class:`LightweightChartWidget`);
+  (1D…5Y) in its header, driven by the selected symbol;
 - a **per-symbol news panel** (``"news"``) that follows the charted symbol; and
 - a **day-change heatmap** (``"heatmap"``) — a weight-sized *treemap* on the
-  Portfolio tab, or an equal-tile *grid* on the Watchlist tab (``heatmap_style``).
+  Portfolio tab, or an equal-tile *grid* on the Watchlist (``heatmap_style``).
 
-Selecting a symbol (:meth:`load_symbol`, wired to a table row-click) fetches its
-OHLC off the UI thread and points the news panel at it. The host (LiveWatchView)
-persists the splitter geometry via :meth:`splitter` and toggles panels via
-:meth:`set_panel_visible`.
+Drag a card's header to move it, drag its corner to resize; the arrangement snaps
+to the grid, reflows, and persists via ``settings``/``layout_key``. Selecting a
+symbol (:meth:`load_symbol`, wired to a table row-click) fetches its OHLC off the
+UI thread and points the news panel at it.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
-    QLabel,
     QPushButton,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -36,28 +37,40 @@ from src.data.market_data import DEFAULT_TIMEFRAME, OHLC_TIMEFRAMES
 from .. import theme
 from ..explanations import tooltip_html
 from ..worker import OhlcWorker
+from .grid_dashboard import GridDashboard
 from .info_label import InfoLabel
 from .lightweight_chart import LightweightChartWidget
 from .news_panel import NewsPanel
 from .plotly_widget import PlotlyWidget
 
-_HINT_IDLE = "Click a holding to see its chart"
-
-# Panel keys shared with LiveWatchView's toggles / persisted visibility.
+# Panel keys shared with LiveWatchView's toggles / persisted layout.
+PANEL_TABLE = "table"
 PANEL_CHART = "chart"
 PANEL_NEWS = "news"
 PANEL_HEATMAP = "heatmap"
 
+# Default grid cells (12 cols × 12 rows): table left full-height, chart top-right,
+# news + heatmap along the bottom-right.
+_DEFAULT_CELLS = {
+    PANEL_TABLE: (0, 0, 4, 12),
+    PANEL_CHART: (4, 0, 8, 7),
+    PANEL_NEWS: (4, 7, 4, 5),
+    PANEL_HEATMAP: (8, 7, 4, 5),
+}
+
 
 class ChartHeatmapPanel(QWidget):
-    """Candlestick chart + per-symbol news + a day-change heatmap, self-managing
-    its OHLC fetch. Its three sub-panels live in a vertical splitter and can be
-    shown or hidden individually. ``heatmap_style`` is ``"treemap"`` (weight-sized)
+    """Grid cockpit: quotes table + candlestick chart + per-symbol news + heatmap,
+    self-managing its OHLC fetch. ``heatmap_style`` is ``"treemap"`` (weight-sized)
     or ``"grid"`` (equal tiles)."""
 
-    def __init__(self, heatmap_style: str = "treemap", parent=None) -> None:
+    def __init__(self, heatmap_style: str = "treemap", table_widget: QWidget = None,
+                 table_title: str = "Portfolio", settings=None, layout_key: str = "",
+                 parent=None) -> None:
         super().__init__(parent)
         self._heatmap_style = heatmap_style if heatmap_style in ("treemap", "grid") else "treemap"
+        self._settings = settings
+        self._layout_key = layout_key
         self._quotes: dict = {}
         self._order: list[str] = []
         self._weights: dict[str, float] = {}
@@ -69,26 +82,18 @@ class ChartHeatmapPanel(QWidget):
         self._ohlc_thread: Optional[QThread] = None
         self._ohlc_worker: Optional[OhlcWorker] = None
         self._ohlc_fetching = False
-        self._ohlc_pending = False  # a re-fetch is wanted once the current ends
+        self._ohlc_pending = False
 
-        cp = QVBoxLayout(self)
-        cp.setContentsMargins(0, 0, 0, 0)
-        cp.setSpacing(6)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        self._dash = GridDashboard()
 
-        self._splitter = QSplitter(Qt.Vertical)
-        self._splitter.setChildrenCollapsible(False)
-
-        # ── Chart panel: timeframe buttons + hint, then the candlestick chart ──
-        self._chart_box = QWidget()
-        cb = QVBoxLayout(self._chart_box)
-        cb.setContentsMargins(0, 0, 0, 0)
-        cb.setSpacing(4)
-        bar = QHBoxLayout()
-        bar.setSpacing(4)
-        self._chart_hint = QLabel(_HINT_IDLE)
-        self._chart_hint.setObjectName("muted")
-        bar.addWidget(self._chart_hint)
-        bar.addStretch(1)
+        # ── Chart panel content + timeframe buttons (go in the card header) ──
+        self._chart = LightweightChartWidget()
+        tf_bar = QWidget()
+        tb = QHBoxLayout(tf_bar)
+        tb.setContentsMargins(0, 0, 0, 0)
+        tb.setSpacing(4)
         self._tf_group = QButtonGroup(self)
         self._tf_group.setExclusive(True)
         self._tf_buttons: dict[str, QPushButton] = {}
@@ -100,52 +105,55 @@ class ChartHeatmapPanel(QWidget):
             b.clicked.connect(lambda _=False, t=tf: self._on_timeframe(t))
             self._tf_group.addButton(b)
             self._tf_buttons[tf] = b
-            bar.addWidget(b)
-        cb.addLayout(bar)
-        self._chart = LightweightChartWidget()
-        cb.addWidget(self._chart, 1)
+            tb.addWidget(b)
 
-        # ── News panel (follows the charted symbol) ──
-        self._news = NewsPanel()
-
-        # ── Heatmap panel: titled header (+ "?") over the chart ──
-        self._heatmap_box = QWidget()
-        hb = QVBoxLayout(self._heatmap_box)
-        hb.setContentsMargins(0, 0, 0, 0)
-        hb.setSpacing(4)
-        hhead = QHBoxLayout()
-        hhead.setSpacing(6)
-        is_grid = self._heatmap_style == "grid"
-        self._hm_title = QLabel("Day-Change Heatmap" if is_grid else "Holdings Heatmap")
-        self._hm_title.setObjectName("muted")
-        hhead.addWidget(self._hm_title)
-        hhead.addWidget(InfoLabel(tooltip_html("day_change_heatmap")))
-        hhead.addStretch(1)
+        self._news = NewsPanel(show_header=False)
         self._heatmap = PlotlyWidget()
-        hb.addLayout(hhead)
-        hb.addWidget(self._heatmap, 1)
 
-        for w in (self._chart_box, self._news, self._heatmap_box):
-            self._splitter.addWidget(w)
-        self._splitter.setStretchFactor(0, 4)
-        self._splitter.setStretchFactor(1, 2)
-        self._splitter.setStretchFactor(2, 2)
-        cp.addWidget(self._splitter, 1)
+        # ── Add the four cards ──
+        c = _DEFAULT_CELLS
+        self._table_title = table_title
+        if table_widget is not None:
+            self._dash.add_panel(PANEL_TABLE, table_title.upper(), table_widget, *c[PANEL_TABLE][2:], x=c[PANEL_TABLE][0], y=c[PANEL_TABLE][1])
+        self._chart_panel = self._dash.add_panel(
+            PANEL_CHART, "PRICE CHART", self._chart, c[PANEL_CHART][2], c[PANEL_CHART][3],
+            x=c[PANEL_CHART][0], y=c[PANEL_CHART][1], header_extra=tf_bar)
+        self._news_panel = self._dash.add_panel(
+            PANEL_NEWS, "NEWS", self._news, c[PANEL_NEWS][2], c[PANEL_NEWS][3],
+            x=c[PANEL_NEWS][0], y=c[PANEL_NEWS][1],
+            header_extra=InfoLabel(tooltip_html("news_feed")))
+        hm_title = "DAY-CHANGE HEATMAP" if self._heatmap_style == "grid" else "HOLDINGS HEATMAP"
+        self._dash.add_panel(
+            PANEL_HEATMAP, hm_title, self._heatmap, c[PANEL_HEATMAP][2], c[PANEL_HEATMAP][3],
+            x=c[PANEL_HEATMAP][0], y=c[PANEL_HEATMAP][1],
+            header_extra=InfoLabel(tooltip_html("day_change_heatmap")))
+        root.addWidget(self._dash, 1)
 
+        self._news.symbolChanged.connect(self._on_news_symbol)
+        self._dash.layoutChanged.connect(self._save_layout)
+        self._restore_layout()
         self._style_timeframe_buttons()
 
-    # ── Panel visibility + splitter access (driven by LiveWatchView) ──
-    def splitter(self) -> QSplitter:
-        return self._splitter
-
+    # ── Panel visibility + layout persistence (driven by LiveWatchView) ──
     def set_panel_visible(self, key: str, visible: bool) -> None:
-        w = {
-            PANEL_CHART: self._chart_box,
-            PANEL_NEWS: self._news,
-            PANEL_HEATMAP: self._heatmap_box,
-        }.get(key)
-        if w is not None:
-            w.setVisible(bool(visible))
+        self._dash.set_panel_visible(key, visible)
+
+    def panel_visible(self, key: str) -> bool:
+        return self._dash.is_visible(key)
+
+    def _save_layout(self) -> None:
+        if self._settings is not None and self._layout_key:
+            self._settings.set(self._layout_key, json.dumps(self._dash.save_layout()))
+
+    def _restore_layout(self) -> None:
+        if self._settings is None or not self._layout_key:
+            return
+        raw = self._settings.get(self._layout_key, "")
+        if raw:
+            try:
+                self._dash.restore_layout(json.loads(raw))
+            except Exception:
+                pass
 
     def selected(self) -> Optional[str]:
         return self._selected
@@ -153,8 +161,8 @@ class ChartHeatmapPanel(QWidget):
     # ── Data feed ──
     def set_data(self, order, weights, quotes) -> None:
         """Refresh the heatmap from a new snapshot and auto-load the first symbol's
-        chart on the first snapshot. ``weights`` may be empty (equal treemap tiles).
-        Re-renders the current chart so its prev-close line tracks the latest quote."""
+        chart on the first snapshot. Re-renders the current chart so its prev-close
+        line tracks the latest quote."""
         self._quotes = dict(quotes or {})
         self._order = list(order or [])
         self._weights = dict(weights or {})
@@ -170,7 +178,7 @@ class ChartHeatmapPanel(QWidget):
         if self._heatmap_style == "grid":
             self._heatmap.set_figure(charts.day_change_heatmap(order, changes))
         else:
-            weights = self._weights or {t: 1.0 for t in order}  # equal tiles if none
+            weights = self._weights or {t: 1.0 for t in order}
             self._heatmap.set_figure(charts.holdings_treemap(order, weights, changes))
 
     # ── Symbol selection → chart + news ──
@@ -179,9 +187,12 @@ class ChartHeatmapPanel(QWidget):
         if not symbol:
             return
         self._selected = symbol
-        self._chart_hint.setText(f"{symbol} · {self._timeframe}")
+        self._chart_panel.set_title(f"PRICE CHART · {symbol} · {self._timeframe}")
         self._news.set_symbol(symbol)
         self._fetch_ohlc()
+
+    def _on_news_symbol(self, sym: str) -> None:
+        self._news_panel.set_title(f"NEWS · {sym}" if sym else "NEWS")
 
     def _on_timeframe(self, tf: str) -> None:
         if tf not in OHLC_TIMEFRAMES:
@@ -189,14 +200,14 @@ class ChartHeatmapPanel(QWidget):
         self._timeframe = tf
         self._style_timeframe_buttons()
         if self._selected:
-            self._chart_hint.setText(f"{self._selected} · {tf}")
+            self._chart_panel.set_title(f"PRICE CHART · {self._selected} · {tf}")
             self._fetch_ohlc()
 
     def _fetch_ohlc(self) -> None:
         if not self._selected:
             return
         if self._ohlc_fetching:
-            self._ohlc_pending = True  # coalesce rapid symbol/timeframe clicks
+            self._ohlc_pending = True
             return
         self._ohlc_fetching = True
         self._ohlc_thread = QThread(self)
@@ -212,14 +223,13 @@ class ChartHeatmapPanel(QWidget):
 
     def _on_ohlc(self, payload) -> None:
         ticker, timeframe, df = payload
-        # Drop a stale reply if the user has since changed symbol or timeframe.
         if ticker != self._selected or timeframe != self._timeframe:
             return
         self._ohlc_df = df
         self._render_chart()
 
     def _on_ohlc_failed(self, _message: str) -> None:
-        pass  # best-effort; the chart keeps its last content
+        pass
 
     def _render_chart(self) -> None:
         prev = getattr(self._quotes.get(self._selected), "prev_close", None)
@@ -242,8 +252,8 @@ class ChartHeatmapPanel(QWidget):
         t = theme.ACTIVE
         qss = (
             f"QPushButton {{ background:transparent; border:1px solid {t.border_light};"
-            f" color:{t.text_muted}; padding:1px 8px; border-radius:{max(3, t.radius - 6)}px;"
-            f" font-size:{t.label_pt}px; font-weight:600; }}"
+            f" color:{t.text_muted}; padding:1px 7px; border-radius:{max(3, t.radius - 6)}px;"
+            f" font-size:{t.label_pt - 1}px; font-weight:600; }}"
             f"QPushButton:hover {{ color:{t.text}; border-color:{t.accent}; }}"
             f"QPushButton:checked {{ background:{t.accent}; color:{t.accent_text};"
             f" border-color:{t.accent}; }}"
@@ -254,13 +264,13 @@ class ChartHeatmapPanel(QWidget):
     # ── Lifecycle ──
     def reset(self) -> None:
         """Forget the charted symbol so the next snapshot auto-loads the new
-        universe's first entry; clear the chart, news, and hint."""
+        universe's first entry; clear the chart, news, and title."""
         self._selected = None
         self._ohlc_df = None
         self._ohlc_pending = False
         self._chart.clear()
         self._news.clear()
-        self._chart_hint.setText(_HINT_IDLE)
+        self._chart_panel.set_title("PRICE CHART")
 
     def shutdown(self) -> None:
         self._ohlc_pending = False
@@ -270,9 +280,9 @@ class ChartHeatmapPanel(QWidget):
         self._news.shutdown()
 
     def retheme(self) -> None:
-        """Rebuild the heatmap + chart with the fresh palette from stored state."""
         if self._order or self._quotes:
             self._render_heatmap()
         self._style_timeframe_buttons()
         self._chart.retheme()
         self._news.retheme()
+        self._dash.retheme()

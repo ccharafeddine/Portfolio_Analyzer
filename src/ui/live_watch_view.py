@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
-    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -69,10 +68,12 @@ _PANELS = [
     (PANEL_WATCHLIST, "Watchlist tab", True),
 ]
 
-# QSettings keys for the persisted dashboard layout.
-_KEY_H_SPLIT = "market_watch/h_splitter"   # Portfolio: quotes table | charts
-_KEY_V_SPLIT = "market_watch/v_splitter"   # Portfolio charts: price | treemap | daychange
-_KEY_SHOW = "market_watch/show_{}"          # per-panel visibility
+# QSettings keys. The grid layout (positions + hidden panels) of each cockpit is
+# persisted by ChartHeatmapPanel under these; the Watchlist *tab* visibility is a
+# separate boolean owned here.
+_GRID_KEY_PORTFOLIO = "market_watch/grid_portfolio"
+_GRID_KEY_WATCHLIST = "market_watch/grid_watchlist"
+_KEY_SHOW_WATCHLIST = "market_watch/show_watchlist"
 
 
 class _NumItem(QTableWidgetItem):
@@ -109,7 +110,6 @@ class LiveWatchView(QWidget):
         super().__init__(parent)
         self._get_current_config = get_current_config
         self._settings = settings if settings is not None else AppSettings()
-        self._panel_visible: dict[str, bool] = {}
         self._tickers: list[str] = []
         self._weights: dict[str, float] = {}
         self._cost_basis: dict[str, float] = {}
@@ -198,24 +198,22 @@ class LiveWatchView(QWidget):
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_table_menu)
 
-        # Body: quotes table (left) | charts cockpit (right), user-resizable.
-        # Portfolio holdings are weighted, so its heatmap is the weight-sized treemap.
-        self._chart = ChartHeatmapPanel(heatmap_style="treemap")
-        self._h_splitter = QSplitter(Qt.Horizontal)
-        self._h_splitter.addWidget(self._table)
-        self._h_splitter.addWidget(self._chart)
-        self._h_splitter.setStretchFactor(0, 5)
-        self._h_splitter.setStretchFactor(1, 4)
-        self._h_splitter.setChildrenCollapsible(False)
-        self._h_splitter.splitterMoved.connect(self._save_splitters)
-        self._chart.splitter().splitterMoved.connect(self._save_splitters)
-        pv.addWidget(self._h_splitter, 1)
+        # Body: a drag-and-drop grid cockpit — the quotes table + chart + news +
+        # heatmap are movable/resizable cards. Portfolio holdings are weighted, so
+        # its heatmap is the weight-sized treemap.
+        self._chart = ChartHeatmapPanel(
+            heatmap_style="treemap", table_widget=self._table, table_title="Portfolio",
+            settings=self._settings, layout_key=_GRID_KEY_PORTFOLIO,
+        )
+        pv.addWidget(self._chart, 1)
 
         # ── Watchlist tab: a persistent, user-curated symbol list with its own
-        # quotes table + intraday chart + heatmap. Fully self-contained. ──
+        # grid cockpit. Fully self-contained. ──
         from .watchlist_panel import WatchlistPanel
 
-        self._watchlist = WatchlistPanel()
+        self._watchlist = WatchlistPanel(
+            settings=self._settings, layout_key=_GRID_KEY_WATCHLIST,
+        )
 
         self._tabs = QTabWidget()
         self._tabs.addTab(port_tab, "Portfolio")
@@ -260,68 +258,43 @@ class LiveWatchView(QWidget):
         lbl.setObjectName("muted")
         return lbl
 
-    # ── Resizable / toggleable panel dashboard ──
+    # ── Toggleable panels (positions live in each cockpit's own grid layout) ──
     def _restore_layout(self) -> None:
-        """Restore splitter geometry + per-panel visibility from settings. Called
-        once at build time, before the view is shown."""
-        # Splitter geometry (QByteArray via saveState/restoreState, like the main
-        # window persists its own geometry through AppSettings).
-        h_state = self._settings.get(_KEY_H_SPLIT)
-        if h_state:
-            self._h_splitter.restoreState(h_state)
-        v_state = self._settings.get(_KEY_V_SPLIT)
-        if v_state:
-            self._chart.splitter().restoreState(v_state)
-
-        # Per-panel visibility. Reflect each into its checkable action (without
-        # re-emitting) and apply it, so the menu, the widgets, and settings agree.
-        for key, _label, default in _PANELS:
-            visible = self._get_bool(_KEY_SHOW.format(key), default)
-            self._panel_visible[key] = visible
+        """Sync the Panels menu to the restored state: the Watchlist tab boolean,
+        and each grid panel's visibility (restored by the Portfolio cockpit)."""
+        wl_visible = self._get_bool(_KEY_SHOW_WATCHLIST, True)
+        self._tabs.setTabVisible(self._watchlist_tab_index, wl_visible)
+        for key, _label, _default in _PANELS:
+            visible = wl_visible if key == PANEL_WATCHLIST else self._chart.panel_visible(key)
             act = self._panel_actions.get(key)
             if act is not None:
                 act.blockSignals(True)
                 act.setChecked(visible)
                 act.blockSignals(False)
-            self._apply_panel_visibility(key, visible)
-
-    def _apply_panel_visibility(self, key: str, visible: bool) -> None:
-        """Show/hide the widget(s) a panel key maps to. Chart panels apply to both
-        the Portfolio cockpit and the Watchlist tab so the two stay consistent."""
-        if key == PANEL_WATCHLIST:
-            self._tabs.setTabVisible(self._watchlist_tab_index, visible)
-        else:
-            self._chart.set_panel_visible(key, visible)
-            self._watchlist.chart_panel().set_panel_visible(key, visible)
 
     def _on_panel_toggled(self, key: str, checked: bool) -> None:
         self.set_panel_visible(key, checked)
 
     def set_panel_visible(self, key: str, visible: bool) -> None:
-        """Show/hide a panel and persist the choice. Keeps the menu action in sync
-        when called programmatically."""
+        """Show/hide a panel across both cockpits (chart/news/heatmap) or the
+        Watchlist tab. Grid panels persist through each cockpit's own layout."""
         visible = bool(visible)
-        self._panel_visible[key] = visible
         act = self._panel_actions.get(key)
         if act is not None and act.isChecked() != visible:
             act.blockSignals(True)
             act.setChecked(visible)
             act.blockSignals(False)
-        self._apply_panel_visibility(key, visible)
-        self._settings.set(_KEY_SHOW.format(key), visible)
+        if key == PANEL_WATCHLIST:
+            self._tabs.setTabVisible(self._watchlist_tab_index, visible)
+            self._settings.set(_KEY_SHOW_WATCHLIST, visible)
+        else:
+            self._chart.set_panel_visible(key, visible)
+            self._watchlist.chart_panel().set_panel_visible(key, visible)
 
     def panel_visible(self, key: str) -> bool:
-        return bool(self._panel_visible.get(key, True))
-
-    def _save_splitters(self, *args) -> None:
-        self._settings.set(_KEY_H_SPLIT, self._h_splitter.saveState())
-        self._settings.set(_KEY_V_SPLIT, self._chart.splitter().saveState())
-
-    def _save_layout(self) -> None:
-        """Persist splitter geometry + every panel's visibility at once."""
-        self._save_splitters()
-        for key in self._panel_visible:
-            self._settings.set(_KEY_SHOW.format(key), self._panel_visible[key])
+        if key == PANEL_WATCHLIST:
+            return self._tabs.isTabVisible(self._watchlist_tab_index)
+        return self._chart.panel_visible(key)
 
     def _get_bool(self, key: str, default: bool) -> bool:
         v = self._settings.get(key, default)
@@ -330,11 +303,6 @@ class LiveWatchView(QWidget):
         if isinstance(v, str):
             return v.strip().lower() in ("1", "true", "yes", "on")
         return bool(v)
-
-    def hideEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        # Leaving the section is a natural checkpoint to persist the layout.
-        self._save_layout()
-        super().hideEvent(event)
 
     # ── Public API (driven by the main window) ──
     def set_portfolio(self, config) -> None:
@@ -470,9 +438,8 @@ class LiveWatchView(QWidget):
         self._chart.reset()
 
     def shutdown(self) -> None:
-        """Persist the layout, then stop the background fetch threads cleanly
-        (called on app close)."""
-        self._save_layout()
+        """Stop the background fetch threads cleanly (called on app close). The
+        grid layout persists itself on every change."""
         self._chart.shutdown()
         self._watchlist.shutdown()
 

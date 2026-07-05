@@ -15,7 +15,7 @@ import html as _html
 from datetime import datetime, timezone
 from typing import Optional
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -57,7 +57,9 @@ def _relative_time(dt: Optional[datetime]) -> str:
 class NewsPanel(QWidget):
     """A scrollable list of recent headlines for one symbol."""
 
-    def __init__(self, parent=None) -> None:
+    symbolChanged = Signal(str)  # current symbol (or "" when cleared)
+
+    def __init__(self, parent=None, show_header: bool = True) -> None:
         super().__init__(parent)
         self._symbol: Optional[str] = None
         self._items: list = []
@@ -65,19 +67,22 @@ class NewsPanel(QWidget):
         self._worker: Optional[SymbolNewsWorker] = None
         self._in_flight = False
         self._pending: Optional[str] = None
+        self._title: Optional[QLabel] = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(4)
 
-        head = QHBoxLayout()
-        head.setSpacing(6)
-        self._title = QLabel("News")
-        self._title.setObjectName("muted")
-        head.addWidget(self._title)
-        head.addWidget(InfoLabel(tooltip_html("news_feed")))
-        head.addStretch(1)
-        root.addLayout(head)
+        # The internal header is skipped when a host (the grid card) supplies one.
+        if show_header:
+            head = QHBoxLayout()
+            head.setSpacing(6)
+            self._title = QLabel("News")
+            self._title.setObjectName("muted")
+            head.addWidget(self._title)
+            head.addWidget(InfoLabel(tooltip_html("news_feed")))
+            head.addStretch(1)
+            root.addLayout(head)
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -102,7 +107,9 @@ class NewsPanel(QWidget):
         if not sym or sym == self._symbol:
             return
         self._symbol = sym
-        self._title.setText(f"News · {sym}")
+        if self._title is not None:
+            self._title.setText(f"News · {sym}")
+        self.symbolChanged.emit(sym)
         self._show_message(f"Loading news for {sym}…")
         if self._in_flight:
             self._pending = sym
@@ -112,7 +119,9 @@ class NewsPanel(QWidget):
     def clear(self) -> None:
         self._symbol = None
         self._items = []
-        self._title.setText("News")
+        if self._title is not None:
+            self._title.setText("News")
+        self.symbolChanged.emit("")
         self._show_message("Select a symbol to see its news.")
 
     # ── Fetch (worker thread) ──

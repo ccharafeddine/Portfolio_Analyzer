@@ -1,4 +1,4 @@
-"""Live Market Watch dashboard: splitter + panel-visibility persistence.
+"""Live Market Watch grid dashboard: panel visibility + grid-cell persistence.
 
 Qt-dependent, so it is skipped wherever PySide6.QtWidgets can't be imported or a
 (headless) QApplication can't be created — matching the project's "keep the
@@ -27,8 +27,6 @@ except Exception as exc:  # pragma: no cover - headless runner without libEGL
     pytest.skip(f"Qt unavailable: {exc}", allow_module_level=True)
 
 from src.ui.live_watch_view import (  # noqa: E402  (must follow the QApplication guard)
-    _KEY_H_SPLIT,
-    _KEY_V_SPLIT,
     PANEL_CHART,
     PANEL_HEATMAP,
     PANEL_NEWS,
@@ -36,17 +34,18 @@ from src.ui.live_watch_view import (  # noqa: E402  (must follow the QApplicatio
     LiveWatchView,
 )
 from src.ui.settings import AppSettings  # noqa: E402
+from src.ui.widgets.grid_layout import resolve  # noqa: E402
 
 
 def _settings(tmp_path):
-    """A real AppSettings over an isolated ini file (round-trips QByteArray)."""
+    """A real AppSettings over an isolated ini file."""
     qs = QtCore.QSettings(str(tmp_path / "market_watch.ini"), QtCore.QSettings.IniFormat)
     return AppSettings(qs)
 
 
 def _build(settings):
     view = LiveWatchView(settings=settings)
-    view.resize(1000, 700)
+    view.resize(1200, 800)
     return view
 
 
@@ -54,89 +53,80 @@ def test_panel_visibility_round_trips(tmp_path):
     settings = _settings(tmp_path)
 
     v1 = _build(settings)
-    # Toggle a distinctive mixed pattern (some off, some on).
-    v1.set_panel_visible(PANEL_CHART, False)
-    v1.set_panel_visible(PANEL_NEWS, True)
+    v1.set_panel_visible(PANEL_CHART, False)     # grid panel → persists via grid layout
     v1.set_panel_visible(PANEL_HEATMAP, False)
-    v1.set_panel_visible(PANEL_WATCHLIST, False)
-    v1.shutdown()  # persists
+    v1.set_panel_visible(PANEL_WATCHLIST, False)  # tab → persists via boolean
+    v1.shutdown()
 
-    # A freshly built view over the same settings restores the exact pattern.
     v2 = _build(settings)
     assert v2.panel_visible(PANEL_CHART) is False
-    assert v2.panel_visible(PANEL_NEWS) is True
     assert v2.panel_visible(PANEL_HEATMAP) is False
+    assert v2.panel_visible(PANEL_NEWS) is True
     assert v2.panel_visible(PANEL_WATCHLIST) is False
-
-    # ...and it actually applied to the widgets, not just the tracking dict.
-    assert v2._chart._chart_box.isHidden() is True
-    assert v2._chart._heatmap_box.isHidden() is True
-    assert v2._chart._news.isHidden() is False
+    # The hidden grid cards are actually gone from the dashboard, and the tab hidden.
+    assert v2._chart._dash.is_visible(PANEL_CHART) is False
+    assert v2._chart._dash.is_visible(PANEL_NEWS) is True
     assert v2._tabs.isTabVisible(v2._watchlist_tab_index) is False
-    # The menu actions reflect the restored state too.
+    # The menu actions mirror the restored state.
     assert v2._panel_actions[PANEL_CHART].isChecked() is False
     assert v2._panel_actions[PANEL_NEWS].isChecked() is True
     v2.shutdown()
 
 
-def test_splitter_geometry_round_trips(tmp_path):
+def test_grid_cells_round_trip(tmp_path):
     settings = _settings(tmp_path)
 
     v1 = _build(settings)
-    v1._h_splitter.setSizes([250, 750])
-    v1._chart.splitter().setSizes([300, 200, 200])
-    v1._save_layout()
-    saved_h = bytes(v1._h_splitter.saveState())
-    saved_v = bytes(v1._chart.splitter().saveState())
-    sizes_h = v1._h_splitter.sizes()
-    sizes_v = v1._chart.splitter().sizes()
+    dash = v1._chart._dash
+    # Move the news card to the top-left and reflow, then commit (as a drop would).
+    dash._items[PANEL_NEWS].x, dash._items[PANEL_NEWS].y = 0, 0
+    resolve(list(dash._items.values()), PANEL_NEWS)
+    dash.layoutChanged.emit()
+    saved = {k: it.as_tuple() for k, it in dash._items.items()}
     v1.shutdown()
 
-    # Write side: settings holds exactly the QByteArray v1 serialized.
-    assert bytes(settings.get(_KEY_H_SPLIT)) == saved_h
-    assert bytes(settings.get(_KEY_V_SPLIT)) == saved_v
-
-    # Read side: a fresh view restores that geometry from settings. (Offscreen,
-    # an unshown splitter clamps to min sizes rather than preserving the exact
-    # pixel ratio, so we assert the restored sizes match the saved view and are
-    # non-default — which a never-saved view is not.)
     v2 = _build(settings)
-    assert v2._h_splitter.sizes() == sizes_h
-    assert v2._chart.splitter().sizes() == sizes_v
-
-    fresh = _build(AppSettings(
-        QtCore.QSettings(str(tmp_path / "fresh.ini"), QtCore.QSettings.IniFormat)))
-    assert fresh._h_splitter.sizes() != sizes_h  # unsaved default differs
+    dash2 = v2._chart._dash
+    for key, cell in saved.items():
+        assert dash2._items[key].as_tuple() == cell   # every card restored to its cell
     v2.shutdown()
-    fresh.shutdown()
 
 
-def test_smoke_toggle_each_panel_off_then_on(tmp_path):
-    """Build offscreen, toggle every panel off then on, resize a splitter, tear
-    down and rebuild, and confirm visibility + sizes restore from settings."""
+def test_hidden_card_restores_to_grid_when_reshown(tmp_path):
     settings = _settings(tmp_path)
+    v = _build(settings)
+    dash = v._chart._dash
+    assert dash.is_visible(PANEL_HEATMAP) is True
+    v.set_panel_visible(PANEL_HEATMAP, False)
+    assert dash.is_visible(PANEL_HEATMAP) is False
+    v.set_panel_visible(PANEL_HEATMAP, True)
+    assert dash.is_visible(PANEL_HEATMAP) is True     # comes back onto the grid
+    v.shutdown()
 
-    v1 = _build(settings)
-    keys = [PANEL_CHART, PANEL_NEWS, PANEL_HEATMAP, PANEL_WATCHLIST]
-    for k in keys:  # off
-        v1.set_panel_visible(k, False)
-        assert v1.panel_visible(k) is False
-    for k in keys:  # back on
-        v1.set_panel_visible(k, True)
-        assert v1.panel_visible(k) is True
-    # Leave one off to make the restored state non-trivial, and resize a splitter.
-    v1.set_panel_visible(PANEL_HEATMAP, False)
-    v1._h_splitter.setSizes([400, 600])
-    v1._save_layout()
-    sizes_h = v1._h_splitter.sizes()
-    v1.shutdown()
 
-    v2 = _build(settings)
-    assert v2.panel_visible(PANEL_HEATMAP) is False
-    assert v2.panel_visible(PANEL_CHART) is True
-    assert v2.panel_visible(PANEL_WATCHLIST) is True
-    assert v2._h_splitter.sizes() == sizes_h
-    v2.shutdown()
+def test_grid_dashboard_drag_commits_and_reflows():
+    """The drag handlers (not just the engine) move a card to its target cell and
+    push the overlapped card out of the way, emitting layoutChanged."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QLabel
+
+    from src.ui.widgets.grid_dashboard import GridDashboard
+
+    dash = GridDashboard()
+    dash.resize(1200, 600)
+    dash.add_panel("a", "A", QLabel("a"), 6, 6, x=0, y=0)
+    dash.add_panel("b", "B", QLabel("b"), 6, 6, x=6, y=0)
+
+    fired = []
+    dash.layoutChanged.connect(lambda: fired.append(1))
+
+    dash._on_drag_start("a", QPoint(0, 0))
+    dash._drag["target"] = (6, 0)          # as if dragged onto b's column
+    dash._on_drag_end("a")
+
+    assert dash._items["a"].as_tuple() == (6, 0, 6, 6)   # committed to target
+    assert dash._items["b"].y == 6                        # b pushed straight down
+    assert fired                                          # persistence signal fired
 
 
 def test_day_pnl_uses_invested_not_total_capital(tmp_path):
@@ -147,13 +137,11 @@ def test_day_pnl_uses_invested_not_total_capital(tmp_path):
     from src.data.market_data import Quote
 
     v = _build(_settings(tmp_path))
-    # $100k total, $30k cash → $70k invested; single holding up 1% today.
     v.set_portfolio(SimpleNamespace(
         tickers=["AAPL"], weights={"AAPL": 1.0}, cost_basis={},
         capital=100_000.0, cash=30_000.0,
     ))
     v.set_quotes({"AAPL": Quote("AAPL", last=101.0, prev_close=100.0,
                                 change=1.0, change_pct=0.01)})
-    # 70_000 * 0.01 = 700 (would be 1,000 on the old total-capital basis).
-    assert v._stats["Day P&L"].text() == "$700"
+    assert v._stats["Day P&L"].text() == "$700"       # 70k invested * 1%
     v.shutdown()
