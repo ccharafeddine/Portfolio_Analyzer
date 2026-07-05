@@ -45,12 +45,7 @@ from .quote_format import fmt_price as _fmt_price
 from .quote_format import fmt_signed as _fmt_signed
 from .quote_format import fmt_volume as _fmt_volume
 from .settings import AppSettings
-from .widgets.chart_heatmap_panel import (
-    PANEL_CHART,
-    PANEL_HEATMAP,
-    PANEL_NEWS,
-    ChartHeatmapPanel,
-)
+from .widgets.chart_heatmap_panel import ChartHeatmapPanel
 from .widgets.market_clock import MarketClock
 
 # (label, seconds) — 0 means auto-refresh off.
@@ -58,16 +53,6 @@ REFRESH_OPTIONS = [("Off", 0), ("15s", 15), ("30s", 30), ("60s", 60)]
 DEFAULT_INTERVAL = 30
 
 _COLUMNS = ["Ticker", "Last", "Chg", "Chg %", "Day Range", "Volume", "Weight"]
-
-# Toggleable panels: (key, menu label, default-visible). The chart keys match
-# ChartHeatmapPanel; "watchlist" toggles the Watchlist tab's visibility.
-PANEL_WATCHLIST = "watchlist"
-_PANELS = [
-    (PANEL_CHART, "Price chart", True),
-    (PANEL_NEWS, "News", True),
-    (PANEL_HEATMAP, "Heatmap", True),
-    (PANEL_WATCHLIST, "Watchlist tab", True),
-]
 
 # QSettings keys. The grid layout (positions + hidden panels) of each cockpit is
 # persisted by ChartHeatmapPanel under these; the Watchlist *tab* visibility is a
@@ -229,23 +214,42 @@ class LiveWatchView(QWidget):
 
     # ── Small builders ──
     def _build_panels_button(self) -> QToolButton:
-        """A 'Panels ▾' popup of checkable actions to show/hide each panel — the
-        app's menubar convention (checkable QActions), kept in-section since these
-        toggles only make sense while Live Market Watch is on screen."""
+        """A '＋ Panels ▾' popup that adds/removes cards for the *current* tab's
+        cockpit (its available panels differ), plus a Watchlist-tab toggle. Rebuilt
+        each time it opens so it reflects the live grid state."""
         btn = QToolButton()
-        btn.setText("Panels")
+        btn.setText("＋ Panels")
         btn.setObjectName("secondary")
         btn.setCursor(Qt.PointingHandCursor)
         btn.setPopupMode(QToolButton.InstantPopup)
-        menu = QMenu(btn)
-        self._panel_actions: dict[str, QAction] = {}
-        for key, label, _default in _PANELS:
-            act = QAction(label, self, checkable=True)
-            act.toggled.connect(lambda checked, k=key: self._on_panel_toggled(k, checked))
-            menu.addAction(act)
-            self._panel_actions[key] = act
-        btn.setMenu(menu)
+        self._panels_menu = QMenu(btn)
+        self._panels_menu.aboutToShow.connect(self._rebuild_panels_menu)
+        btn.setMenu(self._panels_menu)
         return btn
+
+    def _active_cockpit(self):
+        """The cockpit of the tab currently on screen (Portfolio is index 0)."""
+        return self._chart if self._tabs.currentIndex() == 0 else self._watchlist.chart_panel()
+
+    def _rebuild_panels_menu(self) -> None:
+        menu = self._panels_menu
+        menu.clear()
+        cockpit = self._active_cockpit()
+        for key, label in cockpit.available_panels():
+            act = QAction(label, self, checkable=True)
+            act.setChecked(cockpit.panel_visible(key))
+            act.toggled.connect(lambda checked, k=key, c=cockpit: c.set_panel_visible(k, checked))
+            menu.addAction(act)
+        menu.addSeparator()
+        wl = QAction("Watchlist tab", self, checkable=True)
+        wl.setChecked(self._tabs.isTabVisible(self._watchlist_tab_index))
+        wl.toggled.connect(self._set_watchlist_tab_visible)
+        menu.addAction(wl)
+
+    def _set_watchlist_tab_visible(self, visible: bool) -> None:
+        self._tabs.setTabVisible(self._watchlist_tab_index, bool(visible))
+        self._settings.set(_KEY_SHOW_WATCHLIST, bool(visible))
+
     def _make_stat(self, name: str):
         box = QVBoxLayout()
         box.setSpacing(2)
@@ -262,43 +266,12 @@ class LiveWatchView(QWidget):
         lbl.setObjectName("muted")
         return lbl
 
-    # ── Toggleable panels (positions live in each cockpit's own grid layout) ──
+    # ── Layout restore (grid positions/visibility live in each cockpit) ──
     def _restore_layout(self) -> None:
-        """Sync the Panels menu to the restored state: the Watchlist tab boolean,
-        and each grid panel's visibility (restored by the Portfolio cockpit)."""
-        wl_visible = self._get_bool(_KEY_SHOW_WATCHLIST, True)
-        self._tabs.setTabVisible(self._watchlist_tab_index, wl_visible)
-        for key, _label, _default in _PANELS:
-            visible = wl_visible if key == PANEL_WATCHLIST else self._chart.panel_visible(key)
-            act = self._panel_actions.get(key)
-            if act is not None:
-                act.blockSignals(True)
-                act.setChecked(visible)
-                act.blockSignals(False)
-
-    def _on_panel_toggled(self, key: str, checked: bool) -> None:
-        self.set_panel_visible(key, checked)
-
-    def set_panel_visible(self, key: str, visible: bool) -> None:
-        """Show/hide a panel across both cockpits (chart/news/heatmap) or the
-        Watchlist tab. Grid panels persist through each cockpit's own layout."""
-        visible = bool(visible)
-        act = self._panel_actions.get(key)
-        if act is not None and act.isChecked() != visible:
-            act.blockSignals(True)
-            act.setChecked(visible)
-            act.blockSignals(False)
-        if key == PANEL_WATCHLIST:
-            self._tabs.setTabVisible(self._watchlist_tab_index, visible)
-            self._settings.set(_KEY_SHOW_WATCHLIST, visible)
-        else:
-            self._chart.set_panel_visible(key, visible)
-            self._watchlist.chart_panel().set_panel_visible(key, visible)
-
-    def panel_visible(self, key: str) -> bool:
-        if key == PANEL_WATCHLIST:
-            return self._tabs.isTabVisible(self._watchlist_tab_index)
-        return self._chart.panel_visible(key)
+        """Restore the Watchlist tab visibility (the cockpits restore their own
+        grid layouts)."""
+        self._tabs.setTabVisible(self._watchlist_tab_index,
+                                 self._get_bool(_KEY_SHOW_WATCHLIST, True))
 
     def _get_bool(self, key: str, default: bool) -> bool:
         v = self._settings.get(key, default)
@@ -341,7 +314,9 @@ class LiveWatchView(QWidget):
         self._update_header()
         self._update_stamp()
         order = self._tickers or list(self._quotes.keys())
-        self._chart.set_data(order, self._weights, self._quotes)
+        self._chart.set_data(order, self._weights, self._quotes,
+                             capital=self._capital, cash=self._cash,
+                             cost_basis=self._cost_basis)
 
     # ── Rendering ──
     def _populate_table(self) -> None:

@@ -286,6 +286,27 @@ class SymbolNewsWorker(QObject):
             self.failed.emit(str(e))
 
 
+class CalendarWorker(QObject):
+    """Fetches upcoming earnings / ex-dividend events for a set of tickers off the
+    UI thread (for the Upcoming Events panel). Emits ``done(list[CalendarEvent])``."""
+
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, tickers) -> None:
+        super().__init__()
+        self._tickers = list(tickers or [])
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            from src.data import market_data
+
+            self.done.emit(market_data.fetch_calendar(self._tickers))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
 class MorningReportWorker(QObject):
     """Builds and delivers a daily Morning Report for one portfolio, off the UI
     thread: fetch quotes + calendar + news, render the Morning Brief, optionally

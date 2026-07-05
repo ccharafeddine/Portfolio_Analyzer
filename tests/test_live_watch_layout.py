@@ -26,14 +26,13 @@ try:
 except Exception as exc:  # pragma: no cover - headless runner without libEGL
     pytest.skip(f"Qt unavailable: {exc}", allow_module_level=True)
 
-from src.ui.live_watch_view import (  # noqa: E402  (must follow the QApplication guard)
+from src.ui.live_watch_view import LiveWatchView  # noqa: E402
+from src.ui.settings import AppSettings  # noqa: E402
+from src.ui.widgets.chart_heatmap_panel import (  # noqa: E402
     PANEL_CHART,
     PANEL_HEATMAP,
     PANEL_NEWS,
-    PANEL_WATCHLIST,
-    LiveWatchView,
 )
-from src.ui.settings import AppSettings  # noqa: E402
 from src.ui.widgets.grid_layout import resolve  # noqa: E402
 
 
@@ -53,23 +52,19 @@ def test_panel_visibility_round_trips(tmp_path):
     settings = _settings(tmp_path)
 
     v1 = _build(settings)
-    v1.set_panel_visible(PANEL_CHART, False)     # grid panel → persists via grid layout
-    v1.set_panel_visible(PANEL_HEATMAP, False)
-    v1.set_panel_visible(PANEL_WATCHLIST, False)  # tab → persists via boolean
+    v1._chart.set_panel_visible(PANEL_CHART, False)   # grid card → persists via grid layout
+    v1._chart.set_panel_visible(PANEL_HEATMAP, False)
+    v1._set_watchlist_tab_visible(False)             # tab → persists via boolean
     v1.shutdown()
 
     v2 = _build(settings)
-    assert v2.panel_visible(PANEL_CHART) is False
-    assert v2.panel_visible(PANEL_HEATMAP) is False
-    assert v2.panel_visible(PANEL_NEWS) is True
-    assert v2.panel_visible(PANEL_WATCHLIST) is False
+    assert v2._chart.panel_visible(PANEL_CHART) is False
+    assert v2._chart.panel_visible(PANEL_HEATMAP) is False
+    assert v2._chart.panel_visible(PANEL_NEWS) is True
     # The hidden grid cards are actually gone from the dashboard, and the tab hidden.
     assert v2._chart._dash.is_visible(PANEL_CHART) is False
     assert v2._chart._dash.is_visible(PANEL_NEWS) is True
     assert v2._tabs.isTabVisible(v2._watchlist_tab_index) is False
-    # The menu actions mirror the restored state.
-    assert v2._panel_actions[PANEL_CHART].isChecked() is False
-    assert v2._panel_actions[PANEL_NEWS].isChecked() is True
     v2.shutdown()
 
 
@@ -97,9 +92,9 @@ def test_hidden_card_restores_to_grid_when_reshown(tmp_path):
     v = _build(settings)
     dash = v._chart._dash
     assert dash.is_visible(PANEL_HEATMAP) is True
-    v.set_panel_visible(PANEL_HEATMAP, False)
+    v._chart.set_panel_visible(PANEL_HEATMAP, False)
     assert dash.is_visible(PANEL_HEATMAP) is False
-    v.set_panel_visible(PANEL_HEATMAP, True)
+    v._chart.set_panel_visible(PANEL_HEATMAP, True)
     assert dash.is_visible(PANEL_HEATMAP) is True     # comes back onto the grid
     v.shutdown()
 
