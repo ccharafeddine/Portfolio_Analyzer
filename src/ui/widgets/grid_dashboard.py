@@ -27,6 +27,19 @@ _MIN_W = 2
 _MIN_H = 2
 _BASE_ROWS = 12  # the layout height the default grid is designed to fill
 _GAP = 8
+_EDGE = 6     # thickness of the invisible edge resize strips
+_CORNER = 16  # size of the corner resize handles
+
+# Resize handles: left/right edges (width), bottom edge (height), and the two
+# bottom corners (both). The top edge is the move header, so there are no top
+# handles. Each maps to a cursor.
+_RESIZE_CURSORS = {
+    "w": Qt.SizeHorCursor,
+    "e": Qt.SizeHorCursor,
+    "s": Qt.SizeVerCursor,
+    "sw": Qt.SizeBDiagCursor,
+    "se": Qt.SizeFDiagCursor,
+}
 
 
 class _DragZone(QWidget):
@@ -68,9 +81,9 @@ class GridPanel(QFrame):
     dragStart = Signal(str, QPoint)
     dragMove = Signal(str, QPoint)
     dragEnd = Signal(str)
-    resizeStart = Signal(str, QPoint)
-    resizeMove = Signal(str, QPoint)
-    resizeEnd = Signal(str)
+    resizeStart = Signal(str, str, QPoint)  # id, direction, global pos
+    resizeMove = Signal(str, str, QPoint)
+    resizeEnd = Signal(str, str)
 
     def __init__(self, panel_id: str, title: str, content: QWidget,
                  header_extra: Optional[QWidget] = None, parent=None) -> None:
@@ -105,23 +118,32 @@ class GridPanel(QFrame):
         root.addWidget(body, 1)
         self._body = body
 
-        # Resize grip, positioned manually in resizeEvent (a floating child).
-        self._grip = _DragZone(Qt.SizeFDiagCursor, self)
-        self._grip.setObjectName("gridPanelGrip")
-        self._grip.setFixedSize(16, 16)
+        # Resize handles along the left/right/bottom edges + the two bottom
+        # corners (positioned in resizeEvent). The bottom-right one is styled as a
+        # visible grip; the rest are invisible strips that just change the cursor.
+        self._handles: dict[str, _DragZone] = {}
+        for d in ("w", "e", "s", "sw", "se"):
+            self._handles[d] = _DragZone(_RESIZE_CURSORS[d], self)
+        self._handles["se"].setObjectName("gridPanelGrip")
 
         self._header.pressed.connect(lambda p: self.dragStart.emit(self.panel_id, p))
         self._header.moved.connect(lambda p: self.dragMove.emit(self.panel_id, p))
         self._header.released.connect(lambda: self.dragEnd.emit(self.panel_id))
-        self._grip.pressed.connect(lambda p: self.resizeStart.emit(self.panel_id, p))
-        self._grip.moved.connect(lambda p: self.resizeMove.emit(self.panel_id, p))
-        self._grip.released.connect(lambda: self.resizeEnd.emit(self.panel_id))
+        for d, h in self._handles.items():
+            h.pressed.connect(lambda p, dd=d: self.resizeStart.emit(self.panel_id, dd, p))
+            h.moved.connect(lambda p, dd=d: self.resizeMove.emit(self.panel_id, dd, p))
+            h.released.connect(lambda dd=d: self.resizeEnd.emit(self.panel_id, dd))
         self.retheme()
 
     def resizeEvent(self, e) -> None:  # noqa: N802
-        self._grip.move(self.width() - self._grip.width() - 2,
-                        self.height() - self._grip.height() - 2)
-        self._grip.raise_()
+        w, h, m, c = self.width(), self.height(), _EDGE, _CORNER
+        self._handles["w"].setGeometry(0, c, m, max(0, h - 2 * c))
+        self._handles["e"].setGeometry(w - m, c, m, max(0, h - 2 * c))
+        self._handles["s"].setGeometry(c, h - m, max(0, w - 2 * c), m)
+        self._handles["sw"].setGeometry(0, h - c, c, c)
+        self._handles["se"].setGeometry(w - c, h - c, c, c)
+        for hd in self._handles.values():
+            hd.raise_()
         super().resizeEvent(e)
 
     def set_dragging(self, on: bool) -> None:
@@ -273,38 +295,60 @@ class GridDashboard(QWidget):
         resolve(list(self._items.values()), pid)
         self._end_drag(pid)
 
-    # ── Resize ──
-    def _on_resize_start(self, pid: str, gpos: QPoint) -> None:
+    # ── Resize (from any edge/corner; the top is the move header) ──
+    def _on_resize_start(self, pid: str, direction: str, gpos: QPoint) -> None:
         panel = self._panels.get(pid)
         if panel is None or pid not in self._items:
             return
-        self._drag = {"mode": "resize", "id": pid,
+        self._drag = {"mode": "resize", "id": pid, "dir": direction,
                       "start": self.mapFromGlobal(gpos),
-                      "size0": panel.size()}
+                      "rect0": panel.geometry()}
         panel.set_dragging(True)
         panel.raise_()
         self._show_placeholder(self._items[pid])
 
-    def _on_resize_move(self, pid: str, gpos: QPoint) -> None:
+    def _on_resize_move(self, pid: str, direction: str, gpos: QPoint) -> None:
         if not self._drag or self._drag["id"] != pid:
             return
         panel = self._panels[pid]
+        d = self._drag["dir"]
+        r0 = self._drag["rect0"]
         delta = self.mapFromGlobal(gpos) - self._drag["start"]
-        new_w = max(40, self._drag["size0"].width() + delta.x())
-        new_h = max(30, self._drag["size0"].height() + delta.y())
-        panel.resize(new_w, new_h)
-        item = self._items[pid]
-        sw = max(_MIN_W, min(round(new_w / self._col_w()), self._cols - item.x))
-        sh = max(_MIN_H, round(new_h / self._row_h()))
-        self._show_placeholder(GridItem(pid, item.x, item.y, sw, sh))
-        self._drag["target"] = (sw, sh)
+        # Pixel edges; the top never moves (no north handle).
+        left, top = r0.left(), r0.top()
+        right, bottom = r0.right() + 1, r0.bottom() + 1
+        if "e" in d:
+            right += delta.x()
+        if "w" in d:
+            left += delta.x()
+        if "s" in d:
+            bottom += delta.y()
+        cw, rh = self._col_w(), self._row_h()
+        min_w_px, min_h_px = _MIN_W * cw, _MIN_H * rh
+        if right - left < min_w_px:
+            if "w" in d:
+                left = right - min_w_px
+            else:
+                right = left + min_w_px
+        if bottom - top < min_h_px:
+            bottom = top + min_h_px
+        panel.setGeometry(int(left), int(top), int(right - left), int(bottom - top))
 
-    def _on_resize_end(self, pid: str) -> None:
+        item = self._items[pid]
+        nx = max(0, min(round(left / cw), self._cols - _MIN_W))
+        nr = max(nx + _MIN_W, min(round(right / cw), self._cols))
+        ny = item.y  # top fixed
+        nb = max(ny + _MIN_H, round(bottom / rh))
+        target = (nx, ny, nr - nx, nb - ny)
+        self._show_placeholder(GridItem(pid, *target))
+        self._drag["target"] = target
+
+    def _on_resize_end(self, pid: str, direction: str) -> None:
         if not self._drag or self._drag["id"] != pid:
             return
         item = self._items[pid]
-        sw, sh = self._drag.get("target", (item.w, item.h))
-        item.w, item.h = sw, sh
+        tx, ty, tw, th = self._drag.get("target", item.as_tuple())
+        item.x, item.y, item.w, item.h = tx, ty, tw, th
         clamp(item, self._cols, _MIN_W, _MIN_H)
         resolve(list(self._items.values()), pid)
         self._end_drag(pid)

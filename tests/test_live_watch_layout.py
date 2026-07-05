@@ -129,6 +129,46 @@ def test_grid_dashboard_drag_commits_and_reflows():
     assert fired                                          # persistence signal fired
 
 
+def test_grid_dashboard_resize_from_left_edge():
+    """Dragging the left (west) edge moves the origin and widens the card — proving
+    resize works from an edge, not just the bottom-right corner."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QLabel
+
+    from src.ui.widgets.grid_dashboard import GridDashboard
+
+    dash = GridDashboard()
+    dash.resize(1200, 600)  # 12 cols → 100px per column
+    dash.add_panel("a", "A", QLabel("a"), 6, 6, x=3, y=0)   # room on the left
+
+    dash._on_resize_start("a", "w", QPoint(300, 100))
+    dash._on_resize_move("a", "w", QPoint(100, 100))        # left edge −200px = −2 cols
+    dash._on_resize_end("a", "w")
+
+    it = dash._items["a"]
+    assert it.x == 1 and it.w == 8 and it.y == 0            # origin moved left, wider
+
+
+def test_grid_dashboard_resize_from_bottom_edge():
+    """Dragging the bottom (south) edge changes only the height."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QLabel
+
+    from src.ui.widgets.grid_dashboard import GridDashboard
+
+    dash = GridDashboard()
+    dash.resize(1200, 600)
+    dash.add_panel("a", "A", QLabel("a"), 6, 4, x=0, y=0)
+    row_h = dash._row_h()
+
+    dash._on_resize_start("a", "s", QPoint(100, 100))
+    dash._on_resize_move("a", "s", QPoint(100, int(100 + 2 * row_h)))  # +2 rows
+    dash._on_resize_end("a", "s")
+
+    it = dash._items["a"]
+    assert it.x == 0 and it.w == 6 and it.h == 6            # only height grew
+
+
 def test_day_pnl_uses_invested_not_total_capital(tmp_path):
     """Day P&L must be computed on the invested amount (capital - cash), since cash
     has no day move and capital is the total account value."""
