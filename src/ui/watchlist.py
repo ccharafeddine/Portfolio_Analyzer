@@ -20,9 +20,12 @@ from src.data.market_data import normalize_symbol
 # watchlist and a never-saved one would otherwise look identical).
 SYMBOLS_KEY = "watchlist/symbols"
 INIT_KEY = "watchlist/initialized"
+INDICES_KEY = "watchlist/indices_seeded"
 
+# Market-context indices seeded at the front of every watchlist (once).
+INDEX_STARTERS = ["^GSPC", "^IXIC", "^DJI", "^VIX"]
 # First-run starters (only ever seeded once), mirroring the sample-portfolio seed.
-STARTERS = ["SPY", "AAPL", "BTC-USD"]
+STARTERS = INDEX_STARTERS + ["SPY", "AAPL", "BTC-USD"]
 
 
 def _default_settings():
@@ -68,6 +71,7 @@ class WatchlistStore:
         self.load()
         if seed:
             self.seed_if_first_run()
+            self.seed_indices_once()
 
     # ── Access ──
     def symbols(self) -> list[str]:
@@ -123,5 +127,19 @@ class WatchlistStore:
         if self._symbols:
             return False  # respect a pre-existing list
         self._symbols = _dedupe(STARTERS)
+        self.save()
+        return True
+
+    def seed_indices_once(self) -> bool:
+        """One-time migration: ensure the market-context indices are present,
+        prepended to the front. Runs once (flagged), so a user who later removes
+        an index keeps it removed. Returns True if it added any."""
+        if self._s.value(INDICES_KEY):
+            return False
+        self._s.setValue(INDICES_KEY, "1")
+        missing = [s for s in INDEX_STARTERS if s not in self._symbols]
+        if not missing:
+            return False
+        self._symbols = _dedupe(missing + self._symbols)
         self.save()
         return True

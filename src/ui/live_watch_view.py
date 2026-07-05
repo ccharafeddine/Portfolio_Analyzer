@@ -51,6 +51,7 @@ from .widgets.chart_heatmap_panel import (
     PANEL_NEWS,
     ChartHeatmapPanel,
 )
+from .widgets.market_clock import MarketClock
 
 # (label, seconds) — 0 means auto-refresh off.
 REFRESH_OPTIONS = [("Off", 0), ("15s", 15), ("30s", 30), ("60s", 60)]
@@ -133,6 +134,9 @@ class LiveWatchView(QWidget):
         top.addWidget(self._title)
         top.addStretch(1)
         top.addWidget(self._stamp)
+        top.addSpacing(16)
+        self._clock = MarketClock()
+        top.addWidget(self._clock)
         top.addSpacing(12)
         top.addWidget(self._build_panels_button())
         root.addLayout(top)
@@ -440,6 +444,7 @@ class LiveWatchView(QWidget):
     def shutdown(self) -> None:
         """Stop the background fetch threads cleanly (called on app close). The
         grid layout persists itself on every change."""
+        self._clock.shutdown()
         self._chart.shutdown()
         self._watchlist.shutdown()
 
@@ -547,3 +552,4 @@ class LiveWatchView(QWidget):
             self._populate_table()
         self._chart.retheme()
         self._watchlist.retheme()
+        self._clock.retheme()

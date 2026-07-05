@@ -18,9 +18,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -316,6 +318,21 @@ class MainWindow(QMainWindow):
         # mutually exclusive — see ``_set_running``). Transient status messages
         # go through the status bar's own auto-clearing ``showMessage`` so there
         # is no permanent indicator eating into the strip.
+        # Source selector for the strip: portfolio, watchlist, or both merged.
+        self._strip_source = self._settings.value("ticker_strip_source", "portfolio", type=str)
+        self._strip_source_btn = QToolButton()
+        self._strip_source_btn.setPopupMode(QToolButton.InstantPopup)
+        self._strip_source_btn.setAutoRaise(True)
+        self._strip_source_btn.setCursor(Qt.PointingHandCursor)
+        src_menu = QMenu(self._strip_source_btn)
+        for key, label in (("portfolio", "Portfolio"), ("watchlist", "Watchlist"),
+                           ("both", "Both")):
+            act = src_menu.addAction(label)
+            act.triggered.connect(lambda _=False, k=key: self._set_strip_source(k))
+        self._strip_source_btn.setMenu(src_menu)
+        self._update_strip_source_btn()
+        sb.addWidget(self._strip_source_btn)
+
         self.ticker_strip = TickerStrip()
         self.ticker_strip.symbolClicked.connect(self._on_ticker_clicked)
         sb.addWidget(self.ticker_strip, 1)
@@ -472,6 +489,9 @@ class MainWindow(QMainWindow):
         # current portfolio, so alerts fire regardless of the loaded universe.
         if self._alerts is not None:
             tickers = list(dict.fromkeys([*tickers, *self._alerts.tickers()]))
+        # When the strip is showing the watchlist (or both), fetch those too.
+        if self._strip_source in ("watchlist", "both"):
+            tickers = list(dict.fromkeys([*tickers, *self._watchlist_symbols()]))
         if not tickers:
             return
         self._quotes_in_flight = True
@@ -489,10 +509,44 @@ class MainWindow(QMainWindow):
     def _on_quotes(self, quotes: dict) -> None:
         self._last_quotes = dict(quotes)
         cfg = self._watch_config
-        order = list(getattr(cfg, "tickers", []) or []) if cfg else list(quotes.keys())
-        self.ticker_strip.set_quotes(quotes, order=order)
+        port = list(getattr(cfg, "tickers", []) or []) if cfg else list(quotes.keys())
+        self.ticker_strip.set_quotes(quotes, order=self._strip_order(port))
         self.live_watch_view.set_quotes(quotes)
         self._check_alerts(quotes)
+
+    # ── Ticker strip source (portfolio / watchlist / both) ──
+    def _watchlist_symbols(self) -> list[str]:
+        try:
+            from .watchlist import WatchlistStore
+
+            return WatchlistStore(seed=False).symbols()
+        except Exception:
+            return []
+
+    def _strip_order(self, portfolio: list[str]) -> list[str]:
+        if self._strip_source == "watchlist":
+            return self._watchlist_symbols()
+        if self._strip_source == "both":
+            return list(dict.fromkeys([*portfolio, *self._watchlist_symbols()]))
+        return portfolio
+
+    def _update_strip_source_btn(self) -> None:
+        label = {"portfolio": "Portfolio", "watchlist": "Watchlist",
+                 "both": "Both"}.get(self._strip_source, "Portfolio")
+        self._strip_source_btn.setText(f" {label} ▾ ")
+        self._strip_source_btn.setToolTip("Choose what the ticker strip shows")
+
+    def _set_strip_source(self, key: str) -> None:
+        self._strip_source = key
+        self._settings.setValue("ticker_strip_source", key)
+        self._update_strip_source_btn()
+        # Re-order immediately from the last snapshot, then poll (watchlist symbols
+        # may not have been fetched yet under the previous source).
+        if self._last_quotes:
+            cfg = self._watch_config
+            port = list(getattr(cfg, "tickers", []) or []) if cfg else []
+            self.ticker_strip.set_quotes(self._last_quotes, order=self._strip_order(port))
+        self._poll_quotes()
 
     def _on_quotes_failed(self, message: str) -> None:
         pass  # delayed data is best-effort; a failed poll just retries next tick
@@ -1191,6 +1245,7 @@ class MainWindow(QMainWindow):
         # the idle status label + ticker strip; the strip returns when the run ends.
         self.btn_cancel.setVisible(running)
         self.ticker_strip.setVisible(not running)
+        self._strip_source_btn.setVisible(not running)
         self.progress.setVisible(running)
         if running:
             self.progress.setValue(0)

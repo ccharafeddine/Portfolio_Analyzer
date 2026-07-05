@@ -137,4 +137,21 @@ def test_watchlist_seed_respects_preexisting_list():
     # Simulate a saved watchlist from before the seed flag existed.
     s.setValue("watchlist/symbols", ["TSLA"])
     store = WatchlistStore(settings=s, seed=True)
-    assert store.symbols() == ["TSLA"]          # not overwritten by starters
+    # Starters don't overwrite the user's list, but the one-time indices migration
+    # prepends the market-context indices.
+    assert store.symbols() == ["^GSPC", "^IXIC", "^DJI", "^VIX", "TSLA"]
+
+
+def test_watchlist_indices_migration_runs_once():
+    from src.ui.watchlist import INDEX_STARTERS
+
+    s = FakeSettings()
+    s.setValue("watchlist/symbols", ["TSLA"])
+    s.setValue("watchlist/initialized", "1")     # existing (non-first-run) user
+    store = WatchlistStore(settings=s, seed=True)
+    assert store.symbols()[:4] == INDEX_STARTERS  # indices added at the front
+
+    # User removes one index; re-opening must NOT re-add it (migration is one-shot).
+    store.remove("^VIX")
+    reopened = WatchlistStore(settings=s, seed=True)
+    assert "^VIX" not in reopened.symbols()

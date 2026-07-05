@@ -21,7 +21,9 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
 datas = []
 binaries = []
-hiddenimports = []
+# QtMultimedia is imported lazily (the market open/close bell), so PyInstaller's
+# static scan misses it — name it explicitly. Windows also has a winsound fallback.
+hiddenimports = ["PySide6.QtMultimedia"]
 
 # Bundle package data + dynamic pieces PyInstaller can miss:
 #  - plotly: get_plotlyjs() reads the bundled plotly.min.js at runtime
