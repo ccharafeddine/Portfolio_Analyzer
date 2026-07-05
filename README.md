@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="src/ui/assets/logo.svg" alt="Portfolio Analyzer logo" width="132" height="132">
+  <picture>
+    <source srcset="src/ui/assets/logo.svg" type="image/svg+xml">
+    <img src="src/ui/assets/logo.png" alt="Portfolio Analyzer logo" width="132" height="132">
+  </picture>
 </p>
 
 <h1 align="center">Portfolio Analyzer</h1>
@@ -16,6 +19,7 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white" alt="Built with PySide6 / Qt6">
   <img src="https://img.shields.io/badge/tests-237%20passing-brightgreen" alt="237 tests passing">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/ccharafeddine/Portfolio_Analyzer?color=blue" alt="MIT License"></a>
 </p>
 
 ---
@@ -54,6 +58,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 - [Testing](#testing)
 - [Tech Stack](#tech-stack)
 - [Limitations](#limitations)
+- [License](#license)
 
 ---
 
@@ -633,3 +638,9 @@ The v3 vision: a genuinely live market layer, a themeable UI, and automated deli
 - **Daily Morning Report** — a Morning Brief by desktop notification and optional email (TLS-verified SMTP with Gmail/Outlook/iCloud/Yahoo presets, app password in the OS keychain), full report attached, with launch catch-up.
 - **Cash as a first-class holding**, **share-count entry**, inline cost basis, and an app brand tucked into the sidebar.
 - **Hardening** — two full security + logic audits; see the v3 **Hardening** note above.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE) — free to use, modify, and distribute. Third-party dependencies keep their own licenses; notably PySide6 / Qt6 is used under the LGPL (dynamically linked).
