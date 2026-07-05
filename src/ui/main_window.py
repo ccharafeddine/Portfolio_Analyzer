@@ -183,11 +183,6 @@ class MainWindow(QMainWindow):
         size_menu.addAction(act_dec)
         size_menu.addAction(act_reset)
 
-        view_menu.addSeparator()
-        self.act_toggle_sidebar = QAction("Toggle Sidebar", self, shortcut="Ctrl+B")
-        self.act_toggle_sidebar.triggered.connect(lambda: self.sidebar.toggle())
-        view_menu.addAction(self.act_toggle_sidebar)
-
         # Ticker Scroller source (bottom strip): Portfolio / Watchlist / Both.
         scroller_menu = view_menu.addMenu("Ticker Scroller")
         self._strip_source = self._settings.value("ticker_strip_source", "both", type=str)
@@ -200,6 +195,11 @@ class MainWindow(QMainWindow):
             act.triggered.connect(lambda _=False, k=key: self._set_strip_source(k))
             self._scroller_group.addAction(act)
             scroller_menu.addAction(act)
+
+        view_menu.addSeparator()
+        self.act_toggle_sidebar = QAction("Toggle Sidebar", self, shortcut="Ctrl+B")
+        self.act_toggle_sidebar.triggered.connect(lambda: self.sidebar.toggle())
+        view_menu.addAction(self.act_toggle_sidebar)
 
         view_menu.addSeparator()
         self.act_beginner = QAction("Beginner mode (explanations)", self, checkable=True)

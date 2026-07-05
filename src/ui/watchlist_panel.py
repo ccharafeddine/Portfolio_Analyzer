@@ -12,6 +12,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -39,6 +40,38 @@ DEFAULT_REFRESH_SECS = 60
 _COLUMNS = ["Symbol", "Name", "Last", "Chg %", ""]
 _REMOVE_COL = 4
 _NEG_INF = float("-inf")
+
+
+class _ReorderTable(QTableWidget):
+    """A table whose rows are reordered by drag-and-drop. We drive the reorder
+    through a signal (never letting Qt's flaky internal move mangle the cells);
+    the host reorders its data and re-renders."""
+
+    rowsReordered = Signal(int, int)  # from_row, to_row
+
+    def __init__(self, rows: int, cols: int, parent=None) -> None:
+        super().__init__(rows, cols, parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDropIndicatorShown(True)
+        self.setDefaultDropAction(Qt.MoveAction)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        if event.source() is not self:
+            event.ignore()
+            return
+        src = self.currentRow()
+        idx = self.indexAt(event.position().toPoint())
+        dst = idx.row() if idx.isValid() else self.rowCount() - 1
+        if self.dropIndicatorPosition() == QAbstractItemView.BelowItem:
+            dst += 1
+        if dst > src:
+            dst -= 1
+        dst = max(0, min(dst, self.rowCount() - 1))
+        event.accept()
+        if src >= 0 and src != dst:
+            self.rowsReordered.emit(src, dst)
 
 
 class _NumItem(QTableWidgetItem):
@@ -110,13 +143,14 @@ class WatchlistPanel(QWidget):
         self._notice_timer.setSingleShot(True)
         self._notice_timer.timeout.connect(lambda: self._notice.setVisible(False))
 
-        # ── Table ──
-        self._table = QTableWidget(0, len(_COLUMNS))
+        # ── Table (rows reorderable by drag; manual order, so no column sort) ──
+        self._table = _ReorderTable(0, len(_COLUMNS))
         self._table.setHorizontalHeaderLabels(_COLUMNS)
         self._table.verticalHeader().setVisible(False)
-        self._table.setSortingEnabled(True)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._table.setSelectionMode(QTableWidget.SingleSelection)
         self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.rowsReordered.connect(self._on_reorder)
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         hdr.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -209,9 +243,8 @@ class WatchlistPanel(QWidget):
 
     # ── Rendering ──
     def _render(self) -> None:
-        """Full rebuild — used when the symbol set changes (add/remove)."""
+        """Full rebuild — used when the symbol set changes (add/remove/reorder)."""
         syms = self._store.symbols()
-        self._table.setSortingEnabled(False)
         self._table.setRowCount(len(syms))
         for row, sym in enumerate(syms):
             sym_item = QTableWidgetItem(sym)
@@ -224,8 +257,28 @@ class WatchlistPanel(QWidget):
             x.setTextAlignment(Qt.AlignCenter)
             x.setToolTip(f"Remove {sym}")
             self._table.setItem(row, _REMOVE_COL, x)
-        self._table.setSortingEnabled(True)
         self._apply_quotes()
+
+    def _on_reorder(self, src: int, dst: int) -> None:
+        syms = self._store.symbols()
+        if not (0 <= src < len(syms)):
+            return
+        sym = syms.pop(src)
+        syms.insert(max(0, min(dst, len(syms))), sym)
+        self._store.reorder(syms)
+        self._render()
+        self.changed.emit()
+
+    def feed_shared_quotes(self, quotes: dict) -> None:
+        """Populate the table + cockpit from the main window's shared quote poll
+        (fast, no name lookups), so the tab isn't blank on first open."""
+        syms = set(self._store.symbols())
+        relevant = {k: v for k, v in (quotes or {}).items() if k in syms}
+        if not relevant:
+            return
+        self._quotes.update(relevant)
+        self._apply_quotes()
+        self._sync_chart()
 
     def _apply_quotes(self) -> None:
         """Fill the price/name/change cells in place, preserving the user's sort."""

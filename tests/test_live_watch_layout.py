@@ -164,6 +164,36 @@ def test_grid_dashboard_resize_from_bottom_edge():
     assert it.x == 0 and it.w == 6 and it.h == 6            # only height grew
 
 
+def test_watchlist_reorder_and_shared_feed():
+    """Drag-reorder rewrites the persisted watchlist order, and the shared-quote
+    feed populates the cockpit (selects a symbol) without the watchlist's own poll."""
+    from src.data.market_data import Quote
+    from src.ui.watchlist import WatchlistStore
+    from src.ui.watchlist_panel import WatchlistPanel
+
+    class _Fake:
+        def __init__(self):
+            self.d = {}
+
+        def value(self, k, default=None, type=None):  # noqa: A002
+            return self.d.get(k, default)
+
+        def setValue(self, k, v):
+            self.d[k] = v
+
+    store = WatchlistStore(settings=_Fake(), seed=False)
+    for s in ("AAA", "BBB", "CCC"):
+        store.add(s)
+    wp = WatchlistPanel(store=store)
+
+    wp._on_reorder(0, 2)                                  # drag AAA to the bottom
+    assert store.symbols() == ["BBB", "CCC", "AAA"]
+
+    wp.feed_shared_quotes({"BBB": Quote("BBB", last=10.0, prev_close=9.0, change_pct=0.11)})
+    assert wp._chart.selected() == "BBB"                 # first symbol auto-selected
+    wp.shutdown()
+
+
 def test_day_pnl_uses_invested_not_total_capital(tmp_path):
     """Day P&L must be computed on the invested amount (capital - cash), since cash
     has no day move and capital is the total account value."""

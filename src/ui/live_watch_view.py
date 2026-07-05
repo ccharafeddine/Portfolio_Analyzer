@@ -107,20 +107,21 @@ class LiveWatchView(QWidget):
         root.setContentsMargins(14, 12, 14, 10)
         root.setSpacing(10)
 
-        # ── Top bar: back, title, freshness stamp ──
+        # ── Top bar: back button on the left, centered title, right-side chrome ──
         top = QHBoxLayout()
-        self._back_btn = QPushButton("←  Back to Analysis")
+        self._back_btn = QPushButton("←  Analysis")
         self._back_btn.setCursor(Qt.PointingHandCursor)
         self._back_btn.clicked.connect(self.backRequested.emit)
         self._title = QLabel("Live Market Watch")
+        self._title.setAlignment(Qt.AlignCenter)
         self._stamp = QLabel("")
+        self._clock = MarketClock()
         top.addWidget(self._back_btn)
-        top.addSpacing(12)
+        top.addStretch(1)
         top.addWidget(self._title)
         top.addStretch(1)
         top.addWidget(self._stamp)
         top.addSpacing(16)
-        self._clock = MarketClock()
         top.addWidget(self._clock)
         top.addSpacing(12)
         top.addWidget(self._build_panels_button())
@@ -317,6 +318,10 @@ class LiveWatchView(QWidget):
         self._chart.set_data(order, self._weights, self._quotes,
                              capital=self._capital, cash=self._cash,
                              cost_basis=self._cost_basis)
+        # Share quotes with the watchlist cockpit too, so its panels populate on
+        # first open (the main poll includes watchlist symbols when the ticker
+        # scroller source is Watchlist/Both — the default).
+        self._watchlist.feed_shared_quotes(self._quotes)
 
     # ── Rendering ──
     def _populate_table(self) -> None:
