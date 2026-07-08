@@ -28,6 +28,12 @@ A native desktop portfolio-analytics application built with Python and PySide6 (
 
 Every result is paired with a plain-English explanation, so the app is usable by advisors and analysts as well as non-finance retail investors.
 
+<p align="center">
+  <img src="docs/screenshots/00-live-market-watch.png" alt="Live Market Watch cockpit: a snap-to-grid dashboard of quotes, a TradingView-style chart, news, a day-change treemap, movers, day P&L, an allocation donut, upcoming events, and alerts" width="100%">
+  <br>
+  <em>Live Market Watch: a free-form, snap-to-grid cockpit over your live portfolio.</em>
+</p>
+
 ---
 
 ## Table of Contents
@@ -161,6 +167,8 @@ The entire analysis runs in-process on a background worker thread so the UI stay
 
 ### 1. Overview
 
+![Overview tab: metric strip, plain-English interpretation card, Growth of Capital across six strategies, and cumulative outperformance](docs/screenshots/01-overview.png)
+
 The starting point. Opens with an automated interpretation card summarizing performance using actual numbers.
 
 - **Growth of Capital** — overlays up to six portfolio strategies (Active, Passive, ORP, HRP, Rebalanced, Complete) normalized to the same starting capital.
@@ -168,6 +176,8 @@ The starting point. Opens with an automated interpretation card summarizing perf
 - **Performance Summary** — annualized return, volatility, Sharpe, and max drawdown across all portfolio variants.
 
 ### 2. Performance
+
+![Performance tab: data coverage timeline, dual-window performance summary, and benchmark capture](docs/screenshots/02-performance.png)
 
 Benchmark-relative performance measurement built on the backtest engine.
 
@@ -180,6 +190,8 @@ Benchmark-relative performance measurement built on the backtest engine.
 
 ### 3. Risk
 
+![Risk tab: portfolio drawdowns, daily-return distribution with VaR/CVaR, correlation matrix, and correlation regime detection](docs/screenshots/03-risk.png)
+
 Comprehensive risk decomposition and tail analysis.
 
 - **Drawdown Chart** — percentage decline from each portfolio's running peak.
@@ -191,6 +203,8 @@ Comprehensive risk decomposition and tail analysis.
 
 ### 4. Attribution
 
+![Attribution tab: contribution to active return by holding, per-holding table, and cumulative contribution over time](docs/screenshots/04-attribution.png)
+
 Decomposes performance into its sources.
 
 - **Brinson-Fachler Attribution** — allocation, selection, and interaction effects, by asset and by sector.
@@ -199,6 +213,8 @@ Decomposes performance into its sources.
 
 ### 5. Income
 
+![Income tab: income summary cards, annual dividend income by holding, cumulative dividend income, and a position-level table](docs/screenshots/05-income.png)
+
 Dividend and yield analytics for income-oriented investors.
 
 - **Income Summary** — total annual income, portfolio yield, average yield on cost, and count of dividend payers.
@@ -206,6 +222,8 @@ Dividend and yield analytics for income-oriented investors.
 - **Position-Level Table** — shares, dividend per share, annual income, yield on cost, current yield, and income growth.
 
 ### 6. Optimization
+
+![Optimization tab: efficient frontier with the Capital Allocation Line and Max-Sharpe ORP, plus the active-portfolio allocation donut and ORP weights](docs/screenshots/06-optimization.png)
 
 Portfolio construction and diversification analysis.
 
@@ -217,12 +235,16 @@ Portfolio construction and diversification analysis.
 
 ### 7. Forecast
 
+![Forecast tab: 30-year retirement projection fan chart, projected-outcome cards, and a Monte Carlo forecast with percentile bands](docs/screenshots/07-forecast.png)
+
 Forward-looking simulation and retirement planning.
 
 - **Retirement Plan** — a Monte Carlo projection over a configurable horizon with contributions, withdrawals, and inflation. Reports success probability, depletion risk, median and worst-case (P5) endings, a solved safe-withdrawal rate, and goal-funding probability. Expected-return assumptions are recentered so a short historical bull run doesn't inflate long-horizon projections.
 - **Monte Carlo Forecast** — parametric and bootstrap fan charts (percentile bands) with a comparison table and probability analysis.
 
 ### 8. Fundamentals
+
+![Fundamentals tab: per-holding revenue & net-income trend with income-statement and balance-sheet history](docs/screenshots/08-fundamentals.png)
 
 Company-level fundamentals for every holding, side by side — pulled from yfinance (no key), enriched with FMP's DCF fair value when an FMP key is set. Background-fetched (each run + Refresh); excluded from reports. Grouped comparison tables:
 
@@ -236,15 +258,21 @@ Below the comparison, a per-holding drill-down (pick a ticker in the toolbar) sh
 
 ### 9. News
 
+![News tab: Upcoming Earnings & Dividends calendar above recent per-ticker headline cards](docs/screenshots/09-news.png)
+
 Opens with an **Upcoming Earnings & Dividends** calendar — the next earnings reports and ex-dividend dates across all holdings, soonest first (with a relative countdown and estimated EPS when available). Below it, recent headlines for every ticker in the analysis, newest first, as clickable cards that open in your browser. Fetched on a background thread — automatically on every run and on demand via a **Refresh** button — so it never blocks the UI. Works with no setup via yfinance; adding an **Alpha Vantage** key in Settings pulls more articles and a per-article **sentiment** tag (bullish/neutral/bearish). Excluded from exported reports.
 
 ### 10. Macro
+
+![Macro tab: U.S. Treasury yield curve, a key-rates table with one-year changes, and 10-Year vs Fed Funds rate history](docs/screenshots/10-macro.png)
 
 Appears only once a valid **FRED** key returns data (added in Settings → Preferences). Shows the current U.S. Treasury yield curve, a headline-rates table (Fed Funds, CPI YoY, unemployment, key tenors) with one-year changes, and a 10-Year vs Fed Funds history. Also background-fetched with a Refresh button; excluded from reports.
 
 When macro data loads, the latest short-term Treasury yield (3-month bill) is fed back into the **Risk-free rate** config field, so the next run defaults to the live market rate. The field is labeled "Risk-free rate (live 3M T-bill)" while it's FRED-driven, and reverts to a plain label the moment you edit it manually.
 
 ### 11. Data
+
+![Data tab: executive-summary card, HTML/PDF/PowerPoint report buttons, holdings table, run configuration JSON, and CSV export](docs/screenshots/11-data.png)
 
 Raw data access, report generation, and export. Opens with an executive-summary interpretation card.
 
