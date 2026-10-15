@@ -8,14 +8,15 @@ _ASSETS_DIR = Path(__file__).resolve().parent
 
 
 def logo_path() -> str:
-    """Absolute path to the full logo SVG (mark inside a rounded app tile).
-    Kept for packaging (.ico/.icns), where the tiled form is conventional."""
+    """Absolute path to the full logo SVG (mark inside a rounded Graphite tile).
+    Used for the window/taskbar/tray icon and packaging (app.ico / app.icns),
+    where the tile keeps the mark legible on light and dark desktops."""
     return str(_ASSETS_DIR / "logo.svg")
 
 
 def mark_path() -> str:
-    """Absolute path to the bare logo mark (donut + bars, no app tile) — used for
-    the window/taskbar icon and the in-app header."""
+    """Absolute path to the bare logo mark (allocation ring + bars, no tile) —
+    used on dark surfaces: the in-app header and the report title slide."""
     return str(_ASSETS_DIR / "logo_mark.svg")
 
 

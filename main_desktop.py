@@ -48,7 +48,7 @@ def main() -> int:
     from PySide6.QtGui import QIcon
 
     from src.ui import __app_name__, __version__
-    from src.ui.assets import mark_path
+    from src.ui.assets import logo_path
     from src.ui.settings import ORG_NAME, APP_NAME
     from src.ui.main_window import MainWindow
 
@@ -58,7 +58,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationDisplayName(__app_name__)
-    app.setWindowIcon(QIcon(mark_path()))
+    app.setWindowIcon(QIcon(logo_path()))
 
     window = MainWindow()
     window.show()

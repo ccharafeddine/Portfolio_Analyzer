@@ -13,8 +13,8 @@
 
 <p align="center">
   <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml"><img src="https://github.com/ccharafeddine/Portfolio_Analyzer/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/releases"><img src="https://img.shields.io/github/v/release/ccharafeddine/Portfolio_Analyzer?color=7C3AED&label=release" alt="Latest release"></a>
-  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/releases"><img src="https://img.shields.io/github/downloads/ccharafeddine/Portfolio_Analyzer/total?color=22D3EE&label=downloads" alt="Total downloads"></a>
+  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/releases"><img src="https://img.shields.io/github/v/release/ccharafeddine/Portfolio_Analyzer?color=2F6FEB&label=release" alt="Latest release"></a>
+  <a href="https://github.com/ccharafeddine/Portfolio_Analyzer/releases"><img src="https://img.shields.io/github/downloads/ccharafeddine/Portfolio_Analyzer/total?color=768390&label=downloads" alt="Total downloads"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Platform: Windows and macOS">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white" alt="Built with PySide6 / Qt6">
@@ -24,15 +24,26 @@
 
 ---
 
-A native desktop portfolio-analytics application built with Python and PySide6 (Qt6). It runs an 18-step analysis pipeline covering an inception-aware backtest engine, portfolio optimization, performance measurement, risk decomposition, factor and sector attribution, income tracking, tax-aware analysis, retirement/withdrawal planning, and Monte Carlo forecasting — plus a live News & Macro tab for market context — all rendered as interactive Plotly charts in a switchable, Bloomberg-style dark UI, with client-ready HTML, PDF, and PowerPoint reports plus a full CSV data pack.
+A native desktop portfolio-analytics application built with Python and PySide6 (Qt6). It runs an 18-step analysis pipeline covering an inception-aware backtest engine, portfolio optimization, performance measurement, risk decomposition, factor and sector attribution, income tracking, tax-aware analysis, retirement/withdrawal planning, and Monte Carlo forecasting — plus a live News & Macro tab for market context — all rendered as interactive Plotly charts in a restrained, switchable Graphite UI, with client-ready HTML, PDF, and PowerPoint reports plus a full CSV data pack.
 
 Every result is paired with a plain-English explanation, so the app is usable by advisors and analysts as well as non-finance retail investors.
 
 <p align="center">
-  <img src="docs/screenshots/00-live-market-watch.png" alt="Live Market Watch cockpit: a snap-to-grid dashboard of quotes, a TradingView-style chart, news, a day-change treemap, movers, day P&L, an allocation donut, upcoming events, and alerts" width="100%">
+  <img src="docs/hero.png" alt="Portfolio Analyzer Overview page in the Graphite theme: pinned top bar with portfolio, benchmark, period and risk-free rate; grouped side menu; KPI strip with benchmark values; growth of $1M and drawdown chart; period returns; risk snapshot; and a sortable holdings table" width="100%">
   <br>
-  <em>Live Market Watch: a free-form, snap-to-grid cockpit over your live portfolio.</em>
+  <em>The Overview page in the Graphite design: one pinned context bar, a KPI strip benchmarked line by line, and a dense, sortable holdings table.</em>
 </p>
+
+### What's new — the Graphite overhaul
+
+The app was rebuilt in four phases, with every number checked against reference libraries:
+
+- **Correct, consistent math** — one canonical metrics module (Sharpe, Sortino with true downside deviation, Calmar, capture ratios) validated against empyrical; the risk-free rate is the actual 13-week T-bill (^IRX) for the period; alpha and beta come from one portfolio-level regression with standard errors and t-stats; failures surface in a warnings dialog instead of being swallowed.
+- **Graphite design** — neutral dark surfaces, 1px hairlines, a single blue accent, green/red reserved for P&L, Inter with tabular numerals; a pinned top bar (portfolio · benchmark · period · Rf · Run), a grouped side menu, a KPI strip and a status bar that reports data source, freshness and gaps.
+- **Institutional analytics** — VaR/ES by four methods with a breach backtest (Kupiec), the five largest drawdowns, nine historical stress scenarios replayed with today's weights, Brinson-Fachler sector attribution, Fama-French loadings with t-stats, rolling Sharpe, and turnover/cost-aware rebalance trades from the optimizer.
+- **Robustness and reports** — data-quality checks (stale prices, gaps, unadjusted splits), offline fallback to cached prices, input validation, a ~2× faster pipeline, and HTML / PDF / PowerPoint reports with all of the above (charts included).
+
+**Web demo — coming soon at [portfolio.chafic.me](https://portfolio.chafic.me).** The same analytics engine runs entirely in the browser (Python via Pyodide): enter tickers and weights or pick a preset, choose a benchmark and dates, and get the KPI strip plus Overview, Risk and Attribution views — no install, no server.
 
 ---
 
@@ -86,6 +97,12 @@ Every result is paired with a plain-English explanation, so the app is usable by
 - **Client-ready reports** — HTML, PDF and PowerPoint in the same Graphite design as the app, including the VaR, drawdown, stress, sector-attribution, factor and data-quality sections, each with proper disclosures. Plus a complete CSV data pack with a README manifest.
 - **Explain-everything UX** — a circled "?" beside every chart and section title reveals what it is, how to read it, and why it matters; a Beginner mode expands these into inline plain-English blurbs.
 - **Graphite design system** — neutral surfaces, hairline tables, one blue accent and tabular numerals (the default), with switchable alternatives: Bloomberg Terminal, Modern Institutional, Minimal Premium, three aesthetic themes (Frutiger Aero, Corporate Synthwave, Superflat Pop), a genuine light theme (Daylight), and High Contrast (Light/Dark) — plus an adjustable UI scale.
+
+<p align="center">
+  <img src="docs/screenshots/00-live-market-watch.png" alt="Live Market Watch cockpit in the Graphite theme: portfolio quotes, an intraday candlestick chart, day P&L contributors, top movers, a day-change heatmap, upcoming events, alerts and an allocation donut" width="100%">
+  <br>
+  <em>Live Market Watch: a snap-to-grid cockpit over your live portfolio.</em>
+</p>
 
 ---
 
@@ -521,7 +538,7 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` (report chart export), and QtWebEngine. The Windows installer and executable icon come from `src/ui/assets/app.ico` (`packaging/installer.iss`); a macOS `app.icns` can be dropped alongside it to set the `.app` icon. Builds are currently unsigned — Windows SmartScreen and macOS Gatekeeper will warn on first launch.
+The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` (report chart export), and QtWebEngine. The Windows installer and executable icon come from `src/ui/assets/app.ico` (`packaging/installer.iss`), and the macOS `.app` icon from `src/ui/assets/app.icns`. Both are rendered from the Graphite logo (`logo.svg`, with `logo_small.svg` as the 16–48 px optical variant); a 1280×640 GitHub social preview is in `docs/social-preview.png`. Builds are currently unsigned — Windows SmartScreen and macOS Gatekeeper will warn on first launch.
 
 ---
 

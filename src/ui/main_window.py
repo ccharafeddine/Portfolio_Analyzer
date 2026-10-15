@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 from . import __app_name__, __version__
 from . import explanations
 from . import theme
-from .assets import mark_path
+from .assets import logo_path, mark_path
 from .config_panel import ConfigPanel
 from .sidebar import Sidebar
 from .formatting import delta_str, fmt_pct
@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(__app_name__)
-        self.setWindowIcon(QIcon(mark_path()))
+        self.setWindowIcon(QIcon(logo_path()))
         self.resize(1360, 860)
         self.setMinimumSize(1024, 680)
 
@@ -663,7 +663,7 @@ class MainWindow(QMainWindow):
             from PySide6.QtWidgets import QSystemTrayIcon
 
             if QSystemTrayIcon.isSystemTrayAvailable():
-                self._tray = QSystemTrayIcon(QIcon(mark_path()), self)
+                self._tray = QSystemTrayIcon(QIcon(logo_path()), self)
                 self._tray.setToolTip(__app_name__)
                 # Clicking a morning-report notification opens the saved brief.
                 self._tray.messageClicked.connect(self._on_tray_message_clicked)
