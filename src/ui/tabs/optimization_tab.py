@@ -11,6 +11,7 @@ import pandas as pd
 
 from src.charts import plotly_charts as charts
 
+from ..widgets.html_table import Col, rich_table_html
 from .web_tab import WebTab
 
 
@@ -68,20 +69,35 @@ class OptimizationTab(WebTab):
         asset_mu = ((1 + rets_m[asset_cols].mean()) ** 12 - 1) if asset_cols else None
         asset_vol = (rets_m[asset_cols].std() * np.sqrt(12)) if asset_cols else None
 
-        # Efficient frontier
-        self.add_chart(
-            charts.efficient_frontier_chart(
-                orp_opt.frontier_vols,
-                orp_opt.frontier_returns,
-                orp_opt.expected_vol,
-                orp_opt.expected_return,
-                cfg.risk_free_rate,
-                asset_vols=asset_vol,
-                asset_returns=asset_mu,
-            ),
-            height=440,
-            explain="efficient_frontier",
+        # Efficient frontier | weights by strategy + strategy comparison
+        frontier = charts.efficient_frontier_chart(
+            orp_opt.frontier_vols,
+            orp_opt.frontier_returns,
+            orp_opt.expected_vol,
+            orp_opt.expected_return,
+            cfg.risk_free_rate,
+            asset_vols=asset_vol,
+            asset_returns=asset_mu,
         )
+        left = self.panel_html("Efficient frontier & capital allocation line",
+                               self.chart_html(frontier, 430), explain="efficient_frontier")
+        right = ""
+        wt = self._weights_table(results)
+        if not wt.empty:
+            cols = [Col("Asset", "Asset", "sym"), Col("Current", "Current", "pct", 1),
+                    Col("ORP", "ORP", "pct", 1), Col("Δ ORP", "Δ", "spct", 1)]
+            if "HRP" in wt.columns:
+                cols.append(Col("HRP", "HRP", "pct", 1))
+            right += self.panel_html("Weights by strategy", rich_table_html(
+                wt, cols, sortable=True, copy=True, table_id="wts"), aside="target weights")
+        sc = self._strategy_table(results)
+        if not sc.empty:
+            right += self.panel_html("Strategy comparison", rich_table_html(
+                sc, [Col("Strategy", "", "label"), Col("Ann. return", "Return", "spct", 1),
+                     Col("Ann. vol", "Vol", "pct", 1), Col("Sharpe", "Sharpe", "ratio"),
+                     Col("Max DD", "Max DD", "spct", 1)],
+                sortable=False, copy=True, table_id="strat"), aside="realized, annualized")
+        self.add_split([(left, 1.7), (right, 1.0)] if right else [(left, 1)])
 
         # The user's actual account allocation — stock weights plus a Cash slice
         # when a cash balance is held (cash as a first-class holding).
@@ -90,9 +106,10 @@ class OptimizationTab(WebTab):
         active_alloc = active_allocation_weights(
             dict(cfg.weights), cfg.capital, getattr(cfg, "cash", 0.0)
         )
+        self.add_heading("Current allocation")
         self.add_chart(
-            charts.allocation_donut(active_alloc, "Active Portfolio Allocation"),
-            height=360,
+            charts.allocation_donut(active_alloc, ""),
+            height=320,
         )
 
         # ORP weights + complete-portfolio donut
@@ -202,6 +219,32 @@ class OptimizationTab(WebTab):
                 height=360,
                 explain="risk_contribution",
             )
+
+    @staticmethod
+    def _weights_table(results) -> pd.DataFrame:
+        cfg = results.config
+        cur = pd.Series(dict(cfg.weights), dtype=float)
+        if cur.sum() > 0:
+            cur = cur / cur.sum()
+        orp = results.orp_optimization.weights if results.orp_optimization else pd.Series(dtype=float)
+        df = pd.DataFrame({"Current": cur, "ORP": orp}).fillna(0.0)
+        if results.hrp_weights is not None and len(results.hrp_weights):
+            df["HRP"] = pd.Series(results.hrp_weights, dtype=float).reindex(df.index).fillna(0.0)
+        df["Δ ORP"] = df["ORP"] - df["Current"]
+        df = df.sort_values("Current", ascending=False)
+        df.index.name = "Asset"
+        return df.reset_index()
+
+    @staticmethod
+    def _strategy_table(results) -> pd.DataFrame:
+        rows = []
+        for ps in (results.active, results.passive, results.orp, results.hrp,
+                   results.rebalanced, results.complete):
+            if ps is None:
+                continue
+            rows.append({"Strategy": ps.name, "Ann. return": ps.ann_return,
+                         "Ann. vol": ps.ann_vol, "Sharpe": ps.sharpe, "Max DD": ps.max_dd})
+        return pd.DataFrame(rows)
 
     def _render_trades(self, results) -> None:
         """Buy/sell trades to rebalance to the target (and, if available, the ORP)."""

@@ -10,8 +10,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.analytics.summary import monthly_calendar
 from src.charts import plotly_charts as charts
 
+from .. import theme
+from ..widgets.html_table import heatmap_table_html
 from .web_tab import WebTab
 
 # Metric name -> how to format its value.
@@ -39,6 +42,15 @@ class PerformanceTab(WebTab):
 
         bt = results.backtest
 
+        # Monthly return calendar (portfolio; benchmark calendar-year in grey).
+        if results.active is not None:
+            cal = monthly_calendar(results.active.values,
+                                   results.passive.values if results.passive else None)
+            if not cal.empty:
+                t = theme.ACTIVE
+                self.add_heading("Monthly returns")
+                self.add_html(heatmap_table_html(cal, t.green, t.red))
+
         # Coverage timeline — makes the inception handling visible.
         if bt is not None and bt.coverage:
             end = results.active.values.index[-1] if results.active is not None else None
@@ -49,7 +61,7 @@ class PerformanceTab(WebTab):
         if ps is not None and not ps.empty:
             value_cols = [c for c in ps.columns if c != "Metric"]
             heading_key = "dual_window" if "Common Window" in value_cols else "performance_table"
-            self.add_heading("Performance Summary", explain=heading_key)
+            self.add_heading("Benchmark-relative statistics", explain=heading_key)
             disp = ps.copy()
             for col in value_cols:
                 disp[col] = [_fmt(m, v) for m, v in zip(disp["Metric"], disp[col])]
@@ -58,7 +70,7 @@ class PerformanceTab(WebTab):
         # Capture + batting stat grid.
         cap = results.capture_metrics
         if cap:
-            self.add_heading("Benchmark Capture", explain="capture")
+            self.add_heading("Benchmark capture", explain="capture")
             self.add_stat_grid(
                 [
                     ("Up Capture", _fmt("Up Capture", cap.get("up_capture"))),
@@ -77,7 +89,7 @@ class PerformanceTab(WebTab):
         # Tax analysis.
         tm = results.tax_metrics
         if tm:
-            self.add_heading("Tax Analysis", explain="tax")
+            self.add_heading("Tax analysis", explain="tax")
             self.add_stat_grid(
                 [
                     ("Unrealized Gain", f"${tm.get('unrealized_gain', 0):,.0f}"),
@@ -110,7 +122,7 @@ class PerformanceTab(WebTab):
                 if bt.turnover_table is not None and not bt.turnover_table.empty
                 else np.nan
             )
-            self.add_heading("Trading & Costs", explain="trading_costs")
+            self.add_heading("Trading and costs", explain="trading_costs")
             self.add_stat_grid(
                 [
                     ("Rebalances", f"{n_rebal}"),

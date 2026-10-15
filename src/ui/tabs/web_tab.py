@@ -33,6 +33,15 @@ from .. import explanations
 from .. import theme
 from ..formatting import js_embed
 from ..widgets.plotly_widget import _ensure_plotly_js, _web_resources_dir
+from ..widgets.html_table import numeric_class, rich_table_html, TABLE_JS
+from src.charts.plotly_charts import finalize_figure
+
+
+def _split_first_sentence(text: str) -> tuple[str, str]:
+    m = re.search(r"(?<=[.!?])\s+(?=[A-Z(])", text)
+    if not m:
+        return text, ""
+    return text[: m.start()], text[m.end():]
 
 
 def _fmt_default(value) -> str:
@@ -45,6 +54,22 @@ def _fmt_default(value) -> str:
     return str(value)
 
 
+def _plain_table_html(disp: pd.DataFrame, show_index: bool, classes) -> str:
+    """Formatted frame -> ``<table>`` with numeric columns right-aligned."""
+    cls = " ".join(classes) if isinstance(classes, (list, tuple)) else classes
+    cols = list(disp.columns)
+    num = {c: numeric_class(disp[c]) for c in cols}
+    head = ("<th></th>" if show_index else "") + "".join(
+        f"<th class='{'n' if num[c] else ''}'>{_html.escape(str(c))}</th>" for c in cols)
+    rows = []
+    for idx, row in disp.iterrows():
+        cells = (f"<td>{_html.escape(str(idx))}</td>" if show_index else "") + "".join(
+            f"<td class='{'n' if num[c] else ''}'>{_html.escape(str(row[c]))}</td>" for c in cols)
+        rows.append(f"<tr>{cells}</tr>")
+    return (f"<table class='{cls}'><thead><tr>{head}</tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>")
+
+
 class WebTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
@@ -55,6 +80,10 @@ class WebTab(QWidget):
         self._view.page().setBackgroundColor(QColor(theme.ACTIVE.chart_bg))
         self._view.settings().setAttribute(
             QWebEngineSettings.WebAttribute.ShowScrollBars, True
+        )
+        # Lets the tables' "Copy" button put TSV on the clipboard (paste into Excel).
+        self._view.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True
         )
         # A page loaded while this tab is hidden lays its Plotly charts out at zero
         # size; refit them once the load finishes (and again on show, below).
@@ -215,6 +244,7 @@ class WebTab(QWidget):
       b.addEventListener('transitionend', done);
     }}
   }}
+  {TABLE_JS}
   {self._post_script}
 </script>
 </body></html>"""
@@ -222,79 +252,98 @@ class WebTab(QWidget):
     def _css(self) -> str:
         t = theme.ACTIVE
         pad = t.content_spacing
+        r = min(t.radius, 4)
         return f"""<style>
-  html,body{{margin:0;background:{t.chart_bg};color:{t.text};
-    font-family:{t.font};font-size:{t.base_pt}px}}
-  .wrap{{display:flex;flex-direction:column;gap:{pad}px;
-    padding:{pad + 4}px {pad + 4}px {pad + 12}px}}
+  html,body{{margin:0;background:{t.bg};color:{t.text};
+    font-family:{t.font};font-size:{t.base_pt}px;
+    font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}}
+  .wrap{{display:flex;flex-direction:column;gap:{pad}px;padding:{pad}px {pad + 4}px {pad + 12}px}}
   .empty{{color:{t.text_muted};text-align:center;padding:60px 20px}}
-  h3{{font-size:{t.heading_pt}px;font-weight:700;margin:6px 0 0}}
-  h4{{font-size:{t.base_pt + 1}px;font-weight:600;margin:0 0 6px;color:{t.text}}}
-  .section{{border-top:1px solid {t.border};padding-top:{max(6, pad - 4)}px}}
-  .sec-head{{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}}
-  .sec-title{{font-size:{t.heading_pt}px;font-weight:700}}
-  .sec-head:hover .sec-title{{color:{t.accent}}}
-  .sec-body{{overflow:hidden;transition:height .24s ease,opacity .2s ease}}
-  .sec-inner{{display:flex;flex-direction:column;gap:{pad}px;padding-top:{pad}px}}
-  .chev{{flex:none;width:0;height:0;border-left:6px solid {t.text_muted};
-    border-top:5px solid transparent;border-bottom:5px solid transparent;
+  h3{{font-size:{t.label_pt + 1}px;font-weight:600;margin:0;text-transform:uppercase;
+    letter-spacing:.06em;color:{t.text_slate}}}
+  h4{{font-size:{t.label_pt + 1}px;font-weight:600;margin:0 0 4px;color:{t.text_slate};
+    text-transform:uppercase;letter-spacing:.05em}}
+  .section{{background:{t.panel};border:1px solid {t.border};border-radius:{r}px}}
+  .sec-head{{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+    padding:7px 12px;border-bottom:1px solid {t.border}}}
+  .section.collapsed .sec-head{{border-bottom-color:transparent}}
+  .sec-title{{font-size:{t.label_pt + 1}px;font-weight:600;text-transform:uppercase;
+    letter-spacing:.06em;color:{t.text_slate}}}
+  .sec-head:hover .sec-title{{color:{t.text}}}
+  .sec-body{{overflow:hidden;transition:height .2s ease,opacity .16s ease}}
+  .sec-inner{{display:flex;flex-direction:column;gap:{pad}px;padding:{pad}px 12px}}
+  .chev{{flex:none;width:0;height:0;border-left:5px solid {t.text_muted};
+    border-top:4px solid transparent;border-bottom:4px solid transparent;
     transition:transform .15s;transform:rotate(90deg)}}
   .section.collapsed .chev{{transform:rotate(0deg)}}
-  .sec-head:hover .chev{{border-left-color:{t.accent}}}
-  .interp{{background:{t.card};border-left:3px solid {t.accent};
-    padding:14px 18px;border-radius:0 8px 8px 0;color:{t.text_slate};line-height:1.5}}
-  .blurb{{background:{t.card};color:{t.text_slate};border-radius:{max(4, t.radius - 4)}px;
-    padding:8px 12px;font-size:{t.base_pt - 1}px}}
+  .interp{{color:{t.text_muted};font-size:{t.base_pt - 1}px;line-height:1.5;
+    border-left:2px solid {t.border_light};padding:2px 0 2px 10px}}
+  .interp summary{{cursor:pointer;list-style:none;color:{t.text_slate}}}
+  .interp summary::-webkit-details-marker{{display:none}}
+  .interp summary .more{{color:{t.accent};margin-left:6px;font-size:{t.label_pt + 1}px}}
+  .interp[open] summary .more{{display:none}}
+  .blurb{{color:{t.text_muted};font-size:{t.base_pt - 1}px;
+    border-left:2px solid {t.border_light};padding:2px 0 2px 10px}}
   .chart{{width:100%}}
-  .chart-row{{display:flex;gap:16px}}
+  .split{{display:flex;gap:{pad}px;align-items:stretch}}
+  .split-col{{min-width:0;display:flex;flex-direction:column;gap:{pad}px}}
+  .split-col>.section{{flex:1}}
+  .sec-head.static{{cursor:default}}
+  .sec-head .aside{{margin-left:auto;color:{t.text_muted};font-size:{t.label_pt + 1}px}}
+  .sec-inner>table.tbl{{margin:-{pad}px -12px;width:calc(100% + 24px)}}
+  .chart-row{{display:flex;gap:{pad}px}}
   .chart-row>.chart{{flex:1;min-width:0}}
   .chart-col{{display:flex;flex-direction:column;flex:1;min-width:0}}
-  .chart-grid{{display:grid;gap:12px}}
-  table.tbl{{width:100%;border-collapse:collapse;background:{t.card};
-    border:1px solid {t.border};border-radius:{max(4, t.radius - 4)}px;overflow:hidden}}
-  .tbl th{{background:{t.panel};color:{t.text_muted};text-transform:uppercase;
-    font-size:{t.label_pt}px;font-weight:600;padding:8px 10px;text-align:left;
-    border-bottom:1px solid {t.border}}}
-  .tbl td{{padding:7px 10px;border-bottom:1px solid {t.border};font-variant-numeric:tabular-nums}}
-  .tbl tr:nth-child(even) td{{background:{t.card_alt}}}
+  .chart-grid{{display:grid;gap:{pad}px}}
+  table.tbl{{width:100%;border-collapse:collapse;background:{t.panel}}}
+  .tbl th{{color:{t.text_muted};text-transform:uppercase;font-size:{t.label_pt}px;
+    font-weight:500;letter-spacing:.05em;padding:5px 10px;text-align:left;
+    border-bottom:1px solid {t.border};white-space:nowrap}}
+  .tbl td{{padding:4px 10px;border-bottom:1px solid {t.card_alt};white-space:nowrap;
+    font-variant-numeric:tabular-nums}}
+  .tbl th.n,.tbl td.n{{text-align:right}}
+  .tbl tr:hover td{{background:{t.card_alt}}}
+  .tbl tr.tot td{{border-top:1px solid {t.border_light};color:{t.text};font-weight:600}}
+  .tbl td.pos{{color:{t.green}}} .tbl td.neg{{color:{t.red}}}
+  .tbl td .sym{{color:{t.text};font-weight:600}} .tbl td .nm{{color:{t.text_muted}}}
+  .tbl.sortable th{{cursor:pointer}} .tbl.sortable th:hover{{color:{t.text}}}
+  .tbl th.asc:after{{content:" \\25B2";font-size:8px}} .tbl th.desc:after{{content:" \\25BC";font-size:8px}}
+  .wbar{{display:inline-block;height:7px;background:{t.accent};vertical-align:middle;opacity:.85}}
+  .tbl-tools{{display:flex;justify-content:flex-end;gap:8px;margin-bottom:-4px}}
+  .btn{{background:transparent;color:{t.text_slate};border:1px solid {t.border_light};
+    border-radius:{r}px;padding:2px 10px;font:inherit;font-size:{t.label_pt + 1}px;cursor:pointer}}
+  .btn:hover{{color:{t.text};border-color:{t.accent}}}
+  .hm td.n{{min-width:44px}}
   table.tbl-fixed{{table-layout:fixed}}
   .tbl-fixed th,.tbl-fixed td{{white-space:normal;word-break:break-word}}
-  .zone{{display:flex;align-items:baseline;gap:12px;margin-top:14px;
-    padding:10px 0 2px;border-top:2px solid {t.accent}}}
-  .zone-title{{font-size:{t.heading_pt + 5}px;font-weight:800;color:{t.text};
-    letter-spacing:.01em}}
-  .zone-sub{{color:{t.text_muted};font-size:{t.base_pt}px}}
-  .chips{{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 2px}}
-  .chip{{padding:4px 14px;border:1px solid {t.border_light};border-radius:999px;
-    color:{t.text_muted};text-decoration:none;font-size:{t.base_pt - 1}px;
-    font-weight:600;transition:all .12s}}
+  .zone{{display:flex;align-items:baseline;gap:12px;margin-top:6px;padding:6px 0 0}}
+  .zone-title{{font-size:{t.heading_pt + 3}px;font-weight:600;color:{t.text}}}
+  .zone-sub{{color:{t.text_muted};font-size:{t.base_pt - 1}px}}
+  .chips{{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}}
+  .chip{{padding:3px 10px;border:1px solid {t.border_light};border-radius:{r}px;
+    color:{t.text_muted};text-decoration:none;font-size:{t.base_pt - 1}px;font-weight:500}}
   .chip:hover{{border-color:{t.accent};color:{t.text}}}
-  .chip.active{{background:{t.accent};border-color:{t.accent};color:{t.accent_text}}}
-  ::-webkit-scrollbar{{width:12px;height:12px}}
+  .chip.active{{background:{t.card_alt};border-color:{t.accent};color:{t.text}}}
+  ::-webkit-scrollbar{{width:10px;height:10px}}
   ::-webkit-scrollbar-track{{background:transparent}}
-  ::-webkit-scrollbar-thumb{{background:{t.border_light};border-radius:7px;
-    border:3px solid {t.chart_bg}}}
+  ::-webkit-scrollbar-thumb{{background:{t.border_light};border-radius:5px;border:2px solid {t.bg}}}
   ::-webkit-scrollbar-thumb:hover{{background:{t.text_muted}}}
-  ::-webkit-scrollbar-thumb:active{{background:{t.accent}}}
-  .statgrid{{display:grid;gap:10px}}
-  .card{{background:{t.card};border:1px solid {t.border_light};
-    border-radius:{max(6, t.radius - 2)}px;padding:12px 14px}}
-  .card .k{{color:{t.text_muted};font-size:{t.label_pt - 1}px;font-weight:700;
-    letter-spacing:.05em;text-transform:uppercase}}
-  .card .v{{color:{t.text};font-size:{t.statval_pt}px;font-weight:700;
-    font-family:{t.mono};margin-top:2px}}
+  .statgrid{{display:grid;gap:0;border:1px solid {t.border};background:{t.panel}}}
+  .card{{padding:7px 12px;border-right:1px solid {t.border};border-bottom:1px solid {t.border}}}
+  .card .k{{color:{t.text_muted};font-size:{t.label_pt}px;font-weight:500;
+    letter-spacing:.06em;text-transform:uppercase}}
+  .card .v{{color:{t.text};font-size:{t.statval_pt}px;font-weight:500;margin-top:1px}}
   .info{{color:{t.text_muted};cursor:help;position:relative;display:inline-block;
-    vertical-align:middle;margin-left:8px}}
-  .info:hover{{color:{t.accent}}}
-  .qmark{{display:inline-block;width:1.35em;height:1.35em;line-height:1.3em;
+    vertical-align:middle;margin-left:6px}}
+  .info:hover{{color:{t.text}}}
+  .qmark{{display:inline-block;width:1.3em;height:1.3em;line-height:1.25em;
     text-align:center;border:1px solid currentColor;border-radius:50%;
-    font-weight:700;font-size:.6em}}
-  .sec-title .info,h3 .info,h4 .info{{font-weight:400}}
+    font-weight:600;font-size:.75em;text-transform:none;letter-spacing:0}}
   .info .tip{{visibility:hidden;opacity:0;transition:opacity .12s;position:absolute;
     left:0;top:130%;z-index:20;width:320px;background:{t.panel};color:{t.text};
-    border:1px solid {t.accent};border-radius:6px;padding:10px 12px;
-    font-size:{t.base_pt}px;font-weight:400;line-height:1.5;
-    box-shadow:0 8px 24px rgba(0,0,0,.4)}}
+    border:1px solid {t.border_light};border-radius:{r}px;padding:10px 12px;
+    font-size:{t.base_pt - 1}px;font-weight:400;line-height:1.5;text-transform:none;
+    letter-spacing:0;box-shadow:0 8px 24px rgba(0,0,0,.4)}}
   .info:hover .tip{{visibility:visible;opacity:1}}
 </style>"""
 
@@ -350,9 +399,18 @@ class WebTab(QWidget):
         )
 
     def add_interpretation(self, text: Optional[str]) -> None:
+        """Plain-English read-out, trimmed to its first sentence; the rest is one
+        click away (``<details>``) so it never pushes the data down the page."""
         if not text:
             return
-        self._html.append(f"<div class='interp'>{_html.escape(text)}</div>")
+        first, rest = _split_first_sentence(text)
+        if not rest:
+            self._html.append(f"<div class='interp'>{_html.escape(first)}</div>")
+            return
+        self._html.append(
+            f"<details class='interp'><summary>{_html.escape(first)}"
+            f"<span class='more'>More</span></summary>{_html.escape(rest)}</details>"
+        )
 
     def add_html(self, raw: str) -> None:
         """Append a raw HTML block (caller is responsible for escaping)."""
@@ -387,6 +445,7 @@ class WebTab(QWidget):
         cid = f"c{self._chart_i}"
         self._chart_i += 1
         fig.update_layout(autosize=True, height=None)
+        finalize_figure(fig)
         self._figs[cid] = fig.to_json()
         return f"<div id='{cid}' class='chart' style='height:{height}px;{style_extra}'></div>"
 
@@ -495,13 +554,37 @@ class WebTab(QWidget):
                         + "</colgroup>")
             classes = ["tbl", "tbl-fixed"]
 
-        html_table = disp.to_html(
-            index=show_index, escape=True, border=0, classes=classes, justify="left"
-        )
+        html_table = _plain_table_html(disp, show_index, classes)
         if colgroup:
             html_table = re.sub(r"(<table\b[^>]*>)", lambda m: m.group(1) + colgroup,
                                 html_table, count=1)
         self._html.append(html_table)
+
+    def add_rich_table(self, df: pd.DataFrame, columns: list, total: Optional[dict] = None,
+                       sortable: bool = True, copy: bool = True) -> None:
+        """Dense sortable table (see ``widgets.html_table.rich_table_html``)."""
+        if df is None or len(df) == 0:
+            return
+        self._html.append(rich_table_html(df, columns, total=total, sortable=sortable,
+                                          copy=copy, table_id=f"t{len(self._html)}"))
+
+    def panel_html(self, title: str, inner: str, explain: Optional[str] = None,
+                   aside: str = "") -> str:
+        """A titled, non-collapsible panel (for side-by-side layouts)."""
+        aside_html = f"<span class='aside'>{aside}</span>" if aside else ""
+        return (f"<div class='section'><div class='sec-head static'>"
+                f"<span class='sec-title'>{_html.escape(title)}{self._qmark(explain)}</span>"
+                f"{aside_html}</div><div class='sec-inner'>{inner}</div></div>")
+
+    def chart_html(self, fig, height: int) -> str:
+        """A chart div (registered for drawing) to embed inside ``panel_html``."""
+        self._blank_fig_title(fig)
+        return self._chart_div(fig, self._scaled(height))
+
+    def add_split(self, parts: list[tuple[str, float]]) -> None:
+        """Side-by-side blocks; each ``(html, flex)``."""
+        cols = "".join(f"<div class='split-col' style='flex:{f}'>{h}</div>" for h, f in parts)
+        self._html.append(f"<div class='split'>{cols}</div>")
 
     def add_stat_grid(self, items: list[tuple[str, str]], columns: int = 4) -> None:
         if not items:
