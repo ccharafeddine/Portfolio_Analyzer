@@ -6,8 +6,7 @@ compatibility_date = "2026-10-01"
 workers_dev = true
 
 # Serve the proxy on the demo's own hostname so the page calls it same-origin.
-# Uncomment once chafic.me is confirmed on this account and the Pages domain is live.
-# routes = [{ pattern = "portfolio.chafic.me/v1/*", zone_name = "chafic.me" }]
+routes = [{ pattern = "portfolio.chafic.me/v1/*", zone_name = "chafic.me" }]
 
 [vars]
 ALLOWED_ORIGINS = "https://portfolio.chafic.me,http://localhost:8788,http://127.0.0.1:8788"
