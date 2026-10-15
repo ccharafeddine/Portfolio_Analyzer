@@ -23,17 +23,16 @@
     $("eprog-bar").style.width = pct + "%"; $("emsg").textContent = msg;
     $("engine").classList.toggle("ready", !!done);
   }
-  async function startEngine() {
-    const manifest = await (await fetch("engine-manifest.json", { cache: "no-cache" })).json();
-    const proxyBase = (new URLSearchParams(location.search).get("proxy") || manifest.proxy || "").replace(/\/$/, "");
-    const w = new Worker("engine.worker.js?v=" + encodeURIComponent(manifest.bundle));
-    engine.worker = w;
-    w.onmessage = (ev) => {
+  function startEngine() {
+    const E = window.PA_ENGINE;
+    if (!E || !E.worker) throw new Error((E && E.error) || "Web Workers are unavailable");
+    engine.worker = E.worker;
+    const handle = (ev) => {
       const m = ev.data;
-      if (m.type === "progress") setEngine(m.pct, m.msg);
+      if (m.type === "progress") { if (!engine.ready) setEngine(m.pct, m.msg); else if (m.forRun) $("loadmsg").textContent = m.msg; }
       else if (m.type === "ready") {
         engine.ready = true; engine.loadMs = m.ms;
-        window.PA_TIMINGS.engineReady = performance.now(); window.PA_TIMINGS.engineInside = m.timings; window.PA_TIMINGS.engineMs = m.ms;
+        Object.assign(window.PA_TIMINGS, { engineReady: performance.now(), engineInside: m.timings, engineMs: m.ms, prefetch: m.stats });
         setEngine(100, `Engine ready (${(m.ms / 1000).toFixed(1)}s) · runs in your browser`, true);
         engine.readyWaiters.splice(0).forEach((f) => f());
       } else if (m.type === "result" || m.type === "error") {
@@ -45,7 +44,8 @@
         }
       }
     };
-    w.postMessage({ type: "init", manifest, proxyBase });
+    E.onmessage = handle;
+    E.queue.splice(0).forEach(handle);
   }
   function whenReady() { return engine.ready ? Promise.resolve() : new Promise((r) => engine.readyWaiters.push(r)); }
   function analyzeInEngine(payload) {
@@ -238,7 +238,7 @@
     let i = 0; $("loadmsg").textContent = STEPS[0];
     const tick = setInterval(() => { if (!engine.ready) return; i = Math.min(i + 1, STEPS.length - 1); $("loadmsg").textContent = STEPS[i]; }, 900);
     try {
-      if (!engine.ready) { $("loadmsg").textContent = "Waiting for the analytics engine to finish loading…"; await whenReady(); }
+      if (!engine.ready) { $("loadmsg").textContent = "Loading the analytics engine (first visit only)…"; await whenReady(); }
       const t0 = performance.now();
       const m = await analyzeInEngine(body);
       const data = JSON.parse(m.text);
@@ -265,7 +265,8 @@
     $("ranges").onclick = (e) => { const y = e.target.dataset.y; if (y) setYears(Math.min(+y, MAX_Y)); };
     $("tabs").onclick = (e) => { const t = e.target.dataset.tab; if (t) showTab(t); };
     $("form").onsubmit = run;
-    startEngine().catch((e) => { setEngine(0, "Could not start the engine: " + e.message); });
+    try { startEngine(); } catch (e) { setEngine(0, "Could not start the engine: " + e.message); }
+    if (window.PA_ENGINE) { window.PA_ENGINE.appReady = true; if (window.PA_ENGINE.pendingRun) run(); }
     if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
     window.addEventListener("resize", () => last && showTab(activeTab));
   }

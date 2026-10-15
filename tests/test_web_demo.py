@@ -217,3 +217,62 @@ def test_static_site_has_no_secrets():
     text = "".join(p.read_text(encoding="utf-8") for p in files)
     assert not re.search(r"(api[_-]?key|secret|token|password)\s*[:=]", text, re.I)
     assert not re.search(r"^\s*account_id\s*=", text, re.M)
+
+
+# ── stats_lite: the browser's scipy.stats stand-in ────────────────────────
+
+
+def test_stats_lite_matches_scipy():
+    import numpy as np
+    import scipy.stats as S
+    from pa_web import stats_lite as L
+
+    for q in (1e-6, 0.01, 0.05, 0.5, 0.95, 0.999):
+        assert L.norm.ppf(q) == pytest.approx(S.norm.ppf(q), abs=1e-12)
+        assert L.norm.pdf(L.norm.ppf(q)) == pytest.approx(S.norm.pdf(S.norm.ppf(q)), abs=1e-12)
+    for x in (0.0, 0.3, 3.84, 12.0, 80.0):
+        for df in (1, 2, 7):
+            assert L.chi2.cdf(x, df) == pytest.approx(S.chi2.cdf(x, df), abs=1e-12)
+    rng = np.random.default_rng(3)
+    for _ in range(10):
+        r = rng.standard_t(4, 400) * 0.01
+        for bias in (True, False):
+            assert L.skew(r, bias=bias) == pytest.approx(S.skew(r, bias=bias), abs=1e-10)
+            assert L.kurtosis(r, fisher=True, bias=bias) == pytest.approx(
+                S.kurtosis(r, fisher=True, bias=bias), abs=1e-10)
+        x = rng.normal(size=72)
+        y = 0.002 + 1.1 * x + rng.normal(scale=0.5, size=72)
+        a, b = L.linregress(x, y), S.linregress(x, y)
+        assert tuple(a) == pytest.approx((b.slope, b.intercept, b.rvalue, b.pvalue, b.stderr),
+                                         rel=1e-9, abs=1e-12)
+    with pytest.raises(AttributeError):
+        L.t  # anything not provided fails loudly
+
+
+def test_demo_pipeline_identical_with_stats_lite(proxy, monkeypatch):
+    """The demo's results must not depend on whether real scipy is present."""
+    import scipy
+    from pa_web import stats_lite
+
+    real = json.loads(engine.analyze(json.dumps(body())))
+    engine._results.clear()
+    monkeypatch.setitem(sys.modules, "scipy.stats", stats_lite)
+    monkeypatch.setattr(scipy, "stats", stats_lite)
+    lite = json.loads(engine.analyze(json.dumps(body())))
+    for k in ("kpis", "risk", "performance", "attribution", "holdings"):
+        assert lite[k] == pytest.approx(real[k], rel=1e-9, abs=1e-9) if not isinstance(real[k], (dict, list)) \
+            else json.dumps(lite[k], sort_keys=True) == json.dumps(real[k], sort_keys=True), k
+
+
+def test_stats_lite_install_without_scipy(monkeypatch):
+    from pa_web import stats_lite
+
+    for name in [m for m in sys.modules if m == "scipy" or m.startswith("scipy.")]:
+        monkeypatch.delitem(sys.modules, name)
+    stats_lite.install()
+    from scipy import stats
+    assert stats is stats_lite
+    with pytest.raises(ImportError):
+        import scipy.optimize  # noqa: F401  (desktop-only steps must not silently run)
+    for name in [m for m in sys.modules if m == "scipy" or m.startswith("scipy.")]:
+        monkeypatch.delitem(sys.modules, name)

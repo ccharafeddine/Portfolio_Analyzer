@@ -41,7 +41,10 @@ class ProxyClient:
     def _get(self, path: str, params: dict) -> dict:
         self.calls += 1
         raw = self.transport(f"{self.base_url}{path}?{urlencode(params)}")
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            raise ValueError("Price proxy returned an invalid response (is it reachable?)") from None
         if isinstance(data, dict) and data.get("error") and "data" not in data and "profiles" not in data:
             raise ValueError(f"Price proxy error: {data['error']}")
         return data

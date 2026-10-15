@@ -1,4 +1,4 @@
-// Unit tests for the price proxy. Runs on plain Node (>=18): `node --test test/`.
+// Unit tests for the price proxy. Runs on plain Node (>=18): `node --test test/worker.test.mjs`.
 // fetch and the Cache API are stubbed, so no network or Cloudflare account is needed.
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";

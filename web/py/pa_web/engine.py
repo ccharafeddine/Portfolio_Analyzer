@@ -19,9 +19,18 @@ _results: "OrderedDict[str, str]" = OrderedDict()
 MAX_CACHED_RESULTS = 16
 
 
-def install(proxy_base: str = "", transport=None) -> ProxyClient:
-    """Route all price and metadata requests of the shared code through the proxy."""
+def install(proxy_base: str = "", transport=None, lite_stats: bool | None = None) -> ProxyClient:
+    """Route all price and metadata requests of the shared code through the proxy.
+
+    ``lite_stats`` (default: only when scipy is not installed, i.e. in the browser)
+    provides ``scipy.stats`` from pa_web.stats_lite so scipy is never loaded."""
     global _client
+    if lite_stats is None:
+        import importlib.util
+        lite_stats = importlib.util.find_spec("scipy") is None
+    if lite_stats:
+        from . import stats_lite
+        stats_lite.install()
     _client = ProxyClient(proxy_base, transport=transport)
     yf_stub.install(_client)  # before src.data.fetcher imports ``yfinance``
     import src.data.fetcher as fetcher_mod

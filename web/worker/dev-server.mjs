@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import worker from "./src/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const DIST = path.resolve(here, "..", "dist");
+const DIST = path.resolve(process.env.DIST || path.resolve(here, "..", "dist"));
 const PORT = Number(process.env.PORT || 8788);
 const UPSTREAM = process.env.UPSTREAM || "";
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".zip": "application/zip", ".png": "image/png", ".svg": "image/svg+xml" };

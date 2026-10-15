@@ -23,7 +23,7 @@ STATIC = ROOT / "web" / "static"
 DIST = ROOT / "web" / "dist"
 
 PYODIDE_VERSION = "0.29.3"
-PYODIDE_PACKAGES = ["numpy", "pandas", "scipy", "pydantic"]
+PYODIDE_PACKAGES = ["numpy", "pandas", "pydantic"]  # scipy.stats via pa_web.stats_lite
 
 # Only what the demo pipeline imports: no Qt UI, reports, charts, or desktop data feeds.
 BUNDLE = [
@@ -79,6 +79,9 @@ def main(argv: list[str]) -> int:
                 "proxy": proxy}
     (DIST / "engine-manifest.json").write_text(json.dumps(manifest, indent=1))
     # Cache-bust the worker scripts by the bundle hash too.
+    boot = DIST / "boot.js"
+    boot.write_text(boot.read_text(encoding="utf-8").replace("__MANIFEST__", json.dumps(manifest)),
+                    encoding="utf-8")
     for fn in ("index.html",):
         p = DIST / fn
         p.write_text(p.read_text(encoding="utf-8").replace("__BUILD__", digest), encoding="utf-8")

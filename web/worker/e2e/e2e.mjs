@@ -1,7 +1,7 @@
 // Headless end-to-end run of the built site: cold load (empty cache) -> engine ready ->
 // analysis -> tabs, at desktop and phone widths. Needs `python web/build.py` and a
 // running preview (node web/worker/dev-server.mjs). Writes screenshots + timings.json.
-//   BASE=http://localhost:8788 OUT=/tmp/shots node web/worker/test/e2e.mjs
+//   BASE=http://localhost:8788 OUT=/tmp/shots node web/worker/e2e/e2e.mjs
 import { chromium } from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -29,6 +29,8 @@ for (const [name, vp] of [["desktop", { width: 1440, height: 1000 }], ["mobile",
   const readyMs = Date.now() - t0;
   const coldBytes = bytes;
   const inside = await p.evaluate(() => window.PA_TIMINGS);
+  const pf = inside.prefetch || {};
+  if (pf.prefetched && pf.reused !== pf.prefetched) fail(`${name}: prefetched ${pf.prefetched} but Pyodide reused ${pf.reused} (double downloads)`);
   await p.click("#run");
   await p.waitForTimeout(300);
   await p.screenshot({ path: OUT + `${PREFIX}${name}-1-running.png` });
