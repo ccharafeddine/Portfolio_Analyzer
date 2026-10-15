@@ -51,3 +51,19 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+  web:
+    name: Web demo (Worker tests, static build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Price proxy Worker unit tests
+        run: node --test web/worker/test/worker.test.mjs
+
+      - name: Build the static site
+        run: python3 web/build.py
