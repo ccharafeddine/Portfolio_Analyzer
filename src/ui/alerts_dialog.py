@@ -49,6 +49,7 @@ class AlertsDialog(QDialog):
             "fire once per crossing."
         )
         intro.setWordWrap(True)
+        intro.setObjectName("dialogIntro")
         root.addWidget(intro)
 
         # Existing alerts — checkbox = enabled.
@@ -59,6 +60,7 @@ class AlertsDialog(QDialog):
         remove_row = QHBoxLayout()
         remove_row.addStretch(1)
         self._remove_btn = QPushButton("Remove selected")
+        self._remove_btn.setObjectName("secondary")
         self._remove_btn.setObjectName("secondary")
         self._remove_btn.clicked.connect(self._on_remove)
         remove_row.addWidget(self._remove_btn)
@@ -89,6 +91,8 @@ class AlertsDialog(QDialog):
         root.addLayout(add)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        from src.ui.theme import tidy_dialog_buttons
+        tidy_dialog_buttons(buttons)
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         buttons.clicked.connect(lambda _b: self.accept())

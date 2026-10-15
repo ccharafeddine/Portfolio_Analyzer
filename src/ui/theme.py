@@ -709,6 +709,28 @@ def stylesheet(theme: Theme | None = None) -> str:
     }}
     QPushButton#secondary:hover {{ border-color: {t.accent}; color: {t.text}; }}
 
+    /* Dialogs: panel surface, muted intro, small-caps section labels,
+       one primary (default) button; the rest secondary. */
+    QDialog {{ background-color: {t.panel}; }}
+    QDialog QLabel#dialogIntro {{ color: {t.text_slate}; padding-bottom: 4px; }}
+    QDialog QLabel#sectionLabel {{
+        color: {t.text_muted}; font-size: {t.label_pt}px; font-weight: 600;
+        letter-spacing: 0.06em; margin-top: 12px;
+        padding-bottom: 4px; border-bottom: 1px solid {t.border};
+    }}
+    QLabel#hint {{ color: {t.text_muted}; font-size: {t.label_pt}px; }}
+    QDialogButtonBox QPushButton {{
+        background-color: {t.card}; border: 1px solid {t.border_light};
+        color: {t.text_slate}; min-width: 72px;
+    }}
+    QDialogButtonBox QPushButton:hover {{ border-color: {t.accent}; color: {t.text}; }}
+    QDialogButtonBox QPushButton:default {{
+        background: {_btn}; border: none; color: {t.accent_text};
+    }}
+    QDialog QListWidget {{
+        background-color: {t.card}; border: 1px solid {t.border}; color: {t.text};
+    }}
+
     QLineEdit, QPlainTextEdit, QTextEdit, QDateEdit, QDoubleSpinBox, QSpinBox {{
         background-color: {t.card};
         border: 1px solid {t.border_light};
@@ -739,6 +761,13 @@ def stylesheet(theme: Theme | None = None) -> str:
     }}
 
     QCheckBox {{ spacing: 8px; color: {t.text_slate}; }}
+    QCheckBox::indicator {{
+        width: 13px; height: 13px; border-radius: 3px;
+        border: 1px solid {t.border_light}; background-color: {t.card};
+    }}
+    QCheckBox::indicator:hover {{ border-color: {t.accent}; }}
+    QCheckBox::indicator:checked {{ background-color: {t.accent}; border-color: {t.accent}; }}
+    QCheckBox::indicator:disabled {{ background-color: {t.border}; }}
     QLabel {{ color: {t.text}; background: transparent; }}
     QLabel#muted {{ color: {t.text_muted}; font-size: {t.base_pt - 1}px; }}
     QLabel#sectionLabel {{
@@ -830,3 +859,17 @@ def stylesheet(theme: Theme | None = None) -> str:
     QLabel#kpiSub {{ color: {t.text_muted}; font-size: {t.label_pt + 1}px; }}
     QLabel#dataStatus {{ color: {t.text_muted}; font-size: {t.label_pt + 1}px; padding: 0 8px; }}
     """
+
+
+def tidy_dialog_buttons(box) -> None:
+    """Drop the platform style's stock icons from a QDialogButtonBox (Graphite
+    buttons are text-only)."""
+    from PySide6.QtGui import QIcon
+
+    for b in box.buttons():
+        b.setIcon(QIcon())
+
+
+def link_html(text: str) -> str:
+    """Tint <a> tags with the accent (QLabel ignores QSS for link colour)."""
+    return text.replace("<a ", f"<a style='color:{ACTIVE.accent};text-decoration:none' ")

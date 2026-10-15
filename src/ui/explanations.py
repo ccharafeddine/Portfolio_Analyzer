@@ -87,6 +87,18 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Near +1 (warm) means they move together; near 0 is independent; negative (cool) means they offset.",
         "why": "Diversification comes from combining assets that don't all move together — low correlations reduce portfolio risk.",
     },
+    "data_quality": {
+        "title": "Data Quality",
+        "what": "Checks on every price series used in the run.",
+        "how": "Inception: history starts after your start date. Stale: no recent price. Gaps: 3+ missing days inside the series. Split?: a one-day jump that looks like an unadjusted split. Flat: the price did not change for 10+ days.",
+        "why": "Bad prices silently distort every statistic; these flags tell you which numbers to double-check.",
+    },
+    "run_timings": {
+        "title": "Run Time",
+        "what": "The slowest analysis steps in the last run.",
+        "how": "Network-bound steps (dividends, sector lookups) are cached after the first run.",
+        "why": "Helps spot a slow data source.",
+    },
     "var_methods": {
         "title": "Value at Risk by Method",
         "what": "The one-day loss not exceeded on 95% / 99% of days (VaR), and the average loss on the days that do exceed it (Expected Shortfall), under four models.",

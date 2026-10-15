@@ -81,7 +81,7 @@ _SECTIONS = [
 class SettingsDialog(QDialog):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("API Keys")
+        self.setWindowTitle("Settings · API keys")
         self.setMinimumWidth(480)
         self._settings = settings.AppSettings()
         self._edits: dict[str, QLineEdit] = {}
@@ -94,14 +94,12 @@ class SettingsDialog(QDialog):
             "on this computer and are never included in exported reports."
         )
         intro.setWordWrap(True)
+        intro.setObjectName("dialogIntro")
         root.addWidget(intro)
 
         for title, keys in _SECTIONS:
             header = QLabel(title.upper())
-            header.setStyleSheet(
-                "color:#94A3B8;font-size:11px;font-weight:700;"
-                "letter-spacing:0.06em;margin-top:12px;"
-            )
+            header.setObjectName("sectionLabel")
             root.addWidget(header)
 
             form = QFormLayout()
@@ -115,10 +113,12 @@ class SettingsDialog(QDialog):
                     edit.setText(current)
                 self._edits[name] = edit
                 form.addRow(label, edit)
-                hint = QLabel(help_text)
+                from src.ui.theme import link_html
+
+                hint = QLabel(link_html(help_text))
                 hint.setWordWrap(True)
                 hint.setOpenExternalLinks(True)
-                hint.setStyleSheet("color:#94A3B8;font-size:11px;")
+                hint.setObjectName("hint")
                 form.addRow("", hint)
             root.addLayout(form)
 
@@ -131,6 +131,8 @@ class SettingsDialog(QDialog):
         root.addWidget(self._beginner)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        from src.ui.theme import tidy_dialog_buttons
+        tidy_dialog_buttons(buttons)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)

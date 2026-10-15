@@ -61,15 +61,17 @@ class DataTab(BaseTab):
         interp = results.interpretations or {}
         self.add_interpretation(interp.get("executive_summary"))
 
-        # ── Reports ──
+        # ── Reports: one primary action, the rest secondary ──
         self.add_heading("Reports", explain="reports")
         bar = QWidget()
         row = QHBoxLayout(bar)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(12)
-        html_btn = QPushButton("Export HTML Report")
-        pdf_btn = QPushButton("Export PDF Report")
-        self._pptx_btn = pptx_btn = QPushButton("Export PowerPoint")
+        row.setSpacing(8)
+        html_btn = QPushButton("Export HTML report")
+        pdf_btn = QPushButton("PDF")
+        self._pptx_btn = pptx_btn = QPushButton("PowerPoint")
+        for b in (pdf_btn, pptx_btn):
+            b.setObjectName("secondary")
         html_btn.clicked.connect(self._export_html)
         pdf_btn.clicked.connect(self._export_pdf)
         pptx_btn.clicked.connect(self._export_pptx)
@@ -79,17 +81,37 @@ class DataTab(BaseTab):
         row.addStretch(1)
         self.add_widget(bar)
 
+        # ── Data quality ──
+        rep = getattr(results, "data_quality", None)
+        if rep is not None and not rep.table.empty:
+            n = len(rep.issues)
+            self.add_heading("Data quality" + (f" · {n} issue{'s' if n != 1 else ''}" if n else " · no issues"),
+                             explain="data_quality")
+            for msg in rep.issues[:8]:
+                self.add_interpretation(msg)
+            dq = rep.table.copy()
+            fmt_d = lambda v: "—" if v is None or v != v else f"{v:%d %b %Y}"  # noqa: E731
+            self.add_table(dq, formatters={"First": fmt_d, "Last": fmt_d})
+
         # ── Holdings ──
-        if results.holdings is not None:
+        h = results.holdings
+        if h is not None:
             self.add_heading("Holdings", explain="holdings")
-            self.add_table(results.holdings)
+            disp = h.rename(columns={"TargetWeight": "Target", "PurchasePrice": "Entry price",
+                                     "RealizedWeight": "Realized"})
+            pct = lambda v: f"{v:.1%}"  # noqa: E731
+            usd = lambda v: f"${v:,.2f}"  # noqa: E731
+            self.add_table(disp, formatters={
+                "Target": pct, "Realized": pct, "Entry price": usd,
+                "Shares": lambda v: f"{v:,.2f}", "Invested": lambda v: f"${v:,.0f}"})
 
         # ── Run configuration ──
-        self.add_heading("Run Configuration", explain="run_config")
+        self.add_heading("Run configuration", explain="run_config")
         cfg_view = QPlainTextEdit(
             json.dumps(results.config.model_dump(mode="json"), indent=2, default=str)
         )
         cfg_view.setReadOnly(True)
+        cfg_view.setObjectName("codeView")
         cfg_view.setStyleSheet(
             f"font-family: {theme.ACTIVE.mono}; font-size: {theme.ACTIVE.base_pt - 1}px;"
         )
@@ -100,12 +122,13 @@ class DataTab(BaseTab):
         out = paths.outputs_dir()
         data_files = sorted(f for f in out.iterdir() if f.is_file()) if out.exists() else []
         if data_files:
-            self.add_heading("Data Exports", explain="data_exports")
+            self.add_heading(f"Data exports · {len(data_files)} files", explain="data_exports")
             exp = QWidget()
             erow = QHBoxLayout(exp)
             erow.setContentsMargins(0, 0, 0, 0)
-            erow.setSpacing(12)
-            zip_btn = QPushButton("Export All Outputs (ZIP)")
+            erow.setSpacing(8)
+            zip_btn = QPushButton("Export all (ZIP)")
+            zip_btn.setObjectName("secondary")
             zip_btn.clicked.connect(lambda: self._export_zip(data_files))
             csv_btn = QPushButton("Export a CSV…")
             csv_btn.setObjectName("secondary")
@@ -114,6 +137,16 @@ class DataTab(BaseTab):
             erow.addWidget(csv_btn)
             erow.addStretch(1)
             self.add_widget(exp)
+
+        # ── Run timings ──
+        tm = getattr(results, "timings", None) or {}
+        if tm:
+            import pandas as pd
+
+            top = sorted(tm.items(), key=lambda kv: -kv[1])[:6]
+            self.add_heading(f"Run time · {sum(tm.values()):.1f}s", explain="run_timings")
+            self.add_table(pd.DataFrame({"Step": [k for k, _ in top],
+                                         "Seconds": [f"{v:.2f}" for _, v in top]}))
 
     # ── Report figure set (shared with the headless/scheduled generator) ──
     def _report_figures(self) -> dict:
@@ -196,7 +229,7 @@ class DataTab(BaseTab):
 
     def _reset_pptx_btn(self) -> None:
         self._pptx_btn.setEnabled(True)
-        self._pptx_btn.setText("Export PowerPoint")
+        self._pptx_btn.setText("PowerPoint")
 
     def _on_pptx_done(self, path: str) -> None:
         self._reset_pptx_btn()

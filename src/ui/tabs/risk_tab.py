@@ -14,7 +14,7 @@ from src.charts import plotly_charts as charts
 from src.data import transforms as T
 
 from .. import theme
-from ..widgets.html_table import Col, rich_table_html
+from ..widgets.html_table import Col, fmt_value, rich_table_html
 from .web_tab import WebTab
 
 _VAR_COLS = [Col("Method", "Method", "label"), Col("VaR 95%", "VaR 95%", "spct"),
@@ -34,14 +34,6 @@ _SHOCK_COLS = [Col("Market shock", "Market move", "spct", 0), Col("Portfolio", "
 
 def _date(v) -> str:
     return "Open" if v is None or pd.isna(v) else pd.Timestamp(v).strftime("%b %d, %Y")
-
-
-def _pct(v) -> str:
-    return f"{v:.2%}" if v is not None and not np.isnan(v) else "N/A"
-
-
-def _num(v, decimals: int = 2) -> str:
-    return f"{v:.{decimals}f}" if v is not None and not np.isnan(v) else "N/A"
 
 
 class RiskTab(WebTab):
@@ -130,35 +122,51 @@ class RiskTab(WebTab):
                                           rich_table_html(disp, _DD_COLS, table_id="dd"),
                                           explain="drawdown_table", aside="Trading days"))
 
-        # Drawdown metrics table
-        if results.drawdown_metrics is not None:
-            self.add_heading("Tail Risk Metrics", explain="tail_risk_metrics")
-            self.add_table(results.drawdown_metrics)
-
-        # Extended risk statistics
-        if results.tail_risk:
-            tr = results.tail_risk
-            self.add_heading("Extended Risk Statistics", explain="extended_risk")
-            self.add_stat_grid(
-                [
-                    ("Sortino Ratio", _num(tr.get("Sortino", np.nan))),
-                    ("Calmar Ratio", _num(tr.get("Calmar", np.nan))),
-                    ("Skewness", _num(tr.get("Skewness", np.nan), 3)),
-                    ("Excess Kurtosis", _num(tr.get("Excess_Kurtosis", np.nan), 3)),
-                    ("Worst Day", _pct(tr.get("Worst_Day", np.nan))),
-                    ("Best Day", _pct(tr.get("Best_Day", np.nan))),
-                    ("Gain-to-Pain", _num(tr.get("Gain_to_Pain", np.nan))),
-                    ("Max Drawdown", _pct(tr.get("Max_Drawdown", np.nan))),
-                ],
-                columns=4,
-            )
+        # Tail metrics by portfolio | extended statistics, side by side
+        dm = results.drawdown_metrics
+        tr = results.tail_risk or {}
+        if dm is not None and not dm.empty:
+            left = self.panel_html("Tail risk by portfolio", rich_table_html(
+                dm, [Col("Portfolio", "Portfolio", "label"), Col("MaxDrawdown", "Max DD", "spct", 1),
+                     Col("VaR_95", "VaR 95%", "spct"), Col("CVaR_95", "ES 95%", "spct"),
+                     Col("VaR_99", "VaR 99%", "spct"), Col("CVaR_99", "ES 99%", "spct")],
+                sortable=False, table_id="tail"), explain="tail_risk_metrics",
+                aside="historical, 1-day")
+            parts = [(left, 1.4)]
+            if tr:
+                stats = pd.DataFrame([
+                    ("Sortino", tr.get("Sortino", np.nan), "ratio"),
+                    ("Calmar", tr.get("Calmar", np.nan), "ratio"),
+                    ("Gain-to-pain", tr.get("Gain_to_Pain", np.nan), "ratio"),
+                    ("Skewness", tr.get("Skewness", np.nan), "ratio"),
+                    ("Excess kurtosis", tr.get("Excess_Kurtosis", np.nan), "ratio"),
+                    ("Worst day", tr.get("Worst_Day", np.nan), "spct"),
+                    ("Best day", tr.get("Best_Day", np.nan), "spct"),
+                ], columns=["Stat", "Value", "kind"])
+                stats["Text"] = [fmt_value(v, k) for v, k in zip(stats["Value"], stats["kind"])]
+                parts.append((self.panel_html("Return shape", rich_table_html(
+                    stats, [Col("Stat", "Statistic", "label"), Col("Text", "Active", "text")],
+                    sortable=False, copy=False, table_id="shape"),
+                    explain="extended_risk"), 1))
+            self.add_split(parts)
 
         # Stress testing (the chart's own title + '?' serves as the heading)
         if results.stress_df is not None and not results.stress_df.empty:
             self.add_chart(
                 charts.stress_test_chart(results.stress_df), height=360, explain="stress_test"
             )
-            self.add_table(results.stress_df)
+            srows = [{"Scenario": r.name, "Period": f"{r.start} → {r.end}",
+                      "Portfolio": r.portfolio_return, "Benchmark": r.benchmark_return,
+                      "Excess": r.portfolio_return - r.benchmark_return,
+                      "MaxDD": r.max_drawdown, "Days": r.days if r.data_available else np.nan,
+                      "Basis": results.stress_df["Basis"].iloc[i]
+                      if "Basis" in results.stress_df else ""}
+                     for i, r in enumerate(results.stress_results)]
+            self.add_rich_table(pd.DataFrame(srows), [
+                Col("Scenario", "Scenario", "label"), Col("Period", "Period", "text"),
+                Col("Portfolio", "Portfolio", "spct", 1), Col("Benchmark", "Benchmark", "spct", 1),
+                Col("Excess", "Excess", "spct", 1), Col("MaxDD", "Max DD", "spct", 1),
+                Col("Days", "Days", "int"), Col("Basis", "Basis", "text")])
             if (results.stress_df.get("Basis", pd.Series(dtype=str)).astype(str)
                     .str.startswith("Replay").any()):
                 self.add_interpretation(

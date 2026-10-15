@@ -84,10 +84,13 @@ class ScheduledReportsDialog(QDialog):
         root.addWidget(self._build_batch_group())
 
         self.status = QLabel("")
+        self.status.setObjectName("hint")
         self.status.setWordWrap(True)
         root.addWidget(self.status)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        from src.ui.theme import tidy_dialog_buttons
+        tidy_dialog_buttons(buttons)
         buttons.accepted.connect(self._save_and_accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -143,6 +146,7 @@ class ScheduledReportsDialog(QDialog):
         self.provider.currentIndexChanged.connect(self._apply_provider)
         ef.addRow("Provider:", self.provider)
         self._provider_hint = QLabel()
+        self._provider_hint.setObjectName("hint")
         self._provider_hint.setObjectName("muted")
         self._provider_hint.setWordWrap(True)
         ef.addRow("", self._provider_hint)
@@ -175,6 +179,7 @@ class ScheduledReportsDialog(QDialog):
         self.m_to.setPlaceholderText("recipient@example.com, second@example.com")
         ef.addRow("Send to:", self.m_to)
         self._keychain_note = QLabel()
+        self._keychain_note.setObjectName("hint")
         self._keychain_note.setObjectName("muted")
         self._keychain_note.setWordWrap(True)
         ef.addRow("", self._keychain_note)
@@ -182,6 +187,7 @@ class ScheduledReportsDialog(QDialog):
 
         row = QHBoxLayout()
         self.test_btn = QPushButton("Send test email")
+        self.test_btn.setObjectName("secondary")
         self.test_btn.setObjectName("secondary")
         self.test_btn.clicked.connect(self._send_test)
         self.m_gen_btn = QPushButton("Generate morning report now")
@@ -216,6 +222,7 @@ class ScheduledReportsDialog(QDialog):
         out_row = QHBoxLayout()
         self.outdir = QLineEdit()
         browse = QPushButton("Browse…")
+        browse.setObjectName("secondary")
         browse.clicked.connect(self._browse)
         out_row.addWidget(self.outdir, 1)
         out_row.addWidget(browse)
@@ -234,6 +241,7 @@ class ScheduledReportsDialog(QDialog):
         self.cmd = QLineEdit()
         self.cmd.setReadOnly(True)
         copy = QPushButton("Copy")
+        copy.setObjectName("secondary")
         copy.clicked.connect(self._copy_cmd)
         cmd_row.addWidget(self.cmd, 1)
         cmd_row.addWidget(copy)

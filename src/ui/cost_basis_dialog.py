@@ -43,6 +43,7 @@ class CostBasisDialog(QDialog):
             "0 to skip it."
         )
         intro.setWordWrap(True)
+        intro.setObjectName("dialogIntro")
         root.addWidget(intro)
 
         # Scroll in case of a large universe.
@@ -70,6 +71,8 @@ class CostBasisDialog(QDialog):
         root.addWidget(area, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        from src.ui.theme import tidy_dialog_buttons
+        tidy_dialog_buttons(buttons)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.Save).setDefault(True)
