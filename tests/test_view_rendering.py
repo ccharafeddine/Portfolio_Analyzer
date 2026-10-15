@@ -5,8 +5,13 @@ import re
 
 import pytest
 
-pytest.importorskip("PySide6.QtWebEngineWidgets")
-from PySide6.QtWidgets import QApplication  # noqa: E402
+# Skip where Qt/WebEngine can't load. A missing system library (libEGL) raises a
+# plain ImportError, which ``importorskip`` would not treat as a skip.
+try:
+    import PySide6.QtWebEngineWidgets  # noqa: F401
+    from PySide6.QtWidgets import QApplication
+except ImportError as exc:  # pragma: no cover - headless runner without Qt libs
+    pytest.skip(f"Qt WebEngine unavailable: {exc}", allow_module_level=True)
 
 
 @pytest.fixture(scope="module")

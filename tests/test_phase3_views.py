@@ -6,8 +6,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.ui.tabs.attribution_tab import _factor_display
-from src.ui.tabs.optimization_tab import OptimizationTab
+# These helpers live in Qt tab modules; skip cleanly where PySide6 can't load
+# (e.g. a runner without libEGL raises a plain ImportError, which
+# ``importorskip`` would not treat as a skip).
+try:
+    from src.ui.tabs.attribution_tab import _factor_display
+    from src.ui.tabs.optimization_tab import OptimizationTab
+except ImportError as exc:  # pragma: no cover - headless runner without Qt libs
+    pytest.skip(f"Qt unavailable: {exc}", allow_module_level=True)
 
 
 def _ps(name, end_value):
