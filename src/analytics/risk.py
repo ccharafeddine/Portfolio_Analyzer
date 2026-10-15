@@ -205,8 +205,8 @@ def rolling_volatility(
     window: int = 21,
     annualize: int = 252,
 ) -> pd.DataFrame:
-    """Rolling annualized volatility."""
-    return returns.rolling(window).std() * np.sqrt(annualize)
+    """Rolling annualized volatility (see ``metrics.rolling_volatility``)."""
+    return M.rolling_volatility(returns, window, annualize)
 
 
 def rolling_sharpe(
@@ -215,12 +215,8 @@ def rolling_sharpe(
     rf_annual: float = 0.04,
     annualize: int = 252,
 ) -> pd.DataFrame:
-    """Rolling annualized Sharpe ratio."""
-    rf_per = M.periodic_rate(rf_annual, annualize)
-    excess = returns - rf_per
-    roll_mean = excess.rolling(window).mean() * annualize
-    roll_vol = returns.rolling(window).std() * np.sqrt(annualize)
-    return roll_mean / roll_vol
+    """Rolling annualized Sharpe ratio (see ``metrics.rolling_sharpe``)."""
+    return M.rolling_sharpe(returns, window, rf_annual, annualize)
 
 
 def rolling_beta(
@@ -228,18 +224,8 @@ def rolling_beta(
     market_returns: pd.Series,
     window: int = 63,
 ) -> pd.Series:
-    """Rolling beta of asset vs market."""
-    aligned = pd.concat(
-        [asset_returns.rename("a"), market_returns.rename("m")],
-        axis=1,
-    ).dropna()
-
-    cov_rolling = aligned["a"].rolling(window).cov(aligned["m"])
-    var_rolling = aligned["m"].rolling(window).var()
-
-    beta = cov_rolling / var_rolling
-    beta.name = f"Beta_{asset_returns.name}"
-    return beta
+    """Rolling beta of asset vs market (see ``metrics.rolling_beta``)."""
+    return M.rolling_beta(asset_returns, market_returns, window)
 
 
 def rolling_correlation(

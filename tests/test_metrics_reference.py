@@ -98,3 +98,26 @@ def test_live_against_empyrical_if_installed():
     assert M.sharpe_ratio(R, RF) == pytest.approx(
         ep.sharpe_ratio(R, risk_free=RFP, annualization=252), **TOL)
     assert M.calmar_ratio(R) == pytest.approx(ep.calmar_ratio(R, annualization=252), **TOL)
+
+
+def test_rolling_sharpe_matches_point_sharpe_on_last_window():
+    roll = M.rolling_sharpe(R, window=252, rf_annual=RF)
+    assert roll.iloc[-1] == pytest.approx(M.sharpe_ratio(R.iloc[-252:], RF), **TOL)
+    assert roll.iloc[:251].isna().all()
+
+
+def test_rolling_vol_and_beta():
+    assert M.rolling_volatility(R, 63).iloc[-1] == pytest.approx(
+        M.annualized_volatility(R.iloc[-63:]), **TOL)
+    c = M.capm(R.iloc[-63:], B.iloc[-63:], 0.0, M.DAILY)
+    assert M.rolling_beta(R, B, 63).iloc[-1] == pytest.approx(c.beta, **TOL)
+
+
+def test_ex_ante_sharpe_and_turnover():
+    w, mu = np.array([0.6, 0.4]), np.array([0.10, 0.04])
+    cov = np.array([[0.04, 0.006], [0.006, 0.01]])
+    vol = np.sqrt(w @ cov @ w)
+    assert M.ex_ante_sharpe(w, mu, cov, 0.02) == pytest.approx((0.076 - 0.02) / vol)
+    from src.analytics.optimization import sharpe_ratio as opt_sharpe
+    assert opt_sharpe(w, mu, cov / 12.0, 0.02) == pytest.approx(M.ex_ante_sharpe(w, mu, cov, 0.02))
+    assert M.turnover({"A": 0.5, "B": 0.5}, {"A": 0.2, "C": 0.8}) == pytest.approx(0.8)

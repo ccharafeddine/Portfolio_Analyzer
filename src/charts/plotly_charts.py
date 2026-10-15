@@ -725,9 +725,10 @@ def rolling_metrics_chart(
     rf_annual: float = 0.04,
 ) -> go.Figure:
     """Rolling volatility + Sharpe in a 2-panel layout."""
-    rolling_vol = monthly_returns.rolling(window).std() * np.sqrt(12)
-    rolling_mean = monthly_returns.rolling(window).mean() * 12
-    rolling_sharpe = (rolling_mean - rf_annual) / rolling_vol
+    from src.analytics import metrics as M
+
+    rolling_vol = M.rolling_volatility(monthly_returns, window, M.MONTHLY)
+    rolling_sharpe = M.rolling_sharpe(monthly_returns, window, rf_annual, M.MONTHLY)
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -1467,6 +1468,22 @@ def capture_chart(cap: dict) -> go.Figure:
         showlegend=False,
         height=340,
     )
+    return fig
+
+
+def rolling_sharpe_chart(series: dict[str, pd.Series], title: str = "") -> go.Figure:
+    """Rolling Sharpe lines (portfolio first in the accent, benchmark second)."""
+    fig = go.Figure()
+    for i, (name, s) in enumerate(series.items()):
+        s = s.dropna()
+        fig.add_trace(go.Scatter(
+            x=s.index, y=s.values, name=name,
+            line=dict(color=COLORS[i % len(COLORS)], width=1.6 if i == 0 else 1.2),
+            hovertemplate=f"<b>{name}</b><br>%{{x|%b %d, %Y}}<br>Sharpe %{{y:.2f}}<extra></extra>",
+        ))
+    fig.add_hline(y=0, line_color=MUTED_COLOR, opacity=0.4)
+    _apply_layout(fig, title=dict(text=title), yaxis=dict(gridcolor=GRID_COLOR, zeroline=False,
+                  tickformat=".1f"), height=320)
     return fig
 
 

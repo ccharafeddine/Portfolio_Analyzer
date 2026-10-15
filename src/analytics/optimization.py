@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+
+from src.analytics import metrics as M
 from scipy.optimize import minimize
 
 
@@ -98,12 +100,7 @@ def sharpe_ratio(
     cov_monthly : (n, n) monthly covariance matrix
     rf : annual risk-free rate
     """
-    cov_annual = cov_monthly * 12.0
-    ret = portfolio_return(weights, mu)
-    vol = portfolio_volatility(weights, cov_annual)
-    if vol < 1e-12:
-        return 0.0
-    return float((ret - rf) / vol)
+    return M.ex_ante_sharpe(weights, mu, cov_monthly * 12.0, rf)
 
 
 def _neg_sharpe(

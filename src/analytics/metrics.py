@@ -199,3 +199,53 @@ def capm(port, bench, rf_annual: float = 0.0, periods_per_year: int = MONTHLY) -
         t_beta=beta / se_b if se_b > 0 else np.nan,
         r_squared=r2, n_obs=n, periods_per_year=periods_per_year,
     )
+
+
+# ── Rolling metrics (same conventions, applied over a moving window) ──────────
+
+
+def rolling_volatility(returns, window: int = 21, periods_per_year: int = DAILY):
+    """Rolling annualized volatility (Series or DataFrame)."""
+    return returns.rolling(window).std(ddof=1) * np.sqrt(periods_per_year)
+
+
+def rolling_sharpe(returns, window: int = 252, rf_annual: float = 0.0,
+                   periods_per_year: int = DAILY):
+    """Rolling annualized Sharpe; equals ``sharpe_ratio`` on each full window."""
+    ex = returns - periodic_rate(rf_annual, periods_per_year)
+    return ex.rolling(window).mean() / ex.rolling(window).std(ddof=1) * np.sqrt(periods_per_year)
+
+
+def rolling_beta(asset_returns: pd.Series, market_returns: pd.Series, window: int = 63) -> pd.Series:
+    """Rolling OLS beta (cov / var on the same window)."""
+    df = pd.concat([asset_returns.rename("a"), market_returns.rename("m")], axis=1).dropna()
+    beta = df["a"].rolling(window).cov(df["m"]) / df["m"].rolling(window).var()
+    beta.name = f"Beta_{asset_returns.name}"
+    return beta
+
+
+# ── Ex-ante (optimizer) metrics ───────────────────────────────────────────────
+
+
+def ex_ante_return(weights, mu) -> float:
+    return float(np.dot(np.asarray(weights, float), np.asarray(mu, float)))
+
+
+def ex_ante_volatility(weights, cov_annual) -> float:
+    w = np.asarray(weights, float)
+    return float(np.sqrt(max(w @ np.asarray(cov_annual, float) @ w, 0.0)))
+
+
+def ex_ante_sharpe(weights, mu, cov_annual, rf_annual: float = 0.0) -> float:
+    """(w·mu - rf) / sqrt(w' Σ w) with annual mu, Σ and rf; 0 for a zero-vol book."""
+    vol = ex_ante_volatility(weights, cov_annual)
+    if vol < 1e-12:
+        return 0.0
+    return (ex_ante_return(weights, mu) - rf_annual) / vol
+
+
+def turnover(current: dict | pd.Series, target: dict | pd.Series) -> float:
+    """One-way turnover: half the sum of absolute weight changes."""
+    c, t = pd.Series(current, dtype=float), pd.Series(target, dtype=float)
+    c, t = c.align(t, fill_value=0.0)
+    return float((t - c).abs().sum() / 2.0)
