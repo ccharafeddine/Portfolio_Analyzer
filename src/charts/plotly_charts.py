@@ -17,6 +17,8 @@ Color palette:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -1485,6 +1487,35 @@ def rolling_sharpe_chart(series: dict[str, pd.Series], title: str = "") -> go.Fi
     _apply_layout(fig, title=dict(text=title), yaxis=dict(gridcolor=GRID_COLOR, zeroline=False,
                   tickformat=".1f"), height=320)
     return fig
+
+
+_GRAPHITE_SERIES = ("#4C8DFF", "#8B949E", "#D4A72C", "#A371F7", "#56B6C2", "#C9D1D9",
+                    "#6E7681", "#D2A8FF")
+_GRAPHITE_PRINT_SERIES = ("#2F6FEB", "#8A929C", "#B7861A", "#7E57C2", "#2E8B99", "#3A4250",
+                          "#B0B6BE", "#9C6ADE")
+
+
+@contextmanager
+def report_palette(light: bool = True):
+    """Temporarily retint charts to Graphite for exports: the print edition
+    (white) for HTML/PDF, the dark edition for slides. Restores the app's
+    palette afterwards."""
+    g = globals()
+    saved = {k: g[k] for k in ("BG_COLOR", "PAPER_COLOR", "GRID_COLOR", "TEXT_COLOR",
+                               "MUTED_COLOR", "CARD_BG", "HOVER_BORDER", "IS_LIGHT", "COLORS")}
+    if light:
+        apply_palette("#FFFFFF", "#FFFFFF", "rgba(21, 25, 30, 0.08)", "#15191E", "#6B7480",
+                      card="#FFFFFF", border="#E3E6EA", series=_GRAPHITE_PRINT_SERIES, light=True)
+    else:
+        apply_palette("#0E1114", "#0E1114", "rgba(173, 186, 199, 0.07)", "#E6EDF3", "#768390",
+                      card="#12161A", border="#2D333B", series=_GRAPHITE_SERIES, light=False)
+    try:
+        yield
+    finally:
+        apply_palette(saved["BG_COLOR"], saved["PAPER_COLOR"], saved["GRID_COLOR"],
+                      saved["TEXT_COLOR"], saved["MUTED_COLOR"], card=saved["CARD_BG"],
+                      border=saved["HOVER_BORDER"], series=saved["COLORS"],
+                      light=saved["IS_LIGHT"])
 
 
 def var_backtest_chart(series: pd.DataFrame, title: str = "",

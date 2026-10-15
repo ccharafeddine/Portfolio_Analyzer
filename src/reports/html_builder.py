@@ -48,162 +48,53 @@ _HTML_TEMPLATE = Template("""\
 <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'; base-uri 'none'">
 <title>Portfolio Analysis Report</title>
 <style>
+  /* Graphite, print edition: neutral greys, hairlines, one blue accent,
+     tabular numerals; green/red reserved for signed values. */
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-    color: #1e293b;
-    background: #ffffff;
-    line-height: 1.6;
-    font-size: 14px;
-  }
-
-  .cover {
-    background: linear-gradient(135deg, #0B1120 0%, #1E3A5F 100%);
-    color: #F1F5F9;
-    padding: 80px 60px;
-    margin-bottom: 40px;
-  }
-  .cover h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin-bottom: 12px;
-    letter-spacing: -0.02em;
-  }
-  .cover .subtitle {
-    font-size: 1.1rem;
-    color: #94A3B8;
-    margin-bottom: 30px;
-  }
-  .cover .meta {
-    font-size: 0.9rem;
-    color: #64748B;
-    line-height: 1.8;
-  }
-
-  .container {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 0 40px;
-  }
-
-  h2 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #0B1120;
-    margin-top: 48px;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid #3B82F6;
-  }
-
-  h3 {
-    font-size: 1.15rem;
-    font-weight: 600;
-    color: #1E3A5F;
-    margin-top: 28px;
-    margin-bottom: 8px;
-  }
-
-  p, .interpretation {
-    margin-bottom: 16px;
-    color: #334155;
-  }
-
-  .interpretation {
-    background: #F8FAFC;
-    border-left: 3px solid #3B82F6;
-    padding: 16px 20px;
-    border-radius: 0 8px 8px 0;
-    font-size: 0.9rem;
-    line-height: 1.7;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin: 16px 0 24px 0;
-    font-size: 0.85rem;
-  }
-  th {
-    background: #0B1120;
-    color: #F1F5F9;
-    padding: 10px 14px;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  td {
-    padding: 8px 14px;
-    border-bottom: 1px solid #E2E8F0;
-    color: #334155;
-  }
-  tr:nth-child(even) { background: #F8FAFC; }
-  tr:hover { background: #EFF6FF; }
-
-  .metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 16px;
-    margin: 20px 0;
-  }
-  .metric-card {
-    background: #F8FAFC;
-    border: 1px solid #E2E8F0;
-    border-radius: 8px;
-    padding: 16px;
-    text-align: center;
-  }
-  .metric-card .label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #64748B;
-    margin-bottom: 4px;
-  }
-  .metric-card .value {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #0B1120;
-    font-family: 'JetBrains Mono', 'Consolas', monospace;
-  }
-
-  .chart-img {
-    width: 100%;
-    max-width: 860px;
-    margin: 16px auto;
-    display: block;
-    border-radius: 8px;
-  }
-
-  .toc {
-    background: #F8FAFC;
-    border: 1px solid #E2E8F0;
-    border-radius: 8px;
-    padding: 24px 32px;
-    margin: 24px 0;
-  }
-  .toc h3 { margin-top: 0; color: #0B1120; }
-  .toc ol { padding-left: 20px; }
-  .toc li {
-    margin: 6px 0;
-    color: #3B82F6;
-  }
-  .toc a { color: #3B82F6; text-decoration: none; }
-  .toc a:hover { text-decoration: underline; }
-
-  .footer {
-    margin-top: 60px;
-    padding: 20px 0;
-    border-top: 1px solid #E2E8F0;
-    text-align: center;
-    font-size: 0.8rem;
-    color: #94A3B8;
-  }
-
+  :root { --ink:#15191E; --ink2:#3A4250; --muted:#6B7480; --line:#E3E6EA;
+          --soft:#F5F6F8; --accent:#2F6FEB; --green:#1A7F4B; --red:#C93C37; }
+  body { font-family: 'Inter','Segoe UI','Helvetica Neue',Arial,sans-serif;
+         color: var(--ink); background:#fff; line-height:1.55; font-size:13px;
+         font-variant-numeric: tabular-nums; }
+  .cover { border-bottom: 1px solid var(--line); padding: 56px 60px 36px; margin-bottom: 28px; }
+  .cover .eyebrow { font-size: 11px; letter-spacing:.08em; text-transform:uppercase;
+                    color: var(--muted); margin-bottom: 10px; }
+  .cover h1 { font-size: 28px; font-weight: 600; letter-spacing:-.01em; margin-bottom: 6px; }
+  .cover .subtitle { font-size: 15px; color: var(--ink2); margin-bottom: 18px; }
+  .cover .meta { font-size: 12px; color: var(--muted); line-height: 1.8; }
+  .container { max-width: 920px; margin: 0 auto; padding: 0 40px; }
+  h2 { font-size: 17px; font-weight: 600; color: var(--ink); margin: 40px 0 10px;
+       padding-bottom: 6px; border-bottom: 1px solid var(--ink); }
+  h3 { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+       letter-spacing: .06em; margin: 22px 0 6px; }
+  p, .interpretation { margin-bottom: 14px; color: var(--ink2); }
+  .interpretation { border-left: 2px solid var(--accent); padding: 4px 0 4px 14px;
+                    font-size: 12.5px; line-height: 1.65; }
+  .note { color: var(--muted); font-size: 11.5px; margin: 4px 0 10px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 18px; font-size: 12px; }
+  th { color: var(--muted); font-weight: 600; font-size: 10.5px; text-transform: uppercase;
+       letter-spacing: .05em; text-align: left; padding: 6px 10px;
+       border-bottom: 1px solid var(--ink); }
+  td { padding: 5px 10px; border-bottom: 1px solid var(--line); color: var(--ink); }
+  th.r, td.r { text-align: right; }
+  td.pos { color: var(--green); } td.neg { color: var(--red); }
+  tr.tot td { font-weight: 600; border-top: 1px solid var(--ink); }
+  .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin: 14px 0 18px;
+                  border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+  .metric-card { padding: 10px 12px; border-right: 1px solid var(--line);
+                 border-bottom: 1px solid var(--line); }
+  .metric-card .label { font-size: 10px; font-weight: 600; text-transform: uppercase;
+                        letter-spacing: .06em; color: var(--muted); margin-bottom: 2px; }
+  .metric-card .value { font-size: 18px; font-weight: 600; color: var(--ink); }
+  .chart-img { width: 100%; max-width: 900px; margin: 10px auto 18px; display: block; }
+  .toc { border: 1px solid var(--line); padding: 16px 24px; margin: 20px 0; columns: 2; }
+  .toc h3 { margin-top: 0; column-span: all; }
+  .toc ol { padding-left: 18px; }
+  .toc li { margin: 3px 0; color: var(--muted); }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+  .footer { margin-top: 48px; padding: 16px 0; border-top: 1px solid var(--line);
+            text-align: center; font-size: 11px; color: var(--muted); }
   @media print {
     .cover { page-break-after: always; }
     h2 { page-break-before: always; }
@@ -216,6 +107,7 @@ _HTML_TEMPLATE = Template("""\
 
 <!-- Cover -->
 <div class="cover">
+  <div class="eyebrow">Portfolio Analyzer</div>
   <h1>Portfolio Analysis Report</h1>
   <div class="subtitle">{{ tickers_str }}</div>
   <div class="meta">
@@ -239,7 +131,7 @@ _HTML_TEMPLATE = Template("""\
     <li><a href="#drawdown">Drawdown Analysis</a></li>
     <li><a href="#capm">CAPM Regression</a></li>
     <li><a href="#optimization">Portfolio Optimization</a></li>
-    <li><a href="#stress">Stress Testing</a></li>
+    {% for sec in sections %}<li><a href="#{{ sec.id }}">{{ sec.title|e }}</a></li>{% endfor %}
     <li><a href="#income">Income Analysis</a></li>
     <li><a href="#correlation">Correlation & Diversification</a></li>
     <li><a href="#simulation">Monte Carlo Simulation</a></li>
@@ -252,7 +144,7 @@ _HTML_TEMPLATE = Template("""\
 </div>
 
 <!-- Executive Summary -->
-<h2 id="summary">1. Executive Summary</h2>
+<h2 id="summary">Executive Summary</h2>
 <div class="interpretation">{{ interp.executive_summary }}</div>
 
 {% if summary_metrics %}
@@ -267,7 +159,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- Performance -->
-<h2 id="performance">2. Performance Analysis</h2>
+<h2 id="performance">Performance Analysis</h2>
 <div class="interpretation">{{ interp.performance }}</div>
 
 {% if perf_table %}
@@ -292,7 +184,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- Risk -->
-<h2 id="risk">3. Risk Analysis</h2>
+<h2 id="risk">Risk Analysis</h2>
 <div class="interpretation">{{ interp.risk }}</div>
 
 {% if risk_table %}
@@ -308,7 +200,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- Drawdown -->
-<h2 id="drawdown">4. Drawdown Analysis</h2>
+<h2 id="drawdown">Drawdown Analysis</h2>
 <div class="interpretation">{{ interp.drawdown }}</div>
 
 {% if drawdown_chart_img %}
@@ -316,7 +208,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- CAPM -->
-<h2 id="capm">5. CAPM Regression</h2>
+<h2 id="capm">CAPM Regression</h2>
 <div class="interpretation">{{ interp.capm }}</div>
 
 {% if capm_table %}
@@ -332,7 +224,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- Optimization -->
-<h2 id="optimization">6. Portfolio Optimization</h2>
+<h2 id="optimization">Portfolio Optimization</h2>
 <div class="interpretation">{{ interp.optimization }}</div>
 
 {% if orp_weights_table %}
@@ -351,24 +243,26 @@ _HTML_TEMPLATE = Template("""\
 <img class="chart-img" src="data:image/png;base64,{{ frontier_chart_img }}" alt="Efficient Frontier">
 {% endif %}
 
-<!-- Stress Testing -->
-<h2 id="stress">7. Stress Testing</h2>
-<div class="interpretation">{{ interp.stress_tests }}</div>
-
-{% if stress_table %}
-<h3>Historical Scenario Results</h3>
+<!-- Risk & attribution analytics (src/reports/sections.py) -->
+{% for sec in sections %}
+<h2 id="{{ sec.id }}">{{ sec.title|e }}</h2>
+{% if sec.id == 'stress' and interp.stress_tests %}<div class="interpretation">{{ interp.stress_tests }}</div>{% endif %}
+{% if sec.note %}<p class="note">{{ sec.note|e }}</p>{% endif %}
+{% for t in sec.tables %}
+{% if t.title %}<h3>{{ t.title|e }}</h3>{% endif %}
 <table>
-  <thead><tr><th>Scenario</th><th>Period</th><th>Portfolio</th><th>Benchmark</th></tr></thead>
+  <thead><tr>{% for c in t.columns %}<th class="{{ 'r' if t.align[loop.index0] == 'r' else '' }}">{{ c|e }}</th>{% endfor %}</tr></thead>
   <tbody>
-  {% for row in stress_table %}
-  <tr><td>{{ row.scenario }}</td><td>{{ row.period }}</td><td>{{ row.portfolio }}</td><td>{{ row.benchmark }}</td></tr>
+  {% for row in t.rows %}
+  <tr class="{{ 'tot' if row[0] == 'Total' else '' }}">{% for v in row %}{% set al = t.align[loop.index0] %}<td class="{{ 'r' if al == 'r' else '' }} {{ sign_class(v, t.signed) }}">{{ v|e }}</td>{% endfor %}</tr>
   {% endfor %}
   </tbody>
 </table>
-{% endif %}
+{% endfor %}
+{% endfor %}
 
 <!-- Income -->
-<h2 id="income">8. Income Analysis</h2>
+<h2 id="income">Income Analysis</h2>
 <div class="interpretation">{{ interp.income }}</div>
 
 {% if income_table %}
@@ -384,7 +278,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- Correlation -->
-<h2 id="correlation">9. Correlation & Diversification</h2>
+<h2 id="correlation">Correlation & Diversification</h2>
 <div class="interpretation">{{ interp.correlation }}</div>
 
 {% if corr_chart_img %}
@@ -392,7 +286,7 @@ _HTML_TEMPLATE = Template("""\
 {% endif %}
 
 <!-- Simulation -->
-<h2 id="simulation">10. Monte Carlo Simulation</h2>
+<h2 id="simulation">Monte Carlo Simulation</h2>
 <div class="interpretation">{{ interp.simulation }}</div>
 
 {% if sim_table %}
@@ -616,17 +510,6 @@ def build_html_report(
                 row["hrp"] = "N/A"
             orp_weights_table.append(row)
 
-    # Stress table
-    stress_table = []
-    if results.stress_df is not None:
-        for _, r in results.stress_df.iterrows():
-            stress_table.append({
-                "scenario": r.get("Scenario", ""),
-                "period": r.get("Period", ""),
-                "portfolio": r.get("Portfolio", "N/A"),
-                "benchmark": r.get("Benchmark", "N/A"),
-            })
-
     # Income table
     income_table = []
     if results.income_summary is not None and not results.income_summary.empty:
@@ -731,7 +614,10 @@ def build_html_report(
     else:
         capital_line = f"Initial Capital: {_fmt_dollar(results.config.capital)}"
 
+    from src.reports.sections import analytics_sections, sign_class
+
     return _HTML_TEMPLATE.render(
+        sections=analytics_sections(results), sign_class=sign_class,
         tickers_str=", ".join(results.config.tickers),
         benchmark=results.config.benchmark,
         start_date=str(results.config.start_date),
@@ -746,7 +632,6 @@ def build_html_report(
         capm_table=capm_table,
         orp_weights_table=orp_weights_table,
         has_hrp=has_hrp,
-        stress_table=stress_table,
         income_table=income_table,
         sim_table=sim_table,
         holdings_table=holdings_table,

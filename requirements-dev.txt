@@ -1,0 +1,8 @@
+# Development / CI: the desktop app plus test and lint tooling.
+-r requirements-desktop.txt
+
+pytest>=8.0
+ruff>=0.5
+# Reference library for the live metric cross-checks in
+# tests/test_metrics_reference.py and tests/test_performance.py (otherwise skipped).
+empyrical-reloaded>=0.5.12

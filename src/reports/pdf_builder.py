@@ -43,12 +43,16 @@ from src.reports.html_builder import DISCLOSURES
 # Constants
 # ---------------------------------------------------------------
 
-NAVY = colors.HexColor("#0B1120")
-BLUE = colors.HexColor("#3B82F6")
-DARK_SLATE = colors.HexColor("#1E293B")
-LIGHT_BG = colors.HexColor("#F8FAFC")
-TEXT_COLOR = colors.HexColor("#334155")
-MUTED = colors.HexColor("#64748B")
+# Graphite, print edition (matches the HTML report and the app's tokens).
+NAVY = colors.HexColor("#15191E")        # ink
+BLUE = colors.HexColor("#2F6FEB")        # the single accent
+DARK_SLATE = colors.HexColor("#3A4250")
+LIGHT_BG = colors.HexColor("#F5F6F8")
+TEXT_COLOR = colors.HexColor("#15191E")
+MUTED = colors.HexColor("#6B7480")
+LINE = colors.HexColor("#E3E6EA")
+GREEN = colors.HexColor("#1A7F4B")
+RED = colors.HexColor("#C93C37")
 WHITE = colors.white
 
 
@@ -62,8 +66,9 @@ def _build_styles():
     styles.add(ParagraphStyle(
         "CoverTitle",
         parent=styles["Title"],
-        fontSize=28,
-        textColor=WHITE,
+        fontSize=26,
+        textColor=NAVY,
+        alignment=0,
         spaceAfter=12,
         leading=34,
     ))
@@ -71,13 +76,13 @@ def _build_styles():
         "CoverSub",
         parent=styles["Normal"],
         fontSize=12,
-        textColor=colors.HexColor("#94A3B8"),
+        textColor=MUTED,
         spaceAfter=6,
     ))
     styles.add(ParagraphStyle(
         "SectionTitle",
         parent=styles["Heading1"],
-        fontSize=18,
+        fontSize=15,
         textColor=NAVY,
         spaceBefore=24,
         spaceAfter=8,
@@ -87,8 +92,8 @@ def _build_styles():
     styles.add(ParagraphStyle(
         "SubTitle",
         parent=styles["Heading2"],
-        fontSize=13,
-        textColor=DARK_SLATE,
+        fontSize=9,
+        textColor=MUTED,
         spaceBefore=16,
         spaceAfter=6,
     ))
@@ -133,8 +138,16 @@ def _fig_to_image(fig, width=6.5 * inch, height=3.2 * inch) -> Optional[Image]:
 # Table builder
 # ---------------------------------------------------------------
 
-def _make_table(headers: list[str], rows: list[list[str]], col_widths=None) -> Table:
-    """Build a styled reportlab Table."""
+def _pdf_text(v: str) -> str:
+    """Base-14 Helvetica lacks U+2212 and arrows; map them to ASCII."""
+    return str(v).replace("−", "-").replace("→", "to").replace("²", "2")
+
+
+def _make_table(headers: list[str], rows: list[list[str]], col_widths=None, align=None,
+                signed: bool = False) -> Table:
+    """Build a Graphite hairline table. ``align`` is an optional "l"/"r" string."""
+    headers = [_pdf_text(h) for h in headers]
+    rows = [[_pdf_text(v) for v in r] for r in rows]
     data = [headers] + rows
 
     if col_widths is None:
@@ -144,21 +157,36 @@ def _make_table(headers: list[str], rows: list[list[str]], col_widths=None) -> T
 
     t = Table(data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
+        ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 8),
+        ("FONTSIZE", (0, 0), (-1, 0), 7),
         ("FONTSIZE", (0, 1), (-1, -1), 8),
         ("TEXTCOLOR", (0, 1), (-1, -1), TEXT_COLOR),
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
         ("ALIGN", (0, 0), (0, -1), "LEFT"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, LIGHT_BG]),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, NAVY),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, LINE),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
+    if align:
+        from src.reports.sections import sign_class
+
+        extra = []
+        for j, a in enumerate(align):
+            extra.append(("ALIGN", (j, 0), (j, -1), "RIGHT" if a == "r" else "LEFT"))
+            if a == "r" and signed:
+                for i, r in enumerate(rows, start=1):
+                    cls = sign_class(r[j], True)
+                    if cls:
+                        extra.append(("TEXTCOLOR", (j, i), (j, i), GREEN if cls == "pos" else RED))
+        for i, r in enumerate(rows, start=1):
+            if r and r[0] == "Total":
+                extra += [("FONTNAME", (0, i), (-1, i), "Helvetica-Bold"),
+                          ("LINEABOVE", (0, i), (-1, i), 0.8, NAVY)]
+        t.setStyle(TableStyle(extra))
     return t
 
 
@@ -195,6 +223,12 @@ def _ratio(v, d=2):
 # ---------------------------------------------------------------
 # PDF builder
 # ---------------------------------------------------------------
+
+def _sections_for_toc(results):
+    from src.reports.sections import analytics_sections
+
+    return analytics_sections(results)
+
 
 def build_pdf_report(
     results: AnalysisResults,
@@ -257,17 +291,17 @@ def build_pdf_report(
     # ── Table of Contents ──
     elements.append(Paragraph("Table of Contents", styles["SectionTitle"]))
     toc_items = [
-        "1. Executive Summary",
-        "2. Performance Analysis",
-        "3. Risk Analysis",
-        "4. Drawdown Analysis",
-        "5. CAPM Regression",
-        "6. Portfolio Optimization",
-        "7. Stress Testing",
-        "8. Income Analysis",
-        "9. Correlation & Diversification",
-        "10. Monte Carlo Simulation",
-        "11. Performance Measurement",
+        "Executive Summary",
+        "Performance Analysis",
+        "Risk Analysis",
+        "Drawdown Analysis",
+        "CAPM Regression",
+        "Portfolio Optimization",
+        *[sec["title"] for sec in _sections_for_toc(results)],
+        "Income Analysis",
+        "Correlation & Diversification",
+        "Monte Carlo Simulation",
+        "Performance Measurement",
     ]
     if results.tax_metrics:
         toc_items.append("Tax Analysis")
@@ -280,7 +314,7 @@ def build_pdf_report(
     elements.append(PageBreak())
 
     # ── 1. Executive Summary ──
-    elements.append(Paragraph("1. Executive Summary", styles["SectionTitle"]))
+    elements.append(Paragraph("Executive Summary", styles["SectionTitle"]))
     elements.append(Paragraph(interp["executive_summary"], styles["InterpText"]))
 
     # Summary metrics as a mini table
@@ -306,7 +340,7 @@ def build_pdf_report(
         elements.append(Spacer(1, 12))
 
     # ── 2. Performance ──
-    elements.append(Paragraph("2. Performance Analysis", styles["SectionTitle"]))
+    elements.append(Paragraph("Performance Analysis", styles["SectionTitle"]))
     elements.append(Paragraph(interp["performance"], styles["InterpText"]))
 
     perf_rows = []
@@ -342,7 +376,7 @@ def build_pdf_report(
             elements.append(img)
 
     # ── 3. Risk ──
-    elements.append(Paragraph("3. Risk Analysis", styles["SectionTitle"]))
+    elements.append(Paragraph("Risk Analysis", styles["SectionTitle"]))
     elements.append(Paragraph(interp["risk"], styles["InterpText"]))
 
     if results.drawdown_metrics is not None:
@@ -363,7 +397,7 @@ def build_pdf_report(
         elements.append(t)
 
     # ── 4. Drawdown ──
-    elements.append(Paragraph("4. Drawdown Analysis", styles["SectionTitle"]))
+    elements.append(Paragraph("Drawdown Analysis", styles["SectionTitle"]))
     elements.append(Paragraph(interp["drawdown"], styles["InterpText"]))
 
     if "drawdown" in chart_figures:
@@ -372,7 +406,7 @@ def build_pdf_report(
             elements.append(img)
 
     # ── 5. CAPM ──
-    elements.append(Paragraph("5. CAPM Regression", styles["SectionTitle"]))
+    elements.append(Paragraph("CAPM Regression", styles["SectionTitle"]))
     elements.append(Paragraph(interp["capm"], styles["InterpText"]))
 
     if results.capm_results:
@@ -393,7 +427,7 @@ def build_pdf_report(
         elements.append(t)
 
     # ── 6. Optimization ──
-    elements.append(Paragraph("6. Portfolio Optimization", styles["SectionTitle"]))
+    elements.append(Paragraph("Portfolio Optimization", styles["SectionTitle"]))
     elements.append(Paragraph(interp["optimization"], styles["InterpText"]))
 
     if results.orp_optimization:
@@ -416,27 +450,27 @@ def build_pdf_report(
             elements.append(Spacer(1, 8))
             elements.append(img)
 
-    # ── 7. Stress Testing ──
-    elements.append(Paragraph("7. Stress Testing", styles["SectionTitle"]))
-    elements.append(Paragraph(interp["stress_tests"], styles["InterpText"]))
+    # ── Risk & attribution analytics (shared with the HTML report) ──
+    from src.reports.sections import analytics_sections
 
-    if results.stress_df is not None and not results.stress_df.empty:
-        stress_rows = []
-        for _, r in results.stress_df.iterrows():
-            stress_rows.append([
-                str(r.get("Scenario", "")),
-                str(r.get("Period", "")),
-                str(r.get("Portfolio", "N/A")),
-                str(r.get("Benchmark", "N/A")),
-            ])
-        t = _make_table(
-            ["Scenario", "Period", "Portfolio", "Benchmark"],
-            stress_rows,
-        )
-        elements.append(t)
+    for sec in analytics_sections(results):
+        elements.append(Paragraph(sec["title"], styles["SectionTitle"]))
+        if sec["id"] == "stress" and interp.get("stress_tests"):
+            elements.append(Paragraph(interp["stress_tests"], styles["InterpText"]))
+        if sec.get("note"):
+            elements.append(Paragraph(_pdf_text(sec["note"]), styles["BodyText2"]))
+        for tb in sec["tables"]:
+            if tb["title"]:
+                elements.append(Paragraph(_pdf_text(tb["title"]).upper(), styles["SubTitle"]))
+            n = len(tb["columns"])
+            first = 1.6 if n > 4 else 2.2
+            rest = (7.0 - first) / max(n - 1, 1)
+            elements.append(_make_table(tb["columns"], tb["rows"],
+                                        [first * inch] + [rest * inch] * (n - 1), tb["align"],
+                                        tb.get("signed", False)))
 
     # ── 8. Income ──
-    elements.append(Paragraph("8. Income Analysis", styles["SectionTitle"]))
+    elements.append(Paragraph("Income Analysis", styles["SectionTitle"]))
     elements.append(Paragraph(interp["income"], styles["InterpText"]))
 
     if results.income_summary is not None and not results.income_summary.empty:
@@ -457,7 +491,7 @@ def build_pdf_report(
         elements.append(t)
 
     # ── 9. Correlation ──
-    elements.append(Paragraph("9. Correlation & Diversification", styles["SectionTitle"]))
+    elements.append(Paragraph("Correlation & Diversification", styles["SectionTitle"]))
     elements.append(Paragraph(interp["correlation"], styles["InterpText"]))
 
     if "correlation" in chart_figures:
@@ -466,7 +500,7 @@ def build_pdf_report(
             elements.append(img)
 
     # ── 10. Monte Carlo ──
-    elements.append(Paragraph("10. Monte Carlo Simulation", styles["SectionTitle"]))
+    elements.append(Paragraph("Monte Carlo Simulation", styles["SectionTitle"]))
     elements.append(Paragraph(interp["simulation"], styles["InterpText"]))
 
     if results.simulations:
@@ -487,7 +521,7 @@ def build_pdf_report(
         elements.append(t)
 
     # ── 11. Performance Measurement ──
-    elements.append(Paragraph("11. Performance Measurement", styles["SectionTitle"]))
+    elements.append(Paragraph("Performance Measurement", styles["SectionTitle"]))
     elements.append(Paragraph(
         "Benchmark-relative measures on the active portfolio: how much of the market's "
         "up and down moves it captured, and how consistently it beat the benchmark.",

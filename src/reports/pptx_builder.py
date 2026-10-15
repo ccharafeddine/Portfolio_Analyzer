@@ -24,13 +24,17 @@ from pptx.util import Inches, Pt
 from src.charts import plotly_charts as charts
 
 # Palette (matches the app's Institutional theme).
-BG = RGBColor(0x0B, 0x11, 0x20)
-CARD = RGBColor(0x15, 0x1D, 0x2E)
-TEXT = RGBColor(0xF1, 0xF5, 0xF9)
-MUTED = RGBColor(0x94, 0xA3, 0xB8)
-ACCENT = RGBColor(0x3B, 0x82, 0xF6)
-GREEN = RGBColor(0x10, 0xB9, 0x81)
-RED = RGBColor(0xEF, 0x44, 0x44)
+# Graphite tokens (src/ui/theme.py GRAPHITE): neutral surfaces, hairlines,
+# one blue accent, green/red only for signed values.
+BG = RGBColor(0x0E, 0x11, 0x14)
+CARD = RGBColor(0x12, 0x16, 0x1A)
+LINE = RGBColor(0x2D, 0x33, 0x3B)
+TEXT = RGBColor(0xE6, 0xED, 0xF3)
+SLATE = RGBColor(0xAD, 0xBA, 0xC7)
+MUTED = RGBColor(0x76, 0x83, 0x90)
+ACCENT = RGBColor(0x2F, 0x6F, 0xEB)
+GREEN = RGBColor(0x3F, 0xB9, 0x50)
+RED = RGBColor(0xF4, 0x70, 0x67)
 
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
@@ -86,17 +90,17 @@ class _Deck:
             f.size = Pt(size)
             f.bold = bold
             f.color.rgb = color
-            f.name = "Segoe UI"
+            f.name = "Inter"
         return tb
 
     def header(self, slide, title):
-        self.text(slide, title, Inches(0.6), Inches(0.35), Inches(12), Inches(0.8),
-                  28, bold=True)
-        bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.62), Inches(1.15),
-                                     Inches(1.6), Pt(4))
-        bar.fill.solid()
-        bar.fill.fore_color.rgb = ACCENT
-        bar.line.fill.background()
+        self.text(slide, title, Inches(0.6), Inches(0.35), Inches(12), Inches(0.7),
+                  24, bold=False)
+        rule = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.6), Inches(1.05),
+                                      SLIDE_W - Inches(1.2), Pt(0.75))
+        rule.fill.solid()
+        rule.fill.fore_color.rgb = LINE
+        rule.line.fill.background()
 
     def chart(self, slide, fig, left, top, width, height):
         try:
@@ -114,11 +118,11 @@ class _Deck:
         card_w = (total_w - gap * (n - 1)) / n
         left = Inches(0.6)
         for label, value, color in items:
-            card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top,
+            card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top,
                                           card_w, Inches(1.15))
             card.fill.solid()
             card.fill.fore_color.rgb = CARD
-            card.line.color.rgb = RGBColor(0x2D, 0x3A, 0x50)
+            card.line.color.rgb = LINE
             card.line.width = Pt(0.75)
             card.shadow.inherit = False
             self.text(slide, label.upper(), left + Inches(0.15), top + Inches(0.12),
@@ -126,6 +130,72 @@ class _Deck:
             self.text(slide, value, left + Inches(0.15), top + Inches(0.42),
                       card_w - Inches(0.3), Inches(0.6), 22, color, bold=True)
             left += card_w + gap
+
+    def table(self, slide, tb, left, top, width, max_rows=14):
+        """A Graphite hairline table from a reports.sections table dict."""
+        rows = tb["rows"][:max_rows]
+        cols = tb["columns"]
+        shape = slide.shapes.add_table(len(rows) + 1, len(cols), left, top, width,
+                                       Inches(0.32) * (len(rows) + 1))
+        t = shape.table
+        tbl_pr = shape._element.graphic.graphicData.tbl
+        style = tbl_pr.tblPr
+        style.set("bandRow", "0")
+        style.set("firstRow", "0")
+        for j, name in enumerate(cols):
+            self._cell(t.cell(0, j), name.upper(), 10, MUTED, tb["align"][j], bold=True)
+            self._borders(t.cell(0, j), "ADBAC7", 9525)
+        for i, row in enumerate(rows, start=1):
+            for j, v in enumerate(row):
+                from src.reports.sections import sign_class
+
+                cls = sign_class(v, tb.get("signed", False)) if tb["align"][j] == "r" else ""
+                color = GREEN if cls == "pos" else RED if cls == "neg" else TEXT
+                self._cell(t.cell(i, j), v, 12, color, tb["align"][j],
+                           bold=(row[0] == "Total"))
+                self._borders(t.cell(i, j))
+        return shape
+
+    @staticmethod
+    def _borders(cell, bottom_hex: str = "2D333B", bottom_w: int = 6350) -> None:
+        """No left/right/top rules; a single hairline below (Graphite tables)."""
+        from pptx.oxml.ns import qn
+        from lxml import etree
+
+        tc_pr = cell._tc.get_or_add_tcPr()
+        for tag in ("a:lnL", "a:lnR", "a:lnT", "a:lnB"):
+            for old in tc_pr.findall(qn(tag)):
+                tc_pr.remove(old)
+            ln = etree.SubElement(tc_pr, qn(tag))
+            if tag == "a:lnB":
+                ln.set("w", str(bottom_w))
+                fill = etree.SubElement(ln, qn("a:solidFill"))
+                clr = etree.SubElement(fill, qn("a:srgbClr"))
+                clr.set("val", bottom_hex)
+            else:
+                ln.set("w", "0")
+                etree.SubElement(ln, qn("a:noFill"))
+        # schema order: borders must precede the fill element
+        fill_el = tc_pr.find(qn("a:solidFill"))
+        if fill_el is not None:
+            tc_pr.remove(fill_el)
+            tc_pr.append(fill_el)
+
+    @staticmethod
+    def _cell(cell, text, size, color, align, bold=False):
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = BG
+        cell.margin_left = cell.margin_right = Inches(0.08)
+        cell.margin_top = cell.margin_bottom = Inches(0.03)
+        tf = cell.text_frame
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.RIGHT if align == "r" else PP_ALIGN.LEFT
+        r = p.add_run()
+        r.text = text
+        r.font.size = Pt(size)
+        r.font.bold = bold
+        r.font.color.rgb = color
+        r.font.name = "Inter"
 
     def bullets(self, slide, text, left, top, width, height, size=14):
         self.text(slide, text, left, top, width, height, size, MUTED)
@@ -153,6 +223,11 @@ def _headline_metrics(results):
 
 
 def build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
+    with charts.report_palette(light=False):
+        _build_pptx(results, path, logo_png)
+
+
+def _build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
     d = _Deck(logo_png)
     cfg = results.config
     interp = results.interpretations or {}
@@ -168,7 +243,7 @@ def build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
     d.text(s, "Portfolio Analysis", Inches(0.6), Inches(2.6), Inches(12), Inches(1.2),
            48, bold=True)
     universe = ", ".join(cfg.tickers[:10]) + (" …" if len(cfg.tickers) > 10 else "")
-    d.text(s, f"{universe}", Inches(0.62), Inches(3.7), Inches(12), Inches(0.6), 18, ACCENT)
+    d.text(s, f"{universe}", Inches(0.62), Inches(3.7), Inches(12), Inches(0.6), 18, SLATE)
     _cash = float(getattr(cfg, "cash", 0.0) or 0.0)
     if _cash > 0:
         _cap_str = (
@@ -258,7 +333,12 @@ def build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
         pass
 
     try:
-        if results.asset_attribution is not None and not results.asset_attribution.empty:
+        sa = getattr(results, "sector_attribution", None)
+        if sa is not None and not sa.empty:
+            chart_slide("Attribution: Sectors vs Benchmark",
+                        charts.sector_attribution_chart(sa, "Allocation, selection and interaction"),
+                        interp.get("capm"))
+        elif results.asset_attribution is not None and not results.asset_attribution.empty:
             chart_slide("Attribution",
                         charts.attribution_chart(results.asset_attribution,
                                                  title="Brinson–Fachler Attribution"),
@@ -297,6 +377,25 @@ def build_pptx(results, path: str, logo_png: Optional[bytes] = None) -> None:
             if plan.safe_withdrawal_rate is not None:
                 note += f"Safe withdrawal rate: {plan.safe_withdrawal_rate:.1%}\n"
             chart_slide("Retirement Plan", fig, note)
+    except Exception:
+        pass
+
+    # ── Risk & attribution analytics (one slide per table) ──
+    try:
+        from src.reports.sections import analytics_sections
+
+        for sec in analytics_sections(results):
+            if sec["id"] == "dataquality":
+                continue  # appendix material; lives in the HTML/PDF reports
+            for tb in sec["tables"]:
+                s = d.slide()
+                d.header(s, sec["title"] + (f" · {tb['title']}" if tb["title"] else ""))
+                n = len(tb["columns"])
+                width = min(SLIDE_W - Inches(1.2), Inches(1.7) * n)
+                d.table(s, tb, Inches(0.6), Inches(1.4), width)
+                if sec.get("note"):
+                    d.text(s, sec["note"], Inches(0.6), SLIDE_H - Inches(1.2),
+                           SLIDE_W - Inches(1.2), Inches(0.8), 11, MUTED)
     except Exception:
         pass
 

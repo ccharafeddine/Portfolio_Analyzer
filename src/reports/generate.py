@@ -20,7 +20,13 @@ from src.reports.pdf_builder import build_pdf_report
 
 
 def report_figures(results) -> dict:
-    """Chart set embedded in reports (Qt-free; mirrors the Data tab)."""
+    """Chart set embedded in reports (Qt-free; mirrors the Data tab), drawn
+    in the Graphite print palette."""
+    with charts.report_palette(light=True):
+        return _report_figures(results)
+
+
+def _report_figures(results) -> dict:
     figs: dict = {}
     try:
         growth = {}
