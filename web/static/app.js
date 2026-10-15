@@ -137,7 +137,7 @@
     const b = r.meta.benchmark;
     plot("ch-growth", [line(r.growth.portfolio, "Portfolio", C.port, { hovertemplate: "%{y:$,.0f}" }),
       line(r.growth.benchmark, b, C.bench, { hovertemplate: "%{y:$,.0f}" })],
-      layout({ yaxis: { ...layout().yaxis, tickprefix: "$", tickformat: ",.0s" } }));
+      layout({ yaxis: { ...layout().yaxis, tickprefix: "$", tickformat: "~s" } }));
     plot("ch-dd", [line(r.drawdown.portfolio, "Portfolio", C.port, { fill: "tozeroy", fillcolor: "rgba(76,141,255,0.10)", hovertemplate: "%{y:.1%}" }),
       line(r.drawdown.benchmark, b, C.bench, { hovertemplate: "%{y:.1%}" })],
       layout({ yaxis: { ...layout().yaxis, tickformat: ".0%" } }));

@@ -43,7 +43,7 @@ The app was rebuilt in four phases, with every number checked against reference 
 - **Institutional analytics** — VaR/ES by four methods with a breach backtest (Kupiec), the five largest drawdowns, nine historical stress scenarios replayed with today's weights, Brinson-Fachler sector attribution, Fama-French loadings with t-stats, rolling Sharpe, and turnover/cost-aware rebalance trades from the optimizer.
 - **Robustness and reports** — data-quality checks (stale prices, gaps, unadjusted splits), offline fallback to cached prices, input validation, a ~2× faster pipeline, and HTML / PDF / PowerPoint reports with all of the above (charts included).
 
-**Web demo — coming soon at [portfolio.chafic.me](https://portfolio.chafic.me).** The same analytics engine runs entirely in the browser (Python via Pyodide): enter tickers and weights or pick a preset, choose a benchmark and dates, and get the KPI strip plus Overview, Risk and Attribution views — no install, no server.
+**Live web demo: [portfolio.chafic.me](https://portfolio.chafic.me).** The same analytics engine runs entirely in the browser (Python via Pyodide): enter tickers and weights or pick a preset, choose a benchmark and dates, and get the KPI strip plus Overview, Risk and Attribution views — no install, no server.
 
 ---
 
