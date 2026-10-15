@@ -51,31 +51,75 @@ HOVER_BORDER = "#334155"
 TEMPLATE = "plotly_dark"
 IS_LIGHT = False
 
+FONT_FAMILY = "Inter, Segoe UI, Helvetica, Arial, sans-serif"
+
+
 def _make_base_layout() -> dict:
-    """Build the shared layout dict from the current module palette."""
+    """Build the shared layout dict from the current module palette.
+
+    House style: small muted tick labels, hairline grid, no zero lines, the
+    legend in a single row above the plot (left-aligned, like a panel header)
+    and tight margins so charts sit flush inside their panels.
+    """
+    axis = dict(
+        gridcolor=GRID_COLOR, zeroline=False, showline=False,
+        tickfont=dict(size=11, color=MUTED_COLOR),
+        title=dict(font=dict(size=11, color=MUTED_COLOR)),
+    )
     return dict(
         template=TEMPLATE,
         paper_bgcolor=PAPER_COLOR,
         plot_bgcolor=BG_COLOR,
-        font=dict(family="DM Sans, Helvetica, Arial, sans-serif", color=TEXT_COLOR, size=13),
-        margin=dict(l=60, r=30, t=50, b=80),
-        xaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
-        yaxis=dict(gridcolor=GRID_COLOR, zeroline=False),
+        font=dict(family=FONT_FAMILY, color=TEXT_COLOR, size=12),
+        margin=dict(l=56, r=16, t=36, b=36),
+        xaxis=dict(axis),
+        yaxis=dict(axis),
         legend=dict(
             bgcolor="rgba(0,0,0,0)",
-            font=dict(size=12, color=MUTED_COLOR),
+            font=dict(size=11, color=MUTED_COLOR),
             orientation="h",
-            yanchor="top",
-            y=-0.15,
-            xanchor="center",
-            x=0.5,
+            yanchor="bottom",
+            y=1.0,
+            xanchor="left",
+            x=0.0,
         ),
         hoverlabel=dict(
             bgcolor=CARD_BG,
-            font=dict(size=13, family="DM Sans, monospace", color=TEXT_COLOR),
+            font=dict(size=12, family=FONT_FAMILY, color=TEXT_COLOR),
             bordercolor=HOVER_BORDER,
         ),
     )
+
+
+def finalize_figure(fig: go.Figure) -> go.Figure:
+    """Re-assert the house style on a finished figure.
+
+    Individual chart builders override bits of the base layout (bottom legends,
+    large axis titles, 18px titles). This is applied once at render time so every
+    chart in the app shares one template regardless of who built it.
+    """
+    if fig is None:
+        return fig
+    fig.update_layout(
+        font=dict(family=FONT_FAMILY, size=12),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0.0,
+                    font=dict(size=11, color=MUTED_COLOR), bgcolor="rgba(0,0,0,0)"),
+        hoverlabel=dict(font=dict(family=FONT_FAMILY, size=12)),
+    )
+    if fig.layout.title and fig.layout.title.text:
+        fig.update_layout(title=dict(font=dict(size=12, color=MUTED_COLOR), x=0.0,
+                                     xanchor="left", y=0.98, yanchor="top"))
+    fig.update_xaxes(tickfont=dict(size=11, color=MUTED_COLOR),
+                     title_font=dict(size=11, color=MUTED_COLOR), zeroline=False)
+    fig.update_yaxes(tickfont=dict(size=11, color=MUTED_COLOR),
+                     title_font=dict(size=11, color=MUTED_COLOR), zeroline=False)
+    m = fig.layout.margin
+    fig.update_layout(margin=dict(
+        l=min(m.l if m.l is not None else 56, 64), r=min(m.r if m.r is not None else 16, 24),
+        t=max(min(m.t if m.t is not None else 36, 40), 28),
+        b=min(m.b if m.b is not None else 36, 44),
+    ))
+    return fig
 
 
 _BASE_LAYOUT = _make_base_layout()
@@ -146,11 +190,15 @@ def _dollar_format(val: float) -> str:
 def growth_chart(
     portfolios: dict[str, pd.Series],
     capital: float = 1_000_000,
+    focus: bool = False,
 ) -> go.Figure:
     """
     Growth of $X: overlay Active, Passive, ORP, Complete.
 
-    Each series is normalized so first value = capital.
+    Each series is normalized so first value = capital. With ``focus`` (the
+    interactive Overview), only the first two series (portfolio, benchmark) are
+    drawn initially, the rest are a legend click away, and a Linear/Log toggle
+    is added.
     """
     fig = go.Figure()
 
@@ -165,7 +213,10 @@ def growth_chart(
             x=normalized.index,
             y=normalized.values,
             name=name,
-            line=dict(color=color, width=2.5 if i == 0 else 2),
+            # Portfolio (first) and benchmark (second) are shown; the strategy
+            # variants are one legend-click away so the primary line reads clearly.
+            visible=True if (i < 2 or not focus) else "legendonly",
+            line=dict(color=color, width=1.8 if i == 0 else 1.3),
             hovertemplate=(
                 f"<b>{name}</b><br>"
                 "Date: %{x|%b %d, %Y}<br>"
@@ -173,6 +224,17 @@ def growth_chart(
                 "<extra></extra>"
             ),
         ))
+
+    if focus:
+        fig.update_layout(updatemenus=[dict(
+            type="buttons", direction="right", x=1.0, xanchor="right", y=1.0, yanchor="bottom",
+            showactive=False, pad=dict(t=0, r=0), bgcolor=CARD_BG, bordercolor=HOVER_BORDER,
+            font=dict(size=11, color=MUTED_COLOR),
+            buttons=[
+                dict(label="Linear", method="relayout", args=[{"yaxis.type": "linear"}]),
+                dict(label="Log", method="relayout", args=[{"yaxis.type": "log"}]),
+            ],
+        )])
 
     _apply_layout(
         fig,
@@ -186,7 +248,7 @@ def growth_chart(
             tickformat="$,.0f",
         ),
         xaxis_title="",
-        yaxis_title="Portfolio Value",
+        yaxis_title="",
         height=500,
     )
 
@@ -297,7 +359,7 @@ def efficient_frontier_chart(
         y=frontier_returns,
         mode="lines",
         name="Efficient Frontier",
-        line=dict(color="#3B82F6", width=3),
+        line=dict(color=COLORS[0], width=2),
         hovertemplate="Vol: %{x:.2%}<br>Return: %{y:.2%}<extra></extra>",
     ))
 
@@ -312,7 +374,7 @@ def efficient_frontier_chart(
             y=y_cal,
             mode="lines",
             name="Capital Allocation Line",
-            line=dict(color="#F59E0B", width=2, dash="dash"),
+            line=dict(color=MUTED_COLOR, width=1.2, dash="dash"),
             hovertemplate="Vol: %{x:.2%}<br>Return: %{y:.2%}<extra></extra>",
         ))
 
@@ -322,7 +384,7 @@ def efficient_frontier_chart(
         y=[rf],
         mode="markers",
         name=f"Risk-Free ({rf:.1%})",
-        marker=dict(color="#94A3B8", size=10, symbol="diamond"),
+        marker=dict(color=MUTED_COLOR, size=8, symbol="diamond"),
         hovertemplate=f"Risk-Free Rate: {rf:.2%}<extra></extra>",
     ))
 
@@ -333,10 +395,10 @@ def efficient_frontier_chart(
         mode="markers",
         name="Optimal Risky Portfolio",
         marker=dict(
-            color="#EF4444",
+            color=COLORS[0],
             size=14,
             symbol="star",
-            line=dict(width=2, color="#FCA5A5"),
+            line=dict(width=1.5, color=TEXT_COLOR),
         ),
         hovertemplate=(
             f"<b>ORP</b><br>"
@@ -353,7 +415,7 @@ def efficient_frontier_chart(
             y=asset_returns.values,
             mode="markers+text",
             name="Individual Assets",
-            marker=dict(color="#8B5CF6", size=8, opacity=0.8),
+            marker=dict(color=TEXT_COLOR, size=6, opacity=0.7),
             text=asset_vols.index.tolist(),
             textposition="top center",
             textfont=dict(size=10, color=MUTED_COLOR),
@@ -377,7 +439,7 @@ def efficient_frontier_chart(
         margin=dict(l=60, r=30, t=50, b=70),
         legend=dict(
             x=0.98, y=0.98, xanchor="right", yanchor="top",
-            bgcolor="rgba(11,17,32,0.8)", bordercolor="#1E293B", borderwidth=1,
+            bgcolor="rgba(0,0,0,0)", borderwidth=0,
             orientation="v",
         ),
     )
@@ -399,11 +461,12 @@ def correlation_heatmap(corr: pd.DataFrame) -> go.Figure:
         x=labels,
         y=labels,
         colorscale=[
-            [0.0, "#EF4444"],
-            [0.25, "#7F1D1D"],
+            # Diverging, sign-neutral (correlation is not P&L): amber <- bg -> blue.
+            [0.0, "#D4A72C"],
+            [0.25, "#5A4A1A"],
             [0.5, BG_COLOR],  # zero correlation blends into the chart background
-            [0.75, "#14532D"],
-            [1.0, "#10B981"],
+            [0.75, "#1F3B73"],
+            [1.0, "#4C8DFF"],
         ],
         zmin=-1,
         zmax=1,
@@ -730,7 +793,7 @@ def return_distribution_chart(
     fig.add_trace(go.Histogram(
         x=r.values,
         nbinsx=60,
-        marker=dict(color="#3B82F6", line=dict(width=0.5, color="#1E3A5F")),
+        marker=dict(color=COLORS[0], line=dict(width=0)),
         opacity=0.8,
         hovertemplate="Return: %{x:.2%}<br>Count: %{y}<extra></extra>",
     ))
@@ -748,7 +811,7 @@ def return_distribution_chart(
             x=cvar_95, line_dash="dash", line_color="#F59E0B", line_width=2,
             annotation_text=f"CVaR 95%: {cvar_95:.2%}",
             annotation_font=dict(color="#F59E0B", size=11),
-            annotation_position="top left",
+            annotation_position="bottom left",
         )
 
     _apply_layout(

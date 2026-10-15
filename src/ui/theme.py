@@ -1,7 +1,12 @@
 """Theming system for the desktop UI.
 
 A ``Theme`` is a bundle of design tokens (colors, fonts, type sizes, density).
-Six built-in themes are provided and can be switched live:
+Built-in themes can be switched live. The default is:
+
+- ``graphite``             — neutral dark grey, one blue accent, green/red reserved
+                             for P&L, hairline rules, tabular numerals (pro-tool look)
+
+Others:
 
 - ``institutional``        — clean, spacious, refined product look (default)
 - ``terminal``             — dense, high-contrast, Bloomberg-style power view
@@ -81,6 +86,54 @@ class Theme:
     chart_series: tuple[str, ...] = _DEFAULT_SERIES  # categorical chart palette
     gloss: bool = False  # glossy accent-button treatment (Frutiger Aero)
 
+
+GRAPHITE = Theme(
+    key="graphite",
+    name="Graphite (default)",
+    # Neutral graphite surfaces separated by 1px hairlines instead of cards; a
+    # single blue accent for selection/primary actions; green/red only for P&L.
+    bg="#0E1114",
+    panel="#12161A",
+    card="#12161A",
+    card_alt="#151A1F",
+    border="#22272E",
+    border_light="#2D333B",
+    accent="#2F6FEB",
+    accent_hover="#255FD0",
+    accent_text="#FFFFFF",
+    text="#E6EDF3",
+    text_muted="#768390",
+    text_slate="#ADBAC7",
+    green="#3FB950",
+    red="#F47067",
+    chart_bg="#12161A",
+    chart_grid="rgba(173, 186, 199, 0.07)",
+    font="Inter, Segoe UI, Helvetica, Arial, sans-serif",
+    mono="Inter, Segoe UI, Helvetica, Arial, sans-serif",  # tabular-nums, not a mono face
+    base_pt=13,
+    label_pt=10,
+    heading_pt=12,
+    metric_pt=18,
+    statval_pt=15,
+    radius=3,
+    card_pad_v=7,
+    card_pad_h=12,
+    tab_pad_v=5,
+    tab_pad_h=12,
+    input_pad=4,
+    content_spacing=10,
+    chart_scale=0.9,
+    chart_series=(
+        "#4C8DFF",  # portfolio / primary
+        "#8B949E",  # benchmark
+        "#D4A72C",
+        "#A371F7",
+        "#56B6C2",
+        "#C9D1D9",
+        "#6E7681",
+        "#D2A8FF",
+    ),
+)
 
 INSTITUTIONAL = Theme(
     key="institutional",
@@ -443,7 +496,7 @@ HIGH_CONTRAST_DARK = Theme(
 THEMES: dict[str, Theme] = {
     t.key: t
     for t in (
-        TERMINAL, INSTITUTIONAL, MINIMAL,
+        GRAPHITE, TERMINAL, INSTITUTIONAL, MINIMAL,
         FRUTIGER, SYNTHWAVE, SUPERFLAT,
         LIGHT, HIGH_CONTRAST_LIGHT, HIGH_CONTRAST_DARK,
     )
@@ -453,7 +506,7 @@ THEMES: dict[str, Theme] = {
 # A global multiplier applied to every font size / padding on top of the base
 # theme, so users can enlarge the whole app. 1.1 is the default (slightly bigger
 # than the base design). Presets are surfaced in View → Text Size.
-DEFAULT_SCALE = 1.25
+DEFAULT_SCALE = 1.0
 MIN_SCALE = 0.8
 MAX_SCALE = 1.8
 SCALE_PRESETS = [
@@ -464,7 +517,8 @@ SCALE_PRESETS = [
     ("Largest", 1.5),
 ]
 
-_BASE: Theme = TERMINAL  # the selected base theme, before scaling
+DEFAULT_THEME = "graphite"
+_BASE: Theme = GRAPHITE  # the selected base theme, before scaling
 SCALE: float = DEFAULT_SCALE
 
 # Size/spacing fields multiplied by SCALE (colors/fonts untouched).
@@ -489,7 +543,7 @@ ACTIVE: Theme = _scaled(_BASE, SCALE)
 
 def set_active(key: str) -> Theme:
     global _BASE, ACTIVE
-    _BASE = THEMES.get(key, TERMINAL)
+    _BASE = THEMES.get(key, GRAPHITE)
     ACTIVE = _scaled(_BASE, SCALE)
     return ACTIVE
 
@@ -737,4 +791,42 @@ def stylesheet(theme: Theme | None = None) -> str:
         font-size: {t.label_pt}px;
     }}
     QProgressBar::chunk {{ background-color: {t.accent}; }}
+
+    /* ── App shell (top bar, nav, KPI strip, data status) ── */
+    QFrame#topBar {{ background-color: {t.panel}; border-bottom: 1px solid {t.border}; }}
+    QLabel#brand {{ color: {t.text}; font-weight: 600; letter-spacing: 0.04em; }}
+    QLabel#ctxLabel {{ color: {t.text_muted}; }}
+    QToolButton#ctxChip {{
+        background: transparent; color: {t.text}; border: 1px solid {t.border_light};
+        border-radius: {t.radius}px; padding: 3px 10px;
+    }}
+    QToolButton#ctxChip:hover {{ border-color: {t.accent}; }}
+    QPushButton#ghost {{
+        background: transparent; color: {t.text}; border: 1px solid {t.border_light};
+        border-radius: {t.radius}px; padding: 4px 12px; font-weight: 500;
+    }}
+    QPushButton#ghost:hover {{ border-color: {t.accent}; }}
+    QPushButton#primary {{ border-radius: {t.radius}px; padding: 4px 14px; }}
+
+    QFrame#navPanel {{ background-color: {t.panel}; border-right: 1px solid {t.border}; }}
+    QListWidget#navList {{ background: transparent; border: none; outline: 0; }}
+    QListWidget#navList::item {{
+        color: {t.text_slate}; padding: 5px 14px; border-left: 2px solid transparent;
+    }}
+    QListWidget#navList::item:selected {{
+        color: {t.text}; background: {t.card_alt}; border-left: 2px solid {t.accent};
+    }}
+    QListWidget#navList::item:hover:!selected {{ color: {t.text}; }}
+    QLabel#pageTitle {{ color: {t.text}; font-size: {t.heading_pt + 5}px; font-weight: 600; }}
+    QLabel#pageSub {{ color: {t.text_muted}; }}
+
+    QFrame#kpiStrip {{ background-color: {t.panel}; border: 1px solid {t.border}; }}
+    QFrame#kpiCell {{ border: none; border-right: 1px solid {t.border}; background: transparent; }}
+    QLabel#kpiLabel {{
+        color: {t.text_muted}; font-size: {t.label_pt}px; font-weight: 600;
+        letter-spacing: 0.06em;
+    }}
+    QLabel#kpiValue {{ color: {t.text}; font-size: {t.metric_pt}px; font-weight: 500; }}
+    QLabel#kpiSub {{ color: {t.text_muted}; font-size: {t.label_pt + 1}px; }}
+    QLabel#dataStatus {{ color: {t.text_muted}; font-size: {t.label_pt + 1}px; padding: 0 8px; }}
     """
