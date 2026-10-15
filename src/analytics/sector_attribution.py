@@ -12,6 +12,8 @@ Design
 * Holdings outside the benchmark's sectors (bonds, gold, cash ...) form their
   own sector with zero benchmark weight; their benchmark sector return is set
   to their own return, so they contribute pure allocation and no selection.
+  Likewise a benchmark sector the portfolio does not hold takes the
+  benchmark sector return as its portfolio return (allocation only).
 * Monthly effects are linked with Carino (1999) smoothing so the linked
   effects sum exactly to the geometric active return over the window.
 """
@@ -141,6 +143,8 @@ def sector_brinson(
                         and pd.notna(bench_sector_rets_m.loc[t, s]) else np.nan for s in sectors})
         # off-benchmark sectors (and missing proxies): benchmark return := own return
         rb = rb.where(rb.notna() & (wb > 0), rp)
+        # unheld sectors: no selection decision was made, so rp := rb
+        rp = rp.where(wp > 0, rb)
         Rb = float((wb * rb).sum())
         Rp = float((wp * rp).sum())
         alloc = (wp - wb) * (rb - Rb)

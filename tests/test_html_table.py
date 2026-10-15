@@ -48,3 +48,9 @@ def test_heatmap_tints_by_sign():
     html = heatmap_table_html(cal, "#3FB950", "#F47067")
     assert "rgba(63,185,80" in html and "rgba(244,112,103" in html
     assert "+2.9%" in html
+
+
+def test_money_negative_sign_before_dollar():
+    from src.ui.widgets.html_table import fmt_value
+    assert fmt_value(-928410.4, "money") == "−$928,410"
+    assert fmt_value(1500, "money") == "$1,500"

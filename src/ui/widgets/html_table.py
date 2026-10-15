@@ -55,7 +55,7 @@ def fmt_value(v, kind: str, decimals: int = 2) -> str:
     if kind == "spct":
         return f"{v * 100:+.{decimals}f}%".replace("-", "−")
     if kind == "money":
-        return f"${v:,.0f}"
+        return f"−${-v:,.0f}" if v < 0 else f"${v:,.0f}"
     if kind == "num":
         return f"{v:,.{decimals}f}"
     if kind == "int":

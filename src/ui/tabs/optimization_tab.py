@@ -95,9 +95,14 @@ class OptimizationTab(WebTab):
             right += self.panel_html("Strategy comparison", rich_table_html(
                 sc, [Col("Strategy", "", "label"), Col("Ann. return", "Return", "spct", 1),
                      Col("Ann. vol", "Vol", "pct", 1), Col("Sharpe", "Sharpe", "ratio"),
-                     Col("Max DD", "Max DD", "spct", 1)],
-                sortable=False, copy=True, table_id="strat"), aside="realized, annualized")
-        self.add_split([(left, 1.7), (right, 1.0)] if right else [(left, 1)])
+                     Col("Max DD", "Max DD", "spct", 1), Col("Turnover", "Turnover", "pct", 1),
+                     Col("Cost", "Cost", "money")],
+                sortable=False, copy=True, table_id="strat"),
+                aside=("realized, annualized · turnover/cost to adopt from today at "
+                       f"{self._cost_bps(results):g} bps · <a href='#' class='jump' "
+                       "onclick=\"document.getElementById('trades').scrollIntoView();"
+                       "return false;\">rebalance trades</a>"))
+        self.add_split([(left, 1.35), (right, 1.2)] if right else [(left, 1)])
 
         # The user's actual account allocation — stock weights plus a Cash slice
         # when a cash balance is held (cash as a first-class holding).
@@ -194,6 +199,7 @@ class OptimizationTab(WebTab):
             self.add_table(results.turnover_table)
 
         # Trade recommendations (buy/sell to rebalance)
+        self.add_html("<div id='trades'></div>")
         self._render_trades(results)
 
         # ORP stats
@@ -236,14 +242,42 @@ class OptimizationTab(WebTab):
         return df.reset_index()
 
     @staticmethod
-    def _strategy_table(results) -> pd.DataFrame:
+    def _cost_bps(results) -> float:
+        """Configured per-side cost; 5 bps illustrative default when unset."""
+        bps = float(getattr(results.config.backtest, "transaction_cost_bps", 0.0) or 0.0)
+        return bps if bps > 0 else 5.0
+
+    @classmethod
+    def _strategy_table(cls, results) -> pd.DataFrame:
+        from src.analytics import metrics as M
+
+        cfg = results.config
+        reco = results.trade_recos
+        current = (pd.Series(reco["CurrentWeight"].values, index=reco["Ticker"])
+                   if reco is not None and not reco.empty else None)
+        value = float(results.active.values.iloc[-1]) if results.active is not None else 0.0
+        targets = {
+            "active": pd.Series(dict(cfg.weights), dtype=float),
+            "orp": results.orp_optimization.weights if results.orp_optimization else None,
+            "hrp": results.hrp_weights,
+        }
+        bps = cls._cost_bps(results)
         rows = []
-        for ps in (results.active, results.passive, results.orp, results.hrp,
-                   results.rebalanced, results.complete):
+        for key, ps in (("active", results.active), ("passive", results.passive),
+                        ("orp", results.orp), ("hrp", results.hrp),
+                        ("rebalanced", results.rebalanced), ("complete", results.complete)):
             if ps is None:
                 continue
+            turn = cost = np.nan
+            tgt = targets.get(key)
+            if current is not None and tgt is not None and len(tgt):
+                tgt = pd.Series(tgt, dtype=float)
+                tgt = tgt / tgt.sum() if tgt.sum() > 0 else tgt
+                turn = M.turnover(current, tgt)
+                cost = 2 * turn * value * bps / 1e4
             rows.append({"Strategy": ps.name, "Ann. return": ps.ann_return,
-                         "Ann. vol": ps.ann_vol, "Sharpe": ps.sharpe, "Max DD": ps.max_dd})
+                         "Ann. vol": ps.ann_vol, "Sharpe": ps.sharpe, "Max DD": ps.max_dd,
+                         "Turnover": turn, "Cost": cost})
         return pd.DataFrame(rows)
 
     def _render_trades(self, results) -> None:

@@ -11,7 +11,31 @@ import pandas as pd
 
 from src.charts import plotly_charts as charts
 
+from ..widgets.html_table import Col, rich_table_html
 from .web_tab import WebTab
+
+_SECTOR_COLS = [Col("Sector", "Sector", "label"), Col("Port weight", "Port. wt", "pct", 1),
+                Col("Bench weight", "Bench wt", "pct", 1), Col("Allocation", "Allocation", "spct"),
+                Col("Selection", "Selection", "spct"), Col("Interaction", "Interaction", "spct"),
+                Col("Total", "Total", "spct")]
+
+
+def _factor_display(df: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    """Coefficient with its t-stat underneath-style: '1.05 (44.6)'; alpha annualized."""
+    factors = [c[:-5] for c in df.columns if c.endswith("_coef") and c != "const_coef"]
+    out = pd.DataFrame({"Asset": df["Asset"]})
+    out["Alpha"] = [f"{(1 + a) ** 252 - 1:+.1%} ({t:.1f})"
+                    for a, t in zip(df["const_coef"], df.get("const_t", [np.nan] * len(df)))]
+    for f in factors:
+        tcol = df.get(f"{f}_t", pd.Series([np.nan] * len(df)))
+        out[f] = [f"{b:.2f} ({t:.1f})" for b, t in zip(df[f"{f}_coef"], tcol)]
+    out["R2"] = df["R2"]
+    cols = [Col("Asset", "Asset", "sym"), Col("Alpha", "Alpha ann. (t)", "text")]
+    cols += [Col(f, f"{f} (t)", "text") for f in factors] + [Col("R2", "R²", "num")]
+    if "N" in df.columns:
+        out["N"] = df["N"]
+        cols.append(Col("N", "Obs", "int"))
+    return out, cols
 
 # Fama-French models: results key -> (sub-heading label, explanation key). Ordered.
 _FACTOR_MODELS = {
@@ -25,6 +49,23 @@ class AttributionTab(WebTab):
     def _populate(self, results) -> None:
         interp = results.interpretations or {}
         self.add_interpretation(interp.get("capm"))
+
+        # Sector Brinson-Fachler vs the benchmark fund.
+        sa = getattr(results, "sector_attribution", None)
+        meta = getattr(results, "sector_attribution_meta", None) or {}
+        if sa is not None and not sa.empty:
+            tot = {"Sector": "Total", "Port weight": sa["Port weight"].sum(),
+                   "Bench weight": sa["Bench weight"].sum()}
+            for c in ("Allocation", "Selection", "Interaction", "Total"):
+                tot[c] = float(sa[c].sum())
+            aside = (f"Portfolio {meta.get('port_return', np.nan):+.1%} · sector benchmark "
+                     f"{meta.get('bench_return', np.nan):+.1%} · weights: {meta.get('source', '')}")
+            self.add_split([
+                (self.panel_html("Sector attribution", self.chart_html(
+                    charts.sector_attribution_chart(sa), 360), explain="sector_brinson"), 1),
+                (self.panel_html("Allocation vs selection", rich_table_html(
+                    sa, _SECTOR_COLS, total=tot, table_id="sect"), aside=aside), 1.25),
+            ])
 
         # Benchmark-relative attribution by holding — point-in-time totals + over time.
         # (A single-ticker benchmark can't support true per-asset Brinson-Fachler, so we
@@ -116,4 +157,5 @@ class AttributionTab(WebTab):
                     explain=explain_key,
                     title=label,
                 )
-                self.add_table(df)
+                disp, cols = _factor_display(df)
+                self.add_rich_table(disp, cols)

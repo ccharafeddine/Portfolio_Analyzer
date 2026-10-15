@@ -290,6 +290,8 @@ class WebTab(QWidget):
   .split-col>.section{{flex:1}}
   .sec-head.static{{cursor:default}}
   .sec-head .aside{{margin-left:auto;color:{t.text_muted};font-size:{t.label_pt + 1}px}}
+  .sec-head .aside a{{color:{t.accent};text-decoration:none}}
+  .sec-head .aside a:hover{{text-decoration:underline}}
   .sec-inner>table.tbl{{margin:-{pad}px -12px;width:calc(100% + 24px)}}
   .chart-row{{display:flex;gap:{pad}px}}
   .chart-row>.chart{{flex:1;min-width:0}}

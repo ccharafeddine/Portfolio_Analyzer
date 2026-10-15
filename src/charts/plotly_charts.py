@@ -1402,7 +1402,7 @@ def stress_test_chart(stress_df: pd.DataFrame) -> go.Figure:
         x=df["Port_f"],
         name="Portfolio",
         orientation="h",
-        marker=dict(color="#3B82F6"),
+        marker=dict(color=COLORS[0]),
         hovertemplate="<b>%{y}</b><br>Portfolio: %{x:.2%}<extra></extra>",
     ))
 
@@ -1411,7 +1411,7 @@ def stress_test_chart(stress_df: pd.DataFrame) -> go.Figure:
         x=df["Bench_f"],
         name="Benchmark",
         orientation="h",
-        marker=dict(color="#64748B"),
+        marker=dict(color=MUTED_COLOR, opacity=0.55),
         hovertemplate="<b>%{y}</b><br>Benchmark: %{x:.2%}<extra></extra>",
     ))
 
@@ -1484,6 +1484,43 @@ def rolling_sharpe_chart(series: dict[str, pd.Series], title: str = "") -> go.Fi
     fig.add_hline(y=0, line_color=MUTED_COLOR, opacity=0.4)
     _apply_layout(fig, title=dict(text=title), yaxis=dict(gridcolor=GRID_COLOR, zeroline=False,
                   tickformat=".1f"), height=320)
+    return fig
+
+
+def var_backtest_chart(series: pd.DataFrame, title: str = "",
+                       breach_color: str = "#F47067") -> go.Figure:
+    """Daily returns (muted) against the rolling one-day VaR forecast, with
+    breaches marked."""
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=series.index, y=series["ret"], name="Daily return",
+                         marker=dict(color=MUTED_COLOR, opacity=0.45, line=dict(width=0)),
+                         hovertemplate="%{x|%b %d, %Y}<br>%{y:.2%}<extra></extra>"))
+    fig.add_trace(go.Scatter(x=series.index, y=series["var"], name="VaR forecast",
+                             line=dict(color=COLORS[0], width=1.4),
+                             hovertemplate="%{x|%b %d, %Y}<br>VaR %{y:.2%}<extra></extra>"))
+    br = series[series["breach"]]
+    fig.add_trace(go.Scatter(x=br.index, y=br["ret"], name="Breach", mode="markers",
+                             marker=dict(color=breach_color, size=6, symbol="x-thin",
+                                         line=dict(width=2, color=breach_color)),
+                             hovertemplate="%{x|%b %d, %Y}<br>Breach %{y:.2%}<extra></extra>"))
+    _apply_layout(fig, title=dict(text=title), bargap=0,
+                  yaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat=".0%"), height=300)
+    return fig
+
+
+def sector_attribution_chart(table: pd.DataFrame, title: str = "") -> go.Figure:
+    """Horizontal stacked allocation / selection / interaction bars per sector."""
+    df = table.sort_values("Total")
+    fig = go.Figure()
+    for col, color in (("Allocation", COLORS[0]), ("Selection", COLORS[1]),
+                       ("Interaction", MUTED_COLOR)):
+        fig.add_trace(go.Bar(y=df["Sector"], x=df[col], name=col, orientation="h",
+                             marker=dict(color=color, line=dict(width=0)),
+                             hovertemplate=f"<b>%{{y}}</b><br>{col}: %{{x:.2%}}<extra></extra>"))
+    fig.add_vline(x=0, line_color=MUTED_COLOR, opacity=0.4)
+    _apply_layout(fig, title=dict(text=title), barmode="relative",
+                  xaxis=dict(gridcolor=GRID_COLOR, zeroline=False, tickformat=".0%"),
+                  height=max(260, 26 * len(df) + 80))
     return fig
 
 

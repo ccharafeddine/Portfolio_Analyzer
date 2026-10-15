@@ -87,10 +87,46 @@ EXPLANATIONS: dict[str, dict[str, str]] = {
         "how": "Near +1 (warm) means they move together; near 0 is independent; negative (cool) means they offset.",
         "why": "Diversification comes from combining assets that don't all move together — low correlations reduce portfolio risk.",
     },
+    "var_methods": {
+        "title": "Value at Risk by Method",
+        "what": "The one-day loss not exceeded on 95% / 99% of days (VaR), and the average loss on the days that do exceed it (Expected Shortfall), under four models.",
+        "how": "Historical uses the actual return distribution; Parametric assumes a normal curve; Cornish-Fisher bends the normal for skew and fat tails; Monte Carlo simulates from a fat-tailed Student-t. Big gaps between methods mean the tails are not normal.",
+        "why": "No single VaR model is right; seeing them side by side shows how much the answer depends on the assumption.",
+    },
+    "var_backtest": {
+        "title": "VaR Backtest",
+        "what": "Each day, VaR is forecast from the previous 250 days only, then compared with what actually happened.",
+        "how": "A breach is a day that lost more than the forecast. At 99% about 1 in 100 days should breach. The Kupiec p-value tests whether the breach count is consistent with that; below 0.05 the model is rejected.",
+        "why": "A risk number is only useful if it holds up out of sample.",
+    },
+    "drawdown_table": {
+        "title": "Largest Drawdowns",
+        "what": "The deepest peak-to-trough declines, with when they started, bottomed and recovered.",
+        "how": "Decline counts trading days from peak to trough, Recover from trough back to the old high, Length the whole episode. 'Open' means the portfolio has not yet regained its peak.",
+        "why": "Depth tells you how bad it got; length tells you how long you would have had to sit through it.",
+    },
+    "beta_shocks": {
+        "title": "Market Shocks via Beta",
+        "what": "A quick estimate of the portfolio's move for a given benchmark move, using its measured daily beta.",
+        "how": "Portfolio move = beta x market move. It is linear and ignores holding-specific noise, so treat it as a central estimate.",
+        "why": "A fast sanity check for 'what if the market drops 20%?' before using the detailed scenario builder below.",
+    },
+    "sector_brinson": {
+        "title": "Sector Attribution (Brinson-Fachler)",
+        "what": "Splits the return gap versus the benchmark into allocation (over/under-weighting sectors), selection (picking better or worse names within a sector) and interaction.",
+        "how": "Computed monthly and linked (Carino) so the pieces add up to the total active return. Benchmark sector returns use the Select Sector SPDR ETFs; bonds, gold and other non-equity holdings count as their own off-benchmark sectors.",
+        "why": "Shows whether outperformance came from sector bets or from stock picking.",
+    },
+    "rolling_sharpe": {
+        "title": "Rolling Sharpe",
+        "what": "The Sharpe ratio over a trailing 12-month window, for the portfolio and the benchmark.",
+        "how": "Above the benchmark line means better risk-adjusted return over that year. Wide swings mean the full-period Sharpe hides very different regimes.",
+        "why": "A single Sharpe ratio averages good and bad years together; the rolling view shows consistency.",
+    },
     "stress_test": {
         "title": "Stress Tests",
         "what": "How the portfolio would have done during specific historical crisis periods.",
-        "how": "Each bar is one scenario (e.g. a past crash). More negative means the portfolio was hit harder.",
+        "how": "Each bar is one scenario (e.g. a past crash). More negative means the portfolio was hit harder. Scenarios before your analysis window are replayed with today's weights.",
         "why": "Averages hide tail events; stress tests show behavior in the exact moments risk matters most.",
     },
     "scenario": {

@@ -81,6 +81,21 @@ class PerformanceTab(WebTab):
                 columns=4,
             )
 
+        # Rolling 12-month Sharpe, portfolio vs benchmark.
+        if results.active is not None and results.passive is not None:
+            from src.analytics import metrics as M
+
+            rf = results.config.risk_free_rate
+            series = {}
+            for name, ps in (("Portfolio", results.active), ("Benchmark", results.passive)):
+                m = ps.values.resample("ME").last().pct_change().dropna()
+                series[name] = M.rolling_sharpe(m, window=12, rf_annual=rf, periods_per_year=12)
+            if any(len(s.dropna()) for s in series.values()):
+                self.add_html(self.panel_html(
+                    "Rolling 12-month Sharpe",
+                    self.chart_html(charts.rolling_sharpe_chart(series), 300),
+                    explain="rolling_sharpe", aside="Monthly returns, excess of risk-free"))
+
         # Rolling alpha / beta.
         rab = results.rolling_alpha_beta
         if rab is not None and not rab.empty:
