@@ -111,7 +111,7 @@ def _one(label: str, cfg, sector_cache: dict, include_sectors: bool) -> Comparis
     elif cfg.benchmark in prices.columns:
         bench_ret = prices[cfg.benchmark].pct_change().dropna()
 
-    tail = risk.tail_metrics(rets)
+    tail = risk.tail_metrics(rets, rf_annual=cfg.risk_free_rate)
     var95, cvar95 = T.var_cvar(rets, 0.95)
     alpha, beta = _alpha_beta(rets, bench_ret, cfg.risk_free_rate)
     w = pd.Series(cfg.weights, dtype=float)

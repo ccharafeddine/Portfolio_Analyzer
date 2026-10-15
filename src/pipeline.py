@@ -613,7 +613,9 @@ class AnalysisPipeline:
             self.results.drawdown_metrics = pd.DataFrame(rows)
 
         if self.results.active:
-            self.results.tail_risk = tail_metrics(self.results.active.daily_returns)
+            self.results.tail_risk = tail_metrics(
+                self.results.active.daily_returns, rf_annual=self.config.risk_free_rate
+            )
 
         # Correlation regime detection
         try:

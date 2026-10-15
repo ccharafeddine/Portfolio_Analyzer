@@ -13,6 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.analytics import metrics as M
 from src.data import transforms as T
 from src.analytics.risk import tail_metrics
 from src.analytics.regression import capm_regression
@@ -57,19 +58,15 @@ def batting_average(port_ret: pd.Series, bench_ret: pd.Series) -> float:
 
 
 def tracking_error(port_ret: pd.Series, bench_ret: pd.Series, periods_per_year: int = 12) -> float:
+    """Annualized std of active returns (see ``src.analytics.metrics``)."""
     p, b = _align(port_ret, bench_ret)
-    if len(p) < 2:
-        return np.nan
-    return float((p - b).std(ddof=1) * np.sqrt(periods_per_year))
+    return M.tracking_error(p, b, periods_per_year)
 
 
 def information_ratio(port_ret: pd.Series, bench_ret: pd.Series, periods_per_year: int = 12) -> float:
+    """Annualized mean active return / tracking error (arithmetic convention)."""
     p, b = _align(port_ret, bench_ret)
-    te = tracking_error(p, b, periods_per_year)
-    if not te or np.isnan(te) or te == 0:
-        return np.nan
-    active_ann = T.annualize_return(p, periods_per_year) - T.annualize_return(b, periods_per_year)
-    return float(active_ann / te)
+    return M.information_ratio(p, b, periods_per_year)
 
 
 def blended_benchmark(prices: pd.DataFrame, blend: dict[str, float], capital: float) -> pd.Series:
@@ -90,16 +87,14 @@ def _window_metrics(active_val: pd.Series, passive_val: pd.Series, rf: float) ->
     a_daily = active_val.pct_change().dropna()
     p_month = to_monthly_returns(active_val)
     b_month = to_monthly_returns(passive_val)
-    a_tail = tail_metrics(a_daily)
+    a_tail = tail_metrics(a_daily, rf_annual=rf, periods_per_year=M.DAILY)
     cap = up_down_capture(p_month, b_month)
 
-    # Alpha/beta on aligned monthly returns.
-    rf_m = (1 + rf) ** (1 / 12) - 1
+    # Alpha/beta (with standard errors) on aligned monthly excess returns.
     pa, ba = _align(p_month, b_month)
-    alpha = beta = np.nan
-    if len(pa) >= 6:
-        reg = capm_regression(pa, ba, rf_periodic=rf_m)
-        alpha, beta = reg.alpha * 12, float(reg.beta)
+    stats = M.capm(pa, ba, rf_annual=rf, periods_per_year=M.MONTHLY) if len(pa) >= 6 else None
+    alpha = stats.alpha_annual if stats else np.nan
+    beta = stats.beta if stats else np.nan
 
     corr = float(pa.corr(ba)) if len(pa) >= 2 else np.nan
     return {
@@ -116,7 +111,9 @@ def _window_metrics(active_val: pd.Series, passive_val: pd.Series, rf: float) ->
         "Batting Avg": batting_average(p_month, b_month),
         "Correlation": corr,
         "Alpha (ann.)": alpha,
+        "Alpha t-stat": stats.t_alpha if stats else np.nan,
         "Beta": beta,
+        "Beta SE": stats.beta_se if stats else np.nan,
     }
 
 

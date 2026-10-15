@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.analytics import metrics as M
+
 
 def daily_returns(prices: pd.DataFrame) -> pd.DataFrame:
     """Simple daily returns from price levels."""
@@ -57,81 +59,36 @@ def blend_cash(
 def annualize_return(
     returns: pd.Series, periods_per_year: int = 252
 ) -> float:
-    """Geometric annualized return from periodic simple returns."""
-    r = returns.dropna()
-    if r.empty:
-        return np.nan
-    gross = (1.0 + r).prod()
-    n = len(r)
-    if n == 0 or gross <= 0:
-        return np.nan
-    return float(gross ** (periods_per_year / n) - 1.0)
-
+    """Geometric annualized return (delegates to ``src.analytics.metrics``)."""
+    return M.annualized_return(returns, periods_per_year)
 
 def annualize_vol(
     returns: pd.Series, periods_per_year: int = 252
 ) -> float:
-    """Annualized volatility from periodic returns."""
-    r = returns.dropna()
-    if r.empty:
-        return np.nan
-    return float(r.std(ddof=1) * np.sqrt(periods_per_year))
-
+    """Annualized volatility (delegates to ``src.analytics.metrics``)."""
+    return M.annualized_volatility(returns, periods_per_year)
 
 def sharpe_ratio(
     returns: pd.Series,
     rf_annual: float = 0.0,
     periods_per_year: int = 252,
 ) -> float:
-    """Annualized Sharpe ratio."""
-    r = returns.dropna()
-    if r.empty:
-        return np.nan
-    rf_per = rf_annual / periods_per_year
-    excess = r - rf_per
-    vol = excess.std(ddof=1)
-    if vol == 0 or np.isnan(vol):
-        return np.nan
-    return float(np.sqrt(periods_per_year) * excess.mean() / vol)
-
+    """Annualized Sharpe ratio; rf is de-annualized geometrically (see metrics)."""
+    return M.sharpe_ratio(returns, rf_annual, periods_per_year)
 
 def max_drawdown(values: pd.Series) -> float:
     """Maximum drawdown from a value series. Returns negative decimal."""
-    v = values.dropna().astype(float).sort_index()
-    if v.empty:
-        return np.nan
-    running_max = v.cummax()
-    dd = v / running_max - 1.0
-    return float(dd.min())
-
+    return M.max_drawdown(values)
 
 def drawdown_series(values: pd.Series) -> pd.Series:
     """Full drawdown time series from portfolio values."""
-    v = values.dropna().astype(float).sort_index()
-    if v.empty:
-        return pd.Series(dtype=float)
-    running_max = v.cummax()
-    return v / running_max - 1.0
-
+    return M.drawdown_series(values)
 
 def var_cvar(
     returns: pd.Series, alpha: float = 0.95
 ) -> tuple[float, float]:
-    """
-    Historical Value-at-Risk and Conditional VaR (Expected Shortfall).
-
-    Returns (VaR, CVaR) at the given confidence level.
-    Both are negative numbers representing losses.
-    """
-    r = returns.dropna().astype(float)
-    if r.empty:
-        return np.nan, np.nan
-    p = 1.0 - alpha
-    var_val = float(r.quantile(p))
-    tail = r[r <= var_val]
-    cvar_val = float(tail.mean()) if not tail.empty else np.nan
-    return var_val, cvar_val
-
+    """Historical VaR and CVaR, negative numbers (delegates to metrics)."""
+    return M.var_cvar(returns, alpha)
 
 def gain_to_pain(returns: pd.Series) -> float | None:
     """Gain-to-Pain ratio: sum(gains) / |sum(losses)|."""

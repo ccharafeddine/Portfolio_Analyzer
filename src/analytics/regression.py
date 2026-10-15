@@ -31,6 +31,10 @@ class RegressionResult:
     betas: dict[str, float] | None = None
     t_stats: dict[str, float] | None = None
 
+    # Standard errors (CAPM only; same periodicity as the input returns)
+    alpha_se: float = np.nan
+    beta_se: float = np.nan
+
     @property
     def ticker(self) -> str:
         """Convenience: first factor name is the ticker for CAPM results."""
@@ -94,6 +98,8 @@ def capm_regression(
         residual_std=float(np.sqrt(s2)),
         n_obs=n,
         factor_names=["Market"],
+        alpha_se=float(se_intercept),
+        beta_se=float(se_slope),
     )
 
 

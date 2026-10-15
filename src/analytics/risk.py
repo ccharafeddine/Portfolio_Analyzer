@@ -16,6 +16,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from src.analytics import metrics as M
 from src.data import transforms as T
 
 
@@ -210,7 +211,7 @@ def rolling_sharpe(
     annualize: int = 252,
 ) -> pd.DataFrame:
     """Rolling annualized Sharpe ratio."""
-    rf_per = rf_annual / annualize
+    rf_per = M.periodic_rate(rf_annual, annualize)
     excess = returns - rf_per
     roll_mean = excess.rolling(window).mean() * annualize
     roll_vol = returns.rolling(window).std() * np.sqrt(annualize)
@@ -268,32 +269,32 @@ def rolling_correlation(
 # ──────────────────────────────────────────────────────────────
 
 
-def tail_metrics(returns: pd.Series) -> dict[str, float]:
+def tail_metrics(
+    returns: pd.Series,
+    rf_annual: float = 0.0,
+    periods_per_year: int = M.DAILY,
+) -> dict[str, float]:
     """
     Comprehensive tail risk metrics for a return series.
+
+    Sortino uses the risk-free rate as its MAR and the downside deviation over
+    *all* periods (see ``src.analytics.metrics``); Calmar is CAGR / |max DD|
+    over the full sample supplied.
     """
     r = returns.dropna()
     if r.empty:
         return {}
 
-    var95, cvar95 = T.var_cvar(r, 0.95)
-    var99, cvar99 = T.var_cvar(r, 0.99)
+    var95, cvar95 = M.var_cvar(r, 0.95)
+    var99, cvar99 = M.var_cvar(r, 0.99)
     gtp = T.gain_to_pain(r)
 
-    # Skewness and kurtosis
     skew = float(r.skew())
     kurt = float(r.kurtosis())  # excess kurtosis
 
-    # Sortino ratio
-    rf_daily = 0.0
-    downside = r[r < rf_daily]
-    downside_vol = float(downside.std() * np.sqrt(252)) if len(downside) > 1 else np.nan
-    ann_ret = T.annualize_return(r)
-    sortino = (ann_ret - 0.0) / downside_vol if downside_vol > 0 else np.nan
-
-    # Calmar ratio
-    mdd = T.max_drawdown(pd.Series((1 + r).cumprod()))
-    calmar = ann_ret / abs(mdd) if mdd != 0 and not np.isnan(mdd) else np.nan
+    sortino = M.sortino_ratio(r, rf_annual, periods_per_year)
+    calmar = M.calmar_ratio(r, periods_per_year)
+    mdd = M.max_drawdown_from_returns(r)
 
     return {
         "VaR_95": var95,
