@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio Analyzer · Live demo</title>
+<meta name="description" content="Interactive demo of Portfolio Analyzer: performance, risk, VaR, stress tests and sector attribution for any portfolio.">
+<link rel="preconnect" href="https://rsms.me">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link rel="stylesheet" href="app.css?v=__BUILD__">
+<script defer src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js"></script>
+<script defer src="app.js?v=__BUILD__"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="mark"></span>Portfolio Analyzer <span class="tag">Demo</span></div>
+  <div class="ctx" id="ctx">Enter a portfolio and press Run</div>
+  <a class="gh" href="https://github.com/ccharafeddine/Portfolio_Analyzer" target="_blank" rel="noopener">GitHub</a>
+</header>
+
+<div class="layout">
+  <aside class="panel" id="panel">
+    <form id="form" autocomplete="off">
+      <div class="sect">
+        <label class="lbl" for="preset">Preset</label>
+        <select id="preset"></select>
+      </div>
+      <div class="sect">
+        <div class="lbl row"><span>Holdings</span><span id="wsum" class="muted num"></span></div>
+        <table class="hold-edit"><tbody id="rows"></tbody></table>
+        <button type="button" class="btn ghost" id="add">+ Add ticker</button>
+        <div class="hint" id="caphint"></div>
+      </div>
+      <div class="sect grid2">
+        <div><label class="lbl" for="bench">Benchmark</label><input id="bench" value="SPY" maxlength="12"></div>
+        <div><label class="lbl" for="capital">Capital ($)</label><input id="capital" class="num" value="100000" inputmode="numeric"></div>
+        <div><label class="lbl" for="start">Start</label><input id="start" type="date"></div>
+        <div><label class="lbl" for="end">End</label><input id="end" type="date"></div>
+      </div>
+      <div class="ranges" id="ranges">
+        <button type="button" data-y="1">1Y</button><button type="button" data-y="3">3Y</button>
+        <button type="button" data-y="5">5Y</button><button type="button" data-y="10">10Y</button>
+        <button type="button" data-y="15">15Y</button>
+      </div>
+      <button type="submit" class="btn primary" id="run">Run analysis</button>
+      <div class="engine" id="engine" aria-live="polite">
+        <div class="eprog"><div id="eprog-bar"></div></div>
+        <div class="emsg" id="emsg">Starting the analytics engine…</div>
+      </div>
+      <div class="err" id="err" role="alert"></div>
+    </form>
+  </aside>
+
+  <main class="main">
+    <section class="kpis" id="kpis"></section>
+    <nav class="tabs" id="tabs">
+      <button class="on" data-tab="overview">Overview</button>
+      <button data-tab="risk">Risk</button>
+      <button data-tab="attribution">Attribution</button>
+    </nav>
+    <div class="body" id="body">
+      <div class="empty" id="empty">
+        <p>Pick a preset or type your own tickers and weights, then press <b>Run analysis</b>.</p>
+        <p class="muted">Everything runs in your browser: the same Python analytics as the desktop app, loaded with Pyodide. The first visit downloads the Python runtime once (about 30 MB); later visits load from cache. Prices come from Yahoo Finance. Results are illustrative and are not investment advice.</p>
+      </div>
+
+      <div class="tab" data-tab="overview" hidden>
+        <div class="pane"><div class="ph">Growth of capital</div><div class="chart" id="ch-growth"></div></div>
+        <div class="pane"><div class="ph">Drawdown</div><div class="chart short" id="ch-dd"></div></div>
+        <div class="split">
+          <div class="pane"><div class="ph">Holdings</div><div class="tw"><table class="data" id="t-hold"></table></div></div>
+          <div class="pane"><div class="ph">Period returns</div><div class="tw"><table class="data" id="t-periods"></table></div></div>
+        </div>
+      </div>
+
+      <div class="tab" data-tab="risk" hidden>
+        <div class="split">
+          <div class="pane"><div class="ph">Value at Risk · daily</div><div class="tw"><table class="data" id="t-var"></table></div></div>
+          <div class="pane"><div class="ph">VaR backtest · 95%</div><div class="tw"><table class="data" id="t-varbt"></table></div></div>
+        </div>
+        <div class="pane"><div class="ph">Stress tests · current holdings through past crises</div><div class="tw"><table class="data" id="t-stress"></table></div></div>
+        <div class="split">
+          <div class="pane"><div class="ph">Worst drawdowns</div><div class="tw"><table class="data" id="t-dds"></table></div></div>
+          <div class="pane"><div class="ph">Rolling 12-month Sharpe</div><div class="chart short" id="ch-rs"></div></div>
+        </div>
+      </div>
+
+      <div class="tab" data-tab="attribution" hidden>
+        <div class="pane"><div class="ph" id="attr-head">Sector attribution (Brinson)</div><div class="chart" id="ch-attr"></div></div>
+        <div class="pane"><div class="ph">By sector</div><div class="tw"><table class="data" id="t-attr"></table></div>
+          <p class="note">Benchmark sector weights are held fixed over the period and sector ETFs stand in for the benchmark's sectors, so treat the split as approximate.</p></div>
+      </div>
+      <div class="warns" id="warns" hidden></div>
+    </div>
+    <div class="loading" id="loading" hidden><div class="bar"></div><span id="loadmsg">Fetching prices…</span></div>
+  </main>
+</div>
+
+<footer class="foot">
+  <span>Live demo of <a href="https://github.com/ccharafeddine/Portfolio_Analyzer" target="_blank" rel="noopener">Portfolio Analyzer</a>, an open-source desktop app. Runs entirely in your browser; limited to 20 tickers and 15 years.</span>
+  <span class="muted" id="status">Data: Yahoo Finance</span>
+</footer>
+</body>
+</html>
