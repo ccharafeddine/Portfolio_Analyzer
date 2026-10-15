@@ -24,6 +24,11 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
+          # requirements.txt was removed with the Streamlit app; key the pip
+          # cache on the files CI actually installs from.
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-desktop.txt
 
       - name: Install dependencies
         run: |
