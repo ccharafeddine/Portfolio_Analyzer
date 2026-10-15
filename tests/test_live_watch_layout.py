@@ -36,6 +36,23 @@ from src.ui.widgets.chart_heatmap_panel import (  # noqa: E402
 from src.ui.widgets.grid_layout import resolve  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _dispose_widgets():
+    """Destroy every top-level widget a test leaves behind before the next one.
+
+    Unparented widgets (dashboards, tables, panels) otherwise survive until
+    interpreter shutdown, where they are torn down after the QApplication and
+    crash the process (SIGSEGV/abort) after all tests have passed - which fails
+    CI even with a green test report.
+    """
+    yield
+    for w in QtWidgets.QApplication.topLevelWidgets():
+        w.close()
+        w.deleteLater()
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+    QtCore.QCoreApplication.processEvents()
+
+
 def _settings(tmp_path):
     """A real AppSettings over an isolated ini file."""
     qs = QtCore.QSettings(str(tmp_path / "market_watch.ini"), QtCore.QSettings.IniFormat)
