@@ -8,6 +8,7 @@ Adds stress testing, bootstrap Monte Carlo, and risk contribution.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -140,6 +141,12 @@ class AnalysisResults:
     # Stress testing
     stress_results: list[StressResult] = field(default_factory=list)
     stress_df: Optional[pd.DataFrame] = None
+    beta_shocks: Optional[pd.DataFrame] = None
+    # VaR / ES by method, rolling VaR backtest, top drawdowns
+    var_table: Optional[pd.DataFrame] = None
+    var_backtest: Optional[pd.DataFrame] = None
+    var_backtest_series: Optional[pd.DataFrame] = None
+    drawdown_table: Optional[pd.DataFrame] = None
 
     # Holdings
     holdings: Optional[pd.DataFrame] = None
@@ -150,6 +157,7 @@ class AnalysisResults:
     # Attribution
     asset_attribution: Optional[pd.DataFrame] = None
     sector_attribution: Optional[pd.DataFrame] = None
+    sector_attribution_meta: Optional[dict] = None
     # Per-period contribution of each holding to active return (time series)
     ts_attribution: Optional[pd.DataFrame] = None
 
@@ -256,6 +264,7 @@ class AnalysisPipeline:
             ("Measuring performance", self._measure_performance),
             ("Analyzing taxes", self._compute_tax),
             ("Computing risk metrics", self._compute_risk),
+            ("VaR models & drawdowns", self._compute_tail_risk),
             ("Recommending trades", self._recommend_trades),
             ("Running stress tests", self._run_stress_tests),
             ("Building scenario model", self._build_scenario_model),
@@ -663,15 +672,58 @@ class AnalysisPipeline:
         except Exception as e:
             self._warn("Correlation regime failed", e)
 
+    def _compute_tail_risk(self) -> None:
+        if self.results.active is None:
+            return
+        from src.analytics import tail_risk as TR
+
+        r = self.results.active.daily_returns
+        try:
+            self.results.var_table = TR.var_table(r)
+            self.results.var_backtest = TR.backtest_table(r, 0.99, window=250)
+            bt = TR.backtest_var(r, 0.99, "historical", window=250)
+            self.results.var_backtest_series = bt.series
+        except Exception as e:
+            self._warn("VaR models failed", e)
+        try:
+            self.results.drawdown_table = TR.drawdown_table(self.results.active.values, top=5)
+        except Exception as e:
+            self._warn("Drawdown table failed", e)
+
     def _run_stress_tests(self) -> None:
         if self.results.active is None or self.results.passive is None:
             return
 
+        from src.analytics.risk import HISTORICAL_SCENARIOS, beta_shock_table
+
+        # Long history so scenarios before the analysis window can be replayed
+        # with the current weights.
+        long_px = bench_px = None
+        earliest = min(pd.Timestamp(s[1]) for s in HISTORICAL_SCENARIOS)
+        if earliest < pd.Timestamp(self.config.start_date):
+            try:
+                bench = self.config.benchmark
+                tick = sorted(set(self.config.tickers) | ({bench} if bench else set()))
+                long_px = fetch_prices(tickers=tick, start=earliest.date() - timedelta(days=10),
+                                       end=self.config.end_date)
+                if bench in long_px.columns and not self.config.benchmark_weights:
+                    bench_px = long_px[bench]
+            except Exception as e:
+                self._warn("Long price history for stress replay unavailable", e)
+
         self.results.stress_results = run_stress_tests(
             self.results.active.values,
             self.results.passive.values,
+            asset_prices=long_px, weights=self.config.weights, benchmark_prices=bench_px,
         )
         self.results.stress_df = stress_results_to_df(self.results.stress_results)
+        try:
+            bench_daily = self.results.prices[self._bench_label].pct_change()
+            self.results.beta_shocks = beta_shock_table(
+                self.results.active.daily_returns, bench_daily,
+                float(self.results.active.values.iloc[-1]))
+        except Exception as e:
+            self._warn("Beta shock table failed", e)
 
     def _build_complete(self) -> None:
         if self.results.orp is None or not self.config.include_complete:
@@ -705,11 +757,55 @@ class AnalysisPipeline:
             self._warn("Attribution failed", e)
 
         try:
+            self._run_sector_attribution()
+        except Exception as e:
+            self._warn("Sector attribution failed", e)
+
+        try:
             self.results.ts_attribution = time_series_attribution(
                 self.results.monthly_returns, self.config.weights, self._bench_label,
             )
         except Exception as e:
             self._warn("Time-series attribution failed", e)
+
+    def _run_sector_attribution(self) -> None:
+        """Monthly Brinson-Fachler by sector vs the benchmark fund (see
+        analytics.sector_attribution for the method and its proxies)."""
+        from src.analytics import sector_attribution as SA
+
+        bt = self.results.backtest
+        bench = self.config.benchmark
+        if bt is None or self.config.benchmark_weights or not bench:
+            return
+        prices = self.results.prices
+        assets = [t for t in self.config.tickers if t in prices.columns and t != bench]
+        sectors = {}
+        for t in assets:
+            sec = None
+            if t not in SA.KNOWN_ASSET_CLASSES:
+                try:
+                    import yfinance as yf
+                    sec = (yf.Ticker(t).info or {}).get("sector")
+                except Exception:
+                    sec = None
+            sectors[t] = SA.classify(t, sec)
+        bench_w, source = SA.fund_sector_weights(bench)
+        etfs = sorted({SA.SECTOR_ETFS[s] for s in bench_w if s in SA.SECTOR_ETFS})
+        etf_px = fetch_prices(tickers=etfs, start=self.config.start_date, end=self.config.end_date)
+        to_m = lambda px: px.resample("ME").last().pct_change().dropna(how="all")  # noqa: E731
+        sec_r = to_m(etf_px).rename(columns={v: k for k, v in SA.SECTOR_ETFS.items()})
+        asset_r = to_m(prices[assets])
+        wh = bt.weight_history[[a for a in assets if a in bt.weight_history.columns]]
+        w_start = wh.resample("ME").last().shift(1).dropna(how="all")
+        out = SA.sector_brinson(w_start, asset_r, sectors, bench_w, sec_r)
+        if out["table"].empty:
+            return
+        self.results.sector_attribution = out["table"]
+        self.results.sector_attribution_meta = {
+            "source": source, "sectors": sectors, "periods": out["periods"],
+            "port_return": out["port_return"], "bench_return": out["bench_return"],
+            "active_return": out["active_return"],
+        }
 
     def _compute_rebalance(self) -> None:
         if self.results.holdings is None or self.results.prices.empty:

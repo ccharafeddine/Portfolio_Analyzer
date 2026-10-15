@@ -3,7 +3,8 @@
 Regress each asset's (and the portfolio's) daily excess returns on a factor set to get
 true factor loadings (betas), alpha, and R² — replacing the old return-based proxies.
 Output columns match ``charts.factor_loadings_chart``: ``Asset``, ``const_coef`` (alpha),
-one ``<factor>_coef`` per factor, and ``R2``.
+one ``<factor>_coef`` per factor, matching ``*_t`` t-statistics
+(OLS, conventional SEs), ``R2`` and ``N``.
 """
 
 from __future__ import annotations
@@ -61,13 +62,17 @@ def run_factor_model(
         row = {
             "Asset": name,
             "const_coef": round(float(res.params.get("const", 0.0)), 5),
+            "const_t": round(float(res.tvalues.get("const", 0.0)), 2),
         }
         for f in factor_cols:
             row[f"{f}_coef"] = round(float(res.params.get(f, 0.0)), 3)
+            row[f"{f}_t"] = round(float(res.tvalues.get(f, 0.0)), 2)
         row["R2"] = round(float(res.rsquared), 3)
+        row["N"] = int(res.nobs)
         rows.append(row)
 
     if not rows:
         return pd.DataFrame()
-    order = ["Asset", "const_coef"] + [f"{f}_coef" for f in factor_cols] + ["R2"]
+    order = (["Asset", "const_coef", "const_t"]
+             + [c for f in factor_cols for c in (f"{f}_coef", f"{f}_t")] + ["R2", "N"])
     return pd.DataFrame(rows)[order]

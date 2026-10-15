@@ -90,3 +90,20 @@ def test_fetch_assembles_carhart(monkeypatch):
     assert {"RMW", "CMA"}.issubset(f5.columns)
 
     assert factors.fetch_ff_factors(date(2021, 1, 4), date(2021, 6, 1), "bogus") is None
+
+
+def test_t_stats_match_numpy_ols():
+    idx = pd.bdate_range("2021-01-04", periods=300)
+    rng = np.random.default_rng(5)
+    ff = pd.DataFrame({c: rng.normal(0, 0.01, len(idx)) for c in ["Mkt-RF", "SMB", "HML"]}, index=idx)
+    ff["RF"] = 0.0
+    y = 0.9 * ff["Mkt-RF"] + 0.1 * ff["SMB"] + rng.normal(0, 0.008, len(idx))
+    row = run_factor_model(pd.DataFrame({"A": y}), ff, FACTOR_SETS["FF3"]).iloc[0]
+    X = np.column_stack([np.ones(len(idx)), ff[["Mkt-RF", "SMB", "HML"]].to_numpy()])
+    b, *_ = np.linalg.lstsq(X, y.to_numpy(), rcond=None)
+    resid = y.to_numpy() - X @ b
+    se = np.sqrt(np.diag(resid @ resid / (len(idx) - 4) * np.linalg.inv(X.T @ X)))
+    t = b / se
+    for name, ref in zip(["const_t", "Mkt-RF_t", "SMB_t", "HML_t"], t):
+        assert abs(row[name] - ref) < 0.01
+    assert row["N"] == 300

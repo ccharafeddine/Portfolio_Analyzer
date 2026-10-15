@@ -31,10 +31,11 @@ from src.data import transforms as T
 # Named historical stress scenarios: (name, start, end, description)
 HISTORICAL_SCENARIOS = [
     ("COVID Crash", "2020-02-19", "2020-03-23", "Pandemic market crash"),
-    ("2022 Bear Market", "2022-01-03", "2022-10-12", "Fed tightening selloff"),
+    ("2022 Rates Shock", "2022-01-03", "2022-10-12", "Fed tightening; stocks and bonds fell together"),
     ("SVB Crisis", "2023-03-08", "2023-03-15", "Banking sector stress"),
     ("Aug 2024 Unwind", "2024-07-16", "2024-08-05", "Yen carry trade unwind"),
-    ("GFC Peak-Trough", "2007-10-09", "2009-03-09", "Global Financial Crisis"),
+    ("2008 GFC", "2007-10-09", "2009-03-09", "Global Financial Crisis, peak to trough"),
+    ("Lehman Week", "2008-09-12", "2008-09-19", "Lehman bankruptcy and money-fund break"),
     ("Taper Tantrum", "2013-05-22", "2013-06-24", "Fed taper announcement"),
     ("China Deval", "2015-08-10", "2015-08-25", "Chinese yuan devaluation"),
     ("VIX-mageddon", "2018-01-26", "2018-02-08", "Volatility spike"),
@@ -54,12 +55,51 @@ class StressResult:
     max_drawdown: float
     days: int
     data_available: bool
+    basis: str = "History"     # "History" (actual portfolio) or "Replay" (current weights)
+    coverage: float = 1.0      # share of current weight with prices in the window
+
+
+def replay_values(asset_prices: pd.DataFrame, weights: dict[str, float],
+                  start, end) -> tuple[pd.Series, float]:
+    """Buy-and-hold value path of ``weights`` over [start, end] using each
+    asset's own prices. Assets without prices at the window start are dropped
+    and the rest re-normalized; returns (values, covered weight share)."""
+    px = asset_prices.loc[(asset_prices.index >= pd.Timestamp(start))
+                          & (asset_prices.index <= pd.Timestamp(end))]
+    w = pd.Series({k: float(v) for k, v in weights.items() if v and k in px.columns})
+    total = sum(float(v) for v in weights.values() if v) or 1.0
+    if px.empty or w.empty:
+        return pd.Series(dtype=float), 0.0
+    first = px.iloc[0]
+    w = w[first[w.index].notna()]
+    cover = float(w.sum() / total)
+    if w.empty:
+        return pd.Series(dtype=float), 0.0
+    w = w / w.sum()
+    rel = px[w.index].ffill() / first[w.index]
+    return (rel * w).sum(axis=1), cover
+
+
+def beta_shock_table(port_daily: pd.Series, bench_daily: pd.Series, value: float,
+                     shocks=(-0.10, -0.20, -0.30, -0.40)) -> pd.DataFrame:
+    """Custom market shocks translated through the portfolio's full-sample
+    daily beta (linear; ignores convexity and idiosyncratic noise)."""
+    df = pd.concat([port_daily, bench_daily], axis=1).dropna()
+    if len(df) < 60:
+        return pd.DataFrame()
+    p, b = df.iloc[:, 0], df.iloc[:, 1]
+    beta = float(np.cov(p, b, ddof=1)[0, 1] / b.var(ddof=1))
+    return pd.DataFrame([{"Market shock": s, "Beta": beta, "Portfolio": beta * s,
+                          "P&L": beta * s * value} for s in shocks])
 
 
 def run_stress_tests(
     portfolio_values: pd.Series,
     benchmark_values: pd.Series,
     scenarios: list[tuple[str, str, str, str]] | None = None,
+    asset_prices: pd.DataFrame | None = None,
+    weights: dict[str, float] | None = None,
+    benchmark_prices: pd.Series | None = None,
 ) -> list[StressResult]:
     """
     Test portfolio performance during historical stress periods.
@@ -91,6 +131,17 @@ def run_stress_tests(
                 & (benchmark_values.index <= end_dt)
             ]
 
+            basis, cover = "History", 1.0
+            covered = (len(pv) >= 2 and pv.index[0] - start_dt <= pd.Timedelta(days=7)
+                       and end_dt - pv.index[-1] <= pd.Timedelta(days=7))
+            if not covered and asset_prices is not None and weights:
+                rv, cover = replay_values(asset_prices, weights, start_dt, end_dt)
+                if len(rv) >= 2 and cover >= 0.5:
+                    pv, basis = rv, "Replay"
+                    if benchmark_prices is not None:
+                        bv = benchmark_prices.loc[(benchmark_prices.index >= start_dt)
+                                                  & (benchmark_prices.index <= end_dt)].dropna()
+
             if len(pv) < 2 or len(bv) < 2:
                 results.append(StressResult(
                     name=name, description=desc, start=start, end=end,
@@ -107,6 +158,7 @@ def run_stress_tests(
                 name=name, description=desc, start=start, end=end,
                 portfolio_return=p_ret, benchmark_return=b_ret,
                 max_drawdown=mdd, days=len(pv), data_available=True,
+                basis=basis, coverage=cover,
             ))
         except Exception as e:
             log.warning("Stress test '%s' failed: %s", name, e)
@@ -131,6 +183,7 @@ def stress_results_to_df(results: list[StressResult]) -> pd.DataFrame:
                 "Benchmark": "N/A",
                 "Max DD": "N/A",
                 "Days": "—",
+                "Basis": "No data",
             })
         else:
             rows.append({
@@ -140,6 +193,7 @@ def stress_results_to_df(results: list[StressResult]) -> pd.DataFrame:
                 "Benchmark": f"{r.benchmark_return:.2%}",
                 "Max DD": f"{r.max_drawdown:.2%}",
                 "Days": str(r.days),
+                "Basis": r.basis if r.coverage >= 0.999 else f"{r.basis} ({r.coverage:.0%} of weight)",
             })
     return pd.DataFrame(rows)
 
