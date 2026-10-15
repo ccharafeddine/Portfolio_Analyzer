@@ -22,11 +22,27 @@ def test_batting_average():
 def test_up_down_capture():
     cap = perf.up_down_capture(PORT, BENCH)
     # Up months (bench>0): 0.02,0.03,0.00 vs 0.01,0.02,0.01.
-    port_up = 1.02 * 1.03 * 1.00 - 1
-    bench_up = 1.01 * 1.02 * 1.01 - 1
+    # Annualized geometric returns over those months (Morningstar / empyrical).
+    port_up = (1.02 * 1.03 * 1.00) ** (12 / 3) - 1
+    bench_up = (1.01 * 1.02 * 1.01) ** (12 / 3) - 1
     assert cap["up_capture"] == pytest.approx(port_up / bench_up, rel=1e-6)
-    # Down month (bench<0): -0.01 vs -0.02.
-    assert cap["down_capture"] == pytest.approx(0.5, rel=1e-6)
+    # Down month (bench<0): -0.01 vs -0.02, annualized.
+    assert cap["down_capture"] == pytest.approx((0.99 ** 12 - 1) / (0.98 ** 12 - 1), rel=1e-6)
+
+
+def test_capture_matches_empyrical_reference():
+    """Regression for the compounded-total bug (sample showed 317% up-capture).
+    Reference: empyrical-reloaded 0.5.12 up_capture/down_capture(period='monthly')
+    on the first 120 rows of fixtures/metrics_returns.csv."""
+    from pathlib import Path
+
+    f = pd.read_csv(Path(__file__).parent / "fixtures" / "metrics_returns.csv").iloc[:120]
+    cap = perf.up_down_capture(f["port"], f["bench"])
+    assert cap["up_capture"] == pytest.approx(0.37745276615799084, rel=1e-9)
+    assert cap["down_capture"] == pytest.approx(0.544900989319743, rel=1e-9)
+    ep = pytest.importorskip("empyrical")
+    assert cap["up_capture"] == pytest.approx(ep.up_capture(f["port"], f["bench"], period="monthly"))
+    assert cap["down_capture"] == pytest.approx(ep.down_capture(f["port"], f["bench"], period="monthly"))
 
 
 def test_tracking_error():

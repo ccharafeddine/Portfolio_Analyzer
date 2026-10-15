@@ -29,23 +29,31 @@ def _align(a: pd.Series, b: pd.Series) -> tuple[pd.Series, pd.Series]:
     return df["p"], df["b"]
 
 
-def up_down_capture(port_ret: pd.Series, bench_ret: pd.Series) -> dict:
-    """Compounded up/down capture ratios (Morningstar-style) on aligned returns."""
+def up_down_capture(port_ret: pd.Series, bench_ret: pd.Series,
+                    periods_per_year: int = 12) -> dict:
+    """Morningstar-style up/down capture on aligned periodic returns.
+
+    For the periods where the benchmark was up (down), capture is the ratio of
+    the portfolio's *annualized geometric* return to the benchmark's over those
+    same periods: ``((prod(1+p))**(ppy/n) - 1) / ((prod(1+b))**(ppy/n) - 1)``.
+    (Comparing cumulative products instead, as before, compounds the gap over
+    every up month and blows the ratio up on long samples — e.g. 317% vs 180%.)
+    Matches ``empyrical.up_capture`` / ``down_capture``.
+    """
     p, b = _align(port_ret, bench_ret)
     out = {"up_capture": np.nan, "down_capture": np.nan, "capture_ratio": np.nan}
-    up, down = b > 0, b < 0
-    if up.any():
-        bench_up = (1 + b[up]).prod() - 1
-        port_up = (1 + p[up]).prod() - 1
-        if abs(bench_up) > 1e-12:
-            out["up_capture"] = port_up / bench_up
-    if down.any():
-        bench_dn = (1 + b[down]).prod() - 1
-        port_dn = (1 + p[down]).prod() - 1
-        if abs(bench_dn) > 1e-12:
-            out["down_capture"] = port_dn / bench_dn
-    if out["down_capture"] and not np.isnan(out["down_capture"]) and abs(out["down_capture"]) > 1e-9:
-        out["capture_ratio"] = out["up_capture"] / out["down_capture"]
+
+    def _geo(x: pd.Series) -> float:
+        return float((1 + x).prod() ** (periods_per_year / len(x)) - 1.0)
+
+    for key, mask in (("up_capture", b > 0), ("down_capture", b < 0)):
+        if mask.any():
+            bench = _geo(b[mask])
+            if abs(bench) > 1e-12:
+                out[key] = _geo(p[mask]) / bench
+    dn = out["down_capture"]
+    if not np.isnan(dn) and abs(dn) > 1e-9:
+        out["capture_ratio"] = out["up_capture"] / dn
     return out
 
 
