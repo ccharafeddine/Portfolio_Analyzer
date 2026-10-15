@@ -1,0 +1,21 @@
+# Price proxy for the in-browser Portfolio Analyzer demo.
+# No account_id here on purpose: wrangler takes it from CLOUDFLARE_ACCOUNT_ID or login.
+name = "portfolio-price-proxy"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# Serve the proxy on the demo's own hostname so the page calls it same-origin.
+# Uncomment once chafic.me is confirmed on this account and the Pages domain is live.
+# routes = [{ pattern = "portfolio.chafic.me/v1/*", zone_name = "chafic.me" }]
+
+[vars]
+ALLOWED_ORIGINS = "https://portfolio.chafic.me,http://localhost:8788,http://127.0.0.1:8788"
+RATE_LIMIT = "60"
+
+# Workers Rate Limiting binding: 60 proxy calls per IP per minute across the edge.
+# (Without it the Worker falls back to a per-isolate in-memory limiter.)
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
