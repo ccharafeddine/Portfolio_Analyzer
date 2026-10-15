@@ -148,8 +148,6 @@ python main_desktop.py
 
 The application window opens directly (no browser). Configure your portfolio in the left sidebar and click **Run Analysis**. Results populate across the eight tabs.
 
-> The repository also contains the original Streamlit web app (`app.py`, `pip install -r requirements.txt`, then `streamlit run app.py`). The desktop app is the primary, actively developed product.
-
 ---
 
 ## How It Works
@@ -322,7 +320,6 @@ The pipeline runs on a background `QThread` worker with a live progress bar; rep
 ```
 Portfolio_Analyzer/
 ├── main_desktop.py                 # Desktop entry point (PySide6)
-├── app.py                          # Legacy Streamlit web app
 ├── src/
 │   ├── pipeline.py                 # 18-step orchestration + AnalysisResults dataclass
 │   ├── config/
@@ -330,9 +327,11 @@ Portfolio_Analyzer/
 │   │                                 TaxConfig, PlanConfig, BLConfig, CompletePortfolioConfig)
 │   ├── data/
 │   │   ├── fetcher.py              # yfinance fetching with parquet caching
+│   │   ├── risk_free.py            # Per-run risk-free rate (13-week T-bill ^IRX, with fallback)
 │   │   ├── market_data.py          # News (yfinance + Alpha Vantage) & FRED macro
 │   │   └── transforms.py           # Returns, VaR/CVaR, drawdowns, Sharpe, etc.
 │   ├── analytics/
+│   │   ├── metrics.py              # Canonical return/risk metrics (Sharpe, Sortino, Calmar, CAPM SE/t)
 │   │   ├── backtest.py            # Inception-aware, cost-aware backtest engine
 │   │   ├── optimization.py         # Max-Sharpe, efficient frontier, min-variance
 │   │   ├── hrp.py                  # Hierarchical Risk Parity
@@ -367,7 +366,6 @@ Portfolio_Analyzer/
 │       └── widgets/                # info_label, metric_card, collapsible, table model
 ├── tests/                          # 82 tests (portfolio, backtest, performance, tax, planning, paths)
 ├── requirements-desktop.txt        # Desktop app dependencies
-├── requirements.txt                # Legacy Streamlit dependencies
 └── README.md
 ```
 
