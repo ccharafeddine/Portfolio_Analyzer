@@ -212,7 +212,8 @@ def test_bundle_contains_only_needed_modules():
 def test_static_site_has_no_secrets():
     import re
     root = Path(__file__).resolve().parent.parent / "web"
-    files = [p for d in ("static", "worker/src") for p in (root / d).rglob("*") if p.is_file()]
+    files = [p for d in ("static", "worker/src") for p in (root / d).rglob("*")
+             if p.is_file() and p.suffix not in {".png", ".ico", ".zip"}]  # text only
     files.append(root / "worker" / "wrangler.toml")
     text = "".join(p.read_text(encoding="utf-8") for p in files)
     assert not re.search(r"(api[_-]?key|secret|token|password)\s*[:=]", text, re.I)
