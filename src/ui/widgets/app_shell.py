@@ -287,7 +287,15 @@ def data_status_text(results) -> str:
     if q["as_of"] is not None:
         parts.append(f"as of {q['as_of']:%d %b %Y}")
     parts.append(f"{q['days']:,} trading days")
-    parts.append(f"{q['gaps']:,} gap{'s' if q['gaps'] != 1 else ''}")
+    rep = getattr(results, "data_quality", None)
+    gaps = rep.gaps if rep is not None else q["gaps"]
+    parts.append(f"{gaps:,} gap{'s' if gaps != 1 else ''}")
+    if rep is not None and rep.issues:
+        n = len(rep.issues)
+        parts.append(f"{n} data issue{'s' if n != 1 else ''}")
+    prices = getattr(results, "prices", None)
+    if prices is not None and getattr(prices, "attrs", {}).get("offline"):
+        parts.append("offline (cached)")
     rf = getattr(results, "risk_free", None)
     if rf is not None:
         parts.append(f"Rf {rf.rate:.2%} ({rf.source})")

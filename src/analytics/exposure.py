@@ -35,14 +35,10 @@ def get_sector_weights(holdings: pd.DataFrame) -> pd.DataFrame:
     if yf is None:
         return pd.DataFrame(columns=["Sector", "Weight"])
 
-    sector_map = {}
-    for ticker in holdings["Ticker"].unique():
-        try:
-            info = yf.Ticker(ticker).info
-            sector_map[ticker] = info.get("sector", "Unknown")
-        except Exception as e:
-            log.warning("Sector lookup failed for %s: %s", ticker, e)
-            sector_map[ticker] = "Unknown"
+    from src.data.meta_cache import get_sectors
+
+    sector_map = {t: (sec or "Unknown")
+                  for t, sec in get_sectors(list(holdings["Ticker"].unique())).items()}
 
     df = holdings[["Ticker", "RealizedWeight"]].copy()
     df["Sector"] = df["Ticker"].map(sector_map)

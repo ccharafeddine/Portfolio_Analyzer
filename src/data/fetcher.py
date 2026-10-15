@@ -120,19 +120,27 @@ def fetch_prices(
     # yfinance end is exclusive, so add 1 day
     end_fetch = end + timedelta(days=1)
 
-    raw = yf.download(
-        tickers,
-        start=start.isoformat(),
-        end=end_fetch.isoformat(),
-        auto_adjust=True,
-        progress=False,
-        threads=True,
-    )
+    try:
+        raw = yf.download(
+            tickers,
+            start=start.isoformat(),
+            end=end_fetch.isoformat(),
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+    except Exception as e:  # network down, DNS, rate limit ...
+        log.warning("Price download failed: %s", e)
+        raw = pd.DataFrame()
 
     if raw.empty:
+        stale = _stale_cache(cache_dir, path, tickers, start, end)
+        if stale is not None:
+            return stale
         raise ValueError(
             f"yfinance returned no data for {tickers} "
-            f"between {start} and {end}. Check tickers and dates."
+            f"between {start} and {end}, and no cached copy is available. "
+            "Check the tickers, the dates and your internet connection."
         )
 
     # yf.download returns MultiIndex columns for multiple tickers:
@@ -161,7 +169,8 @@ def fetch_prices(
     requested = set(tickers)
     missing = requested - fetched
     if missing:
-        print(f"[data] Warning: no price data for: {missing}")
+        log.warning("No price data for: %s", ", ".join(sorted(missing)))
+        prices.attrs["missing"] = sorted(missing)
 
     if prices.empty:
         raise ValueError("No price data returned after processing.")
@@ -173,6 +182,38 @@ def fetch_prices(
         log.warning("Price cache write failed (non-fatal): %s", e)
 
     return prices
+
+
+def _stale_cache(cache_dir: Path, path: Path, tickers: list[str], start: date,
+                 end: date) -> Optional[pd.DataFrame]:
+    """Offline fallback: the exact cached request regardless of age, else any
+    cached frame that holds every ticker and covers the window. The result is
+    tagged ``attrs['offline'] = True`` and ``attrs['cache_age_days']``."""
+    import time
+
+    candidates = [path] if path.exists() else []
+    candidates += sorted((p for p in cache_dir.glob("prices_*.parquet") if p != path),
+                         key=lambda p: -p.stat().st_mtime)
+    for p in candidates:
+        try:
+            df = pd.read_parquet(p)
+        except Exception:
+            continue
+        if not set(tickers).issubset(df.columns):
+            continue
+        df = df.sort_index()
+        df = df.loc[(df.index >= pd.Timestamp(start)) & (df.index <= pd.Timestamp(end)), tickers]
+        if p != path and (df.empty or df.index[0] > pd.Timestamp(start) + pd.Timedelta(days=7)):
+            continue
+        if df.empty:
+            continue
+        df = df.copy()
+        df.attrs["offline"] = True
+        df.attrs["cache_age_days"] = round((time.time() - p.stat().st_mtime) / 86400, 1)
+        log.warning("Offline: using cached prices from %s (%.1f days old)", p.name,
+                    df.attrs["cache_age_days"])
+        return df
+    return None
 
 
 def fetch_single_ticker(

@@ -90,3 +90,12 @@ def test_stress_replay_and_beta_shocks():
     t = R.beta_shock_table(p, b, 1000.0, shocks=(-0.1,))
     assert t["Beta"].iloc[0] == pytest.approx(1.5, abs=0.02)
     assert t["P&L"].iloc[0] == pytest.approx(t["Portfolio"].iloc[0] * 1000)
+
+
+@pytest.mark.parametrize("method", ["historical", "parametric", "cornish_fisher"])
+def test_fast_backtest_matches_loop(method):
+    s = pd.Series(np.random.default_rng(9).standard_t(4, 400) * 0.01)
+    fast = T.backtest_var(s, 0.99, method, window=120)
+    slow = T.backtest_var(s, 0.99, method, window=120, step=2)  # loop path
+    np.testing.assert_allclose(fast.series["var"].iloc[::2].values, slow.series["var"].values,
+                               rtol=1e-9)

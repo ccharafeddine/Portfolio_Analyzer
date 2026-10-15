@@ -8,6 +8,7 @@ Adds stress testing, bootstrap Monte Carlo, and risk contribution.
 from __future__ import annotations
 
 import json
+import time
 from datetime import timedelta
 import logging
 from dataclasses import dataclass, field
@@ -158,6 +159,8 @@ class AnalysisResults:
     asset_attribution: Optional[pd.DataFrame] = None
     sector_attribution: Optional[pd.DataFrame] = None
     sector_attribution_meta: Optional[dict] = None
+    data_quality: Optional[object] = None    # src.data.quality.QualityReport
+    timings: dict = field(default_factory=dict)  # step label -> seconds
     # Per-period contribution of each holding to active return (time series)
     ts_attribution: Optional[pd.DataFrame] = None
 
@@ -282,10 +285,12 @@ class AnalysisPipeline:
         for i, (label, step_fn) in enumerate(steps):
             if progress:
                 progress(label, i / total)
+            t0 = time.perf_counter()
             try:
                 step_fn()
             except Exception as e:
                 self._warn(f"Step '{label}' failed", e)
+            self.results.timings[label] = round(time.perf_counter() - t0, 3)
 
         if progress:
             progress("Complete", 1.0)
@@ -344,6 +349,7 @@ class AnalysisPipeline:
 
         self.results.prices = prices
         self.results.monthly_returns = T.monthly_returns(prices)
+        self._check_data_quality(prices)
 
         asset_cols = [
             t for t in self.config.tickers
@@ -353,6 +359,23 @@ class AnalysisPipeline:
             self.results.correlation_matrix = (
                 self.results.monthly_returns[asset_cols].corr()
             )
+
+    def _check_data_quality(self, prices: pd.DataFrame) -> None:
+        from src.data.quality import quality_report
+
+        if prices.attrs.get("offline"):
+            self.results.warnings.append(
+                f"Offline: using cached prices ({prices.attrs.get('cache_age_days', '?')} days old)")
+        for t in prices.attrs.get("missing", []):
+            self.results.warnings.append(f"{t}: no price data returned; excluded")
+        try:
+            rep = quality_report(prices[[c for c in prices.columns
+                                         if c in self.config.tickers or c == self._bench_label]],
+                                 start=self.config.start_date)
+            self.results.data_quality = rep
+            self.results.warnings.extend(f"Data quality: {i}" for i in rep.issues)
+        except Exception as e:
+            self._warn("Data-quality check failed", e)
 
     def _build_active(self) -> None:
         """Build the active portfolio via the backtest engine, which handles
@@ -779,16 +802,10 @@ class AnalysisPipeline:
             return
         prices = self.results.prices
         assets = [t for t in self.config.tickers if t in prices.columns and t != bench]
-        sectors = {}
-        for t in assets:
-            sec = None
-            if t not in SA.KNOWN_ASSET_CLASSES:
-                try:
-                    import yfinance as yf
-                    sec = (yf.Ticker(t).info or {}).get("sector")
-                except Exception:
-                    sec = None
-            sectors[t] = SA.classify(t, sec)
+        from src.data.meta_cache import get_sectors
+
+        looked = get_sectors([t for t in assets if t not in SA.KNOWN_ASSET_CLASSES])
+        sectors = {t: SA.classify(t, looked.get(t)) for t in assets}
         bench_w, source = SA.fund_sector_weights(bench)
         etfs = sorted({SA.SECTOR_ETFS[s] for s in bench_w if s in SA.SECTOR_ETFS})
         etf_px = fetch_prices(tickers=etfs, start=self.config.start_date, end=self.config.end_date)
@@ -848,6 +865,7 @@ class AnalysisPipeline:
                 self.results.holdings,
                 self.config.start_date,
                 self.config.end_date,
+                last_prices=self.results.prices.ffill().iloc[-1],
             )
 
             total_invested = float(self.results.holdings["Invested"].sum())

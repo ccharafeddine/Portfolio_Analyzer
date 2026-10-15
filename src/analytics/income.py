@@ -19,6 +19,26 @@ except ImportError:
     yf = None
 
 
+_DIV_CACHE: dict[str, tuple[float, pd.Series]] = {}
+_DIV_TTL_S = 3600.0
+
+
+def _dividend_history(ticker: str) -> pd.Series:
+    """Full dividend history, memoized per process for an hour (the income
+    summary and the cumulative series both need it)."""
+    import time
+
+    hit = _DIV_CACHE.get(ticker)
+    if hit and time.time() - hit[0] < _DIV_TTL_S:
+        return hit[1]
+    divs = yf.Ticker(ticker).dividends
+    if divs.index.tz is not None:
+        divs = divs.copy()
+        divs.index = divs.index.tz_localize(None)
+    _DIV_CACHE[ticker] = (time.time(), divs)
+    return divs
+
+
 def fetch_dividends(
     ticker: str,
     start: str | pd.Timestamp,
@@ -33,18 +53,14 @@ def fetch_dividends(
     try:
         if yf is None:
             return pd.Series(dtype=float, name=ticker)
-        t = yf.Ticker(ticker)
-        divs = t.dividends
+        divs = _dividend_history(ticker)
         if divs.empty:
             return pd.Series(dtype=float, name=ticker)
 
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
-        # Ensure timezone-naive comparison
-        if divs.index.tz is not None:
-            divs.index = divs.index.tz_localize(None)
         mask = (divs.index >= start_ts) & (divs.index <= end_ts)
-        filtered = divs.loc[mask]
+        filtered = divs.loc[mask].copy()
         filtered.name = ticker
         return filtered
     except Exception as e:
@@ -56,9 +72,13 @@ def compute_income_summary(
     holdings: pd.DataFrame,
     start_date: str | pd.Timestamp,
     end_date: str | pd.Timestamp,
+    last_prices: dict | pd.Series | None = None,
 ) -> pd.DataFrame:
     """
     Compute dividend income summary for each holding.
+
+    ``last_prices`` (ticker -> latest price, e.g. the last row of the price
+    frame) avoids a slow live quote lookup per ticker.
 
     Parameters
     ----------
@@ -102,10 +122,13 @@ def compute_income_summary(
 
         # Current yield: most recent annualized dividend / current price
         try:
-            current_price = yf.Ticker(ticker).info.get(
-                "regularMarketPrice",
-                yf.Ticker(ticker).info.get("previousClose", purchase_price),
-            )
+            lp = None if last_prices is None else last_prices.get(ticker)
+            if lp is not None and lp == lp and lp > 0:
+                current_price = float(lp)
+            else:
+                info = yf.Ticker(ticker).info
+                current_price = info.get("regularMarketPrice",
+                                         info.get("previousClose", purchase_price))
         except Exception as e:
             log.warning("Live price unavailable for %s, using purchase price: %s", ticker, e)
             current_price = purchase_price

@@ -128,6 +128,8 @@ def backtest_var(returns, alpha: float = 0.99, method: str = "historical",
     a breach is a realised return below the forecast. Monte Carlo uses fewer
     draws per step for speed."""
     s = pd.Series(returns, dtype=float).dropna()
+    if step == 1 and method in ("historical", "parametric", "cornish_fisher"):
+        return _backtest_fast(s, alpha, method, window)
     rows = []
     for i in range(window, len(s), step):
         hist = s.iloc[i - window:i]
@@ -135,6 +137,34 @@ def backtest_var(returns, alpha: float = 0.99, method: str = "historical",
         v, _ = var_es(hist, alpha, method, **kw)
         rows.append((s.index[i], s.iloc[i], v))
     df = pd.DataFrame(rows, columns=["date", "ret", "var"]).set_index("date")
+    df["breach"] = df["ret"] < df["var"]
+    n, x = len(df), int(df["breach"].sum())
+    lr, pv = kupiec_pof(n, x, alpha)
+    return VarBacktest(method, alpha, n, x, n * (1 - alpha), x / n if n else math.nan, lr, pv, df)
+
+
+def _backtest_fast(s: pd.Series, alpha: float, method: str, window: int) -> VarBacktest:
+    """Vectorised rolling forecasts; identical to the per-window ``var_es``
+    (pandas' rolling skew/kurt are the same bias-corrected estimators as
+    scipy's ``bias=False``; rolling quantile uses linear interpolation like
+    ``np.quantile``)."""
+    p = 1.0 - alpha
+    roll = s.rolling(window)
+    if method == "historical":
+        var = roll.quantile(p, interpolation="linear")
+    else:
+        mu, sd = roll.mean(), roll.std(ddof=1)
+        z = float(stats.norm.ppf(p))
+        if method == "parametric":
+            var = mu + sd * z
+        else:
+            sk, ku = roll.skew(), roll.kurt()
+            zcf = (z + (z * z - 1) * sk / 6 + (z ** 3 - 3 * z) * ku / 24
+                   - (2 * z ** 3 - 5 * z) * sk * sk / 36)
+            var = mu + sd * zcf
+    fc = var.shift(1).iloc[window:]
+    df = pd.DataFrame({"ret": s.iloc[window:], "var": fc})
+    df.index.name = "date"
     df["breach"] = df["ret"] < df["var"]
     n, x = len(df), int(df["breach"].sum())
     lr, pv = kupiec_pof(n, x, alpha)

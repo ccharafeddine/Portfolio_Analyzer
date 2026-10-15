@@ -185,7 +185,12 @@ class PortfolioConfig(BaseModel):
     @field_validator("tickers", mode="before")
     @classmethod
     def uppercase_tickers(cls, v: list[str]) -> list[str]:
-        return [_validate_symbol(t.strip().upper()) for t in v if t.strip()]
+        out: list[str] = []
+        for t in v:
+            sym = t.strip().upper()
+            if sym and _validate_symbol(sym) not in out:  # drop blanks and duplicates
+                out.append(sym)
+        return out
 
     @field_validator("benchmark", mode="before")
     @classmethod
@@ -198,7 +203,7 @@ class PortfolioConfig(BaseModel):
     def uppercase_weight_keys(cls, v: dict) -> dict:
         return {_validate_symbol(k.strip().upper()): float(w) for k, w in v.items()}
 
-    @field_validator("shares", "cost_basis", mode="before")
+    @field_validator("shares", "cost_basis", "benchmark_weights", mode="before")
     @classmethod
     def uppercase_float_keys(cls, v: dict) -> dict:
         return {_validate_symbol(k.strip().upper()): float(w) for k, w in (v or {}).items()}
@@ -209,6 +214,11 @@ class PortfolioConfig(BaseModel):
             raise ValueError(
                 f"end_date ({self.end_date}) must be after start_date ({self.start_date})"
             )
+        if (self.end_date - self.start_date).days < 60:
+            raise ValueError("The analysis window must span at least 60 days "
+                             "(monthly statistics need several months of data)")
+        if self.start_date.year < 1970:
+            raise ValueError("start_date must be 1970 or later")
         return self
 
     @model_validator(mode="after")
@@ -230,12 +240,34 @@ class PortfolioConfig(BaseModel):
                 f"Weights sum to {total:.4f} — must be within 0.01 of 1.0"
             )
 
+        bad = {k: w for k, w in self.weights.items() if w != w or abs(w) == float("inf")}
+        if bad:
+            raise ValueError(f"Weights must be finite numbers: {bad}")
+        if not self.short_sales:
+            neg = sorted(k for k, w in self.weights.items() if w < 0)
+            if neg:
+                raise ValueError(
+                    f"Negative weights for {', '.join(neg)} require short sales to be enabled")
+
         # Every weighted ticker must be in tickers list
         missing = set(self.weights.keys()) - set(self.tickers)
         if missing:
             raise ValueError(
                 f"Weights reference tickers not in universe: {missing}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_benchmark_blend(self) -> "PortfolioConfig":
+        if not self.benchmark_weights:
+            return self
+        for k in self.benchmark_weights:
+            _validate_symbol(k)
+        if any(w < 0 for w in self.benchmark_weights.values()):
+            raise ValueError("Blended benchmark weights must be non-negative")
+        total = sum(self.benchmark_weights.values())
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(f"Blended benchmark weights sum to {total:.4f}; must be within 0.01 of 1.0")
         return self
 
     @model_validator(mode="after")
