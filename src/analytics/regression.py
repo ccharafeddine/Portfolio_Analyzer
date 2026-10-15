@@ -11,7 +11,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 
 @dataclass
@@ -59,6 +58,7 @@ def capm_regression(
     -------
     RegressionResult with alpha, beta, t-stats, R²
     """
+    from scipy import stats  # lazy: keeps scipy off the import path (web demo)
     aligned = pd.concat(
         [asset_returns.rename("asset"), market_returns.rename("market")],
         axis=1,

@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy.cluster.hierarchy import linkage
-from scipy.spatial.distance import squareform
 
 
 def _correlation_distance(returns: pd.DataFrame) -> np.ndarray:
@@ -102,6 +100,8 @@ def hrp_linkage_matrix(returns: pd.DataFrame) -> np.ndarray:
     -------
     linkage matrix (n-1, 4) array
     """
+    from scipy.cluster.hierarchy import linkage  # lazy: keeps scipy off the import path
+    from scipy.spatial.distance import squareform
     dist = _correlation_distance(returns)
     dist_arr = dist.values.copy()
     np.fill_diagonal(dist_arr, 0)

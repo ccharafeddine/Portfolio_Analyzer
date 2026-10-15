@@ -12,7 +12,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from src.analytics import metrics as M
-from scipy.optimize import minimize
 
 
 # ──────────────────────────────────────────────────────────────
@@ -124,7 +123,7 @@ def max_sharpe(
     rf: float = 0.04,
     bounds: tuple[float, float] = (0.0, 1.0),
     short_sales: bool = False,
-) -> "minimize":
+):  # -> scipy.optimize.OptimizeResult
     """
     Find the max-Sharpe portfolio.
 
@@ -140,6 +139,7 @@ def max_sharpe(
     -------
     scipy.optimize.OptimizeResult with .x = optimal weights
     """
+    from scipy.optimize import minimize  # lazy: keeps scipy off the import path (web demo)
     n = len(mu)
     lo = -bounds[1] if short_sales else bounds[0]
     hi = bounds[1]
@@ -173,6 +173,7 @@ def _min_vol_for_target(
     short_sales: bool,
 ) -> tuple[np.ndarray, float]:
     """Minimize volatility subject to a target return."""
+    from scipy.optimize import minimize  # lazy: keeps scipy off the import path (web demo)
     n = len(mu)
     lo = -bounds[1] if short_sales else bounds[0]
     hi = bounds[1]
@@ -210,6 +211,7 @@ def efficient_frontier(
     R : (n_points,) expected returns
     V : (n_points,) expected volatilities
     """
+    from scipy.optimize import minimize  # lazy: keeps scipy off the import path (web demo)
     cov_annual = cov_monthly * 12.0
     n = len(mu)
 
@@ -264,6 +266,7 @@ def min_variance_portfolio(
     short_sales: bool = False,
 ) -> np.ndarray:
     """Find the global minimum variance portfolio."""
+    from scipy.optimize import minimize  # lazy: keeps scipy off the import path (web demo)
     cov_annual = cov_monthly * 12.0
     n = cov_annual.shape[0]
     lo = -bounds[1] if short_sales else bounds[0]

@@ -23,7 +23,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 
 METHODS = ("historical", "parametric", "cornish_fisher", "monte_carlo")
 METHOD_LABELS = {
@@ -41,6 +40,7 @@ def _clean(r) -> np.ndarray:
 
 def var_es(returns, alpha: float = 0.95, method: str = "historical",
            n_sims: int = 100_000, seed: int = 7) -> tuple[float, float]:
+    from scipy import stats  # lazy: keeps scipy off the import path (web demo)
     r = _clean(returns)
     if len(r) < 10:
         return math.nan, math.nan
@@ -107,6 +107,7 @@ class VarBacktest:
 
 def kupiec_pof(n: int, x: int, alpha: float) -> tuple[float, float]:
     """Kupiec proportion-of-failures LR test (chi-square, 1 df)."""
+    from scipy import stats  # lazy: keeps scipy off the import path (web demo)
     if n == 0:
         return math.nan, math.nan
     p = 1.0 - alpha
@@ -148,6 +149,7 @@ def _backtest_fast(s: pd.Series, alpha: float, method: str, window: int) -> VarB
     (pandas' rolling skew/kurt are the same bias-corrected estimators as
     scipy's ``bias=False``; rolling quantile uses linear interpolation like
     ``np.quantile``)."""
+    from scipy import stats  # lazy: keeps scipy off the import path (web demo)
     p = 1.0 - alpha
     roll = s.rolling(window)
     if method == "historical":
