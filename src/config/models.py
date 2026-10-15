@@ -147,6 +147,10 @@ class PortfolioConfig(BaseModel):
     # drag and cash shows as an allocation slice).
     cash: float = Field(0.0, ge=0.0)
     risk_free_rate: float = Field(0.04, ge=0.0, le=0.25)
+    # "tbill": use the period-average 13-week T-bill (^IRX) for the run, falling
+    # back to ``risk_free_rate`` if it can't be fetched. "manual": always use
+    # ``risk_free_rate``. See src/data/risk_free.py.
+    risk_free_source: Literal["tbill", "manual"] = "tbill"
 
     # ── Optimization constraints ──
     short_sales: bool = False

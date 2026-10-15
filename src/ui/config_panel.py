@@ -265,6 +265,15 @@ class ConfigPanel(QScrollArea):
         self._rf_from_fred = False
         self.rf_rate.valueChanged.connect(self._on_rf_manual_change)
         form.addRow(_row(self._rf_label, _help("risk_free")), self.rf_rate)
+        # Use the period-average 13-week T-bill (^IRX) for the run; the rate above
+        # is then only the fallback if the T-bill series can't be loaded.
+        self.rf_use_tbill = QCheckBox("Use period-average T-bill (^IRX)")
+        self.rf_use_tbill.setChecked(True)
+        self.rf_use_tbill.setToolTip(
+            "Average 13-week Treasury bill yield over the analysis window.\n"
+            "If it can't be downloaded, the rate above is used and you'll be told."
+        )
+        form.addRow("", self.rf_use_tbill)
         root.addLayout(form)
 
         # ── Advanced (tucked away from everyday users) ──
@@ -824,6 +833,7 @@ class ConfigPanel(QScrollArea):
         self.cash_input.setValue(float(getattr(c, "cash", 0.0) or 0.0))
         self._invested = max(float(c.capital) - float(getattr(c, "cash", 0.0) or 0.0), 0.0)
         self.set_risk_free_rate(float(c.risk_free_rate))
+        self.rf_use_tbill.setChecked(getattr(c, "risk_free_source", "tbill") == "tbill")
 
         # Allocation: shares mode if the config carries share counts; else weights
         # (equal when every weight matches 1/N).
@@ -959,6 +969,7 @@ class ConfigPanel(QScrollArea):
             capital=float(self.capital.value()),
             cash=float(self.cash_input.value()) if self._alloc_is_shares() else 0.0,
             risk_free_rate=float(self.rf_rate.value()),
+            risk_free_source="tbill" if self.rf_use_tbill.isChecked() else "manual",
             short_sales=self.allow_shorts.isChecked(),
             max_weight_bound=float(self.max_bound.value()),
             include_orp=self.include_orp.isChecked(),
