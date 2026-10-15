@@ -15,6 +15,10 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
+import logging
+
+log = logging.getLogger(__name__)
+
 from src.analytics import risk
 from src.analytics.backtest import build_backtest
 from src.data import fetcher
@@ -79,11 +83,13 @@ def _sector_weights(weights: dict, sector_cache: dict) -> Optional[dict]:
             if tk not in sector_cache:
                 try:
                     sector_cache[tk] = (yf.Ticker(tk).info or {}).get("sector") or "Other"
-                except Exception:
+                except Exception as e:
+                    log.warning("Sector lookup failed for %s: %s", tk, e)
                     sector_cache[tk] = "Other"
             out[sector_cache[tk]] = out.get(sector_cache[tk], 0.0) + float(w)
         return out or None
-    except Exception:
+    except Exception as e:
+        log.warning("Sector breakdown failed: %s", e)
         return None
 
 
@@ -106,8 +112,8 @@ def _one(label: str, cfg, sector_cache: dict, include_sectors: bool) -> Comparis
         try:
             from src.analytics.performance import blended_benchmark
             bench_ret = blended_benchmark(prices, blend, cfg.capital).pct_change().dropna()
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Blended benchmark failed; alpha/beta will be blank: %s", e)
     elif cfg.benchmark in prices.columns:
         bench_ret = prices[cfg.benchmark].pct_change().dropna()
 

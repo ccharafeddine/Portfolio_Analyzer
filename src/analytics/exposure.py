@@ -10,6 +10,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import logging
+
+log = logging.getLogger(__name__)
+
 try:
     import yfinance as yf
 except ImportError:
@@ -36,7 +40,8 @@ def get_sector_weights(holdings: pd.DataFrame) -> pd.DataFrame:
         try:
             info = yf.Ticker(ticker).info
             sector_map[ticker] = info.get("sector", "Unknown")
-        except Exception:
+        except Exception as e:
+            log.warning("Sector lookup failed for %s: %s", ticker, e)
             sector_map[ticker] = "Unknown"
 
     df = holdings[["Ticker", "RealizedWeight"]].copy()

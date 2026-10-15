@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+import logging
+
+log = logging.getLogger(__name__)
+
 # Factor columns per model (must exist in the fetched Fama-French frame).
 FACTOR_SETS: dict[str, list[str]] = {
     "FF3": ["Mkt-RF", "SMB", "HML"],
@@ -51,7 +55,8 @@ def run_factor_model(
         x = sm.add_constant(data[factor_cols])
         try:
             res = sm.OLS(y, x).fit()
-        except Exception:
+        except Exception as e:
+            log.warning("Factor regression failed for %s: %s", name, e)
             continue
         row = {
             "Asset": name,

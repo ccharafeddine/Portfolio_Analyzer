@@ -17,6 +17,10 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+
+import logging
+
+log = logging.getLogger(__name__)
 import yfinance as yf
 
 
@@ -109,8 +113,8 @@ def fetch_prices(
             # Verify all requested tickers are present
             if set(tickers).issubset(set(cached.columns)):
                 return cached[tickers].sort_index()
-        except Exception:
-            pass  # Cache corrupted, re-download
+        except Exception as e:  # cache corrupted -> re-download
+            log.warning("Price cache unreadable (%s); re-downloading", e)
 
     # Fetch from yfinance
     # yfinance end is exclusive, so add 1 day
@@ -166,7 +170,7 @@ def fetch_prices(
     try:
         prices.to_parquet(path)
     except Exception as e:
-        print(f"[data] Cache write failed (non-fatal): {e}")
+        log.warning("Price cache write failed (non-fatal): %s", e)
 
     return prices
 

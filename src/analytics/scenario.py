@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+import logging
+
+log = logging.getLogger(__name__)
+
 # (display name, proxy ticker)
 MACRO_FACTORS: list[tuple[str, str]] = [
     ("Equity (S&P 500)", "SPY"),
@@ -45,7 +49,8 @@ def _macro_betas(port_returns: pd.Series, macro_prices: pd.DataFrame) -> list[di
         return []
     try:
         import statsmodels.api as sm
-    except Exception:
+    except ImportError as e:
+        log.warning("statsmodels unavailable for scenario model: %s", e)
         return []
 
     rets = macro_prices.pct_change().dropna(how="all")
@@ -58,7 +63,8 @@ def _macro_betas(port_returns: pd.Series, macro_prices: pd.DataFrame) -> list[di
         return []
     try:
         res = sm.OLS(port_returns.loc[common], sm.add_constant(x.loc[common])).fit()
-    except Exception:
+    except Exception as e:
+        log.warning("Scenario factor regression failed: %s", e)
         return []
     return [
         {"name": n, "ticker": t, "group": "Macro",

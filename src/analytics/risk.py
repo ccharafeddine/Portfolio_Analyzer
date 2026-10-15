@@ -16,6 +16,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+import logging
+
+log = logging.getLogger(__name__)
+
 from src.analytics import metrics as M
 from src.data import transforms as T
 
@@ -104,7 +108,8 @@ def run_stress_tests(
                 portfolio_return=p_ret, benchmark_return=b_ret,
                 max_drawdown=mdd, days=len(pv), data_available=True,
             ))
-        except Exception:
+        except Exception as e:
+            log.warning("Stress test '%s' failed: %s", name, e)
             results.append(StressResult(
                 name=name, description=desc, start=start, end=end,
                 portfolio_return=np.nan, benchmark_return=np.nan,

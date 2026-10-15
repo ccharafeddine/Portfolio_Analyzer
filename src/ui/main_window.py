@@ -1206,7 +1206,27 @@ class MainWindow(QMainWindow):
         self.progress.setFormat("   Analysis complete   %p%")
         self.display_results(results)
         self._set_running(False)
-        self._status("Analysis complete")
+        rf = getattr(results, "risk_free", None)
+        rf_note = f" · Rf {rf.rate:.2%} ({rf.source})" if rf is not None else ""
+        warnings = list(getattr(results, "warnings", []) or [])
+        if warnings:
+            self._status(f"Analysis complete with {len(warnings)} warning(s){rf_note}")
+            self._show_run_warnings(warnings)
+        else:
+            self._status(f"Analysis complete{rf_note}")
+
+    def _show_run_warnings(self, warnings: list[str]) -> None:
+        """Non-fatal pipeline problems (failed steps, missing data, rate fallback)."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Analysis warnings")
+        box.setText(
+            f"The analysis finished, but {len(warnings)} part(s) had problems. "
+            "Affected sections may be empty or use fallback values."
+        )
+        box.setDetailedText("\n\n".join(warnings))
+        box.setStandardButtons(QMessageBox.Ok)
+        box.open()
 
     def _on_failed(self, message: str) -> None:
         if self._cancelled:

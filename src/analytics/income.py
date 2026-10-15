@@ -9,6 +9,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import logging
+
+log = logging.getLogger(__name__)
+
 try:
     import yfinance as yf
 except ImportError:
@@ -43,7 +47,8 @@ def fetch_dividends(
         filtered = divs.loc[mask]
         filtered.name = ticker
         return filtered
-    except Exception:
+    except Exception as e:
+        log.warning("Dividend history unavailable for %s: %s", ticker, e)
         return pd.Series(dtype=float, name=ticker)
 
 
@@ -101,7 +106,8 @@ def compute_income_summary(
                 "regularMarketPrice",
                 yf.Ticker(ticker).info.get("previousClose", purchase_price),
             )
-        except Exception:
+        except Exception as e:
+            log.warning("Live price unavailable for %s, using purchase price: %s", ticker, e)
             current_price = purchase_price
         current_yield = annual_div / current_price if current_price > 0 else 0.0
 
