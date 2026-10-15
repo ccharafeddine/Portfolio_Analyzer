@@ -31,3 +31,8 @@ api_keys.json
 build/
 dist/
 *.spec.bak
+
+# Web demo build output (python web/build.py)
+web/dist/
+web/worker/node_modules/
+web/worker/.wrangler/
