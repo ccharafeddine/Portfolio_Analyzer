@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Platform: Windows and macOS">
   <img src="https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white" alt="Built with PySide6 / Qt6">
-  <img src="https://img.shields.io/badge/tests-237%20passing-brightgreen" alt="237 tests passing">
+  <img src="https://img.shields.io/badge/tests-316%20collected-brightgreen" alt="316 tests">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/ccharafeddine/Portfolio_Analyzer?color=blue" alt="MIT License"></a>
 </p>
 
@@ -72,7 +72,10 @@ Every result is paired with a plain-English explanation, so the app is usable by
 
 - **Native desktop app** (PySide6 / Qt6) for Windows and macOS — no browser, no server. Charts render in an embedded QtWebEngine view, one HTML page per tab, so switching tabs is instant.
 - **Inception-aware backtest engine** — correctly handles assets with different start dates (a recent IPO in a 5-year universe no longer truncates the whole history), with calendar + entry rebalancing and transaction costs.
-- **Performance measurement suite** — up/down capture, batting average, tracking error, information ratio, rolling alpha/beta, and a dual-window summary (max-available vs common history).
+- **Performance measurement suite** — up/down capture (Morningstar definition, checked against empyrical), batting average, tracking error, information ratio, rolling alpha/beta and rolling Sharpe, and a dual-window summary (max-available vs common history).
+- **Institutional risk toolkit** — VaR/ES by four methods (historical, normal, Cornish-Fisher, Student-t Monte Carlo) with a rolling breach backtest and Kupiec test, a largest-drawdowns table, stress tests that replay today's weights through 2008, 2013, 2015 and 2018, and a beta market-shock table.
+- **Attribution that explains itself** — monthly sector Brinson-Fachler against the benchmark fund (Carino-linked) and Fama-French loadings with t-statistics.
+- **Trustworthy data** — a data-quality report on every run (late inception, stale prices, gaps, unadjusted splits), an offline mode that falls back to cached prices, and strict input validation.
 - **Tax-aware analysis** — unrealized gains, tax-loss-harvesting candidates, and estimated tax on gains realized by rebalancing.
 - **Retirement / withdrawal planning** — Monte Carlo with contributions, withdrawals, inflation, a goal target, and a solved safe-withdrawal rate.
 - **Compare Portfolios** — a separate in-app section (menubar → Compare Portfolios) that runs a fast comparison of 2–6 saved portfolios (plus the current one) side by side: overlaid growth/drawdown, a return/risk metrics table, return correlation, allocation/concentration, and holdings overlap.
@@ -80,9 +83,9 @@ Every result is paired with a plain-English explanation, so the app is usable by
 - **Live Market Watch** — an always-on ticker strip across the bottom of the window plus a dedicated cockpit (Run → Live Market Watch, or the button by the metric strip). The cockpit is a **free-form, snap-to-grid dashboard** of drag-and-resize cards — quotes, a TradingView-style intraday chart, per-symbol news, a day-change heatmap/treemap, Top Movers, Day P&L Contributors, a live Allocation donut, Upcoming Events, and Active Alerts — with a market-session **clock + opening/closing bell** and **price-flash** on every change, across a Portfolio and a persistent, drag-reorderable Watchlist. Quotes are yfinance-**delayed** (15s default) by default; a Finnhub / Polygon / Alpaca key upgrades them to real-time.
 - **Price alerts** — get a desktop notification when a holding crosses a price threshold (Settings → Price Alerts…).
 - **Real portfolios by shares** — enter your actual holdings as share counts (and a cash balance); the app fetches prices to set Capital and derive weights. Or set cost basis inline from Live Market Watch.
-- **Client-ready reports** — HTML, PDF, and a polished dark PowerPoint deck, each with proper disclosures. Plus a complete CSV data pack with a README manifest.
+- **Client-ready reports** — HTML, PDF and PowerPoint in the same Graphite design as the app, including the VaR, drawdown, stress, sector-attribution, factor and data-quality sections, each with proper disclosures. Plus a complete CSV data pack with a README manifest.
 - **Explain-everything UX** — a circled "?" beside every chart and section title reveals what it is, how to read it, and why it matters; a Beginner mode expands these into inline plain-English blurbs.
-- **Switchable themes** — Bloomberg Terminal (default), Modern Institutional, Minimal Premium, three aesthetic themes (Frutiger Aero, Corporate Synthwave, Superflat Pop), a genuine light theme (Daylight), and High Contrast (Light/Dark) — plus an adjustable UI scale.
+- **Graphite design system** — neutral surfaces, hairline tables, one blue accent and tabular numerals (the default), with switchable alternatives: Bloomberg Terminal, Modern Institutional, Minimal Premium, three aesthetic themes (Frutiger Aero, Corporate Synthwave, Superflat Pop), a genuine light theme (Daylight), and High Contrast (Light/Dark) — plus an adjustable UI scale.
 
 ---
 
@@ -92,10 +95,10 @@ Every result is paired with a plain-English explanation, so the app is usable by
 |----------|-------------|
 | **Portfolio Construction** | Active (custom weights **or share counts + cash**, priced live into weights & capital), Passive (benchmark), ORP (Max-Sharpe), HRP (Hierarchical Risk Parity), Rebalanced, Complete (ORP + risk-free blend) |
 | **Backtest Engine** | Inception-aware series builder (rescale or cash modes for staggered start dates), calendar + asset-entry rebalancing, per-trade transaction costs, coverage timeline, full trade log |
-| **Optimization** | Mean-variance efficient frontier, Capital Allocation Line, Max-Sharpe portfolio, HRP clustering + dendrogram, concentration metrics |
+| **Optimization** | Mean-variance efficient frontier, Capital Allocation Line, Max-Sharpe portfolio, HRP clustering + dendrogram, turnover and cost to adopt each strategy, rebalance trade lists, concentration metrics |
 | **Performance Measurement** | Up/down capture, capture ratio, batting average, tracking error, information ratio, rolling alpha/beta, dual-window (max vs common) return/risk summary |
-| **Risk Analytics** | VaR/CVaR (95% & 99%), max drawdown, Sortino, Calmar, skewness, kurtosis, rolling volatility & Sharpe, correlation regime detection, 8 historical stress tests |
-| **Attribution & Factors** | Brinson-Fachler attribution by asset and sector, CAPM regression per asset, return-based factor tilts (beta, size, momentum, quality), GICS sector exposure |
+| **Risk Analytics** | VaR/ES at 95% & 99% by historical, parametric, Cornish-Fisher and Monte Carlo methods; rolling VaR backtest with Kupiec POF; top-5 drawdown table; Sortino, Calmar, skewness, kurtosis; rolling volatility & Sharpe; correlation regime detection; 9 historical stress tests (pre-history scenarios replayed with current weights) plus beta market shocks and an interactive scenario builder |
+| **Attribution & Factors** | Monthly sector Brinson-Fachler vs the benchmark fund (SPDR sector proxies, Carino linking), contribution to active return by holding, CAPM regression per asset, Fama-French 3 / Carhart / FF5 loadings with t-statistics, sector exposure |
 | **Income Tracking** | Per-ticker dividends, yield on cost, current yield, income growth, cumulative income series |
 | **Tax Analysis** | Unrealized gain/loss per position, harvest candidates, estimated tax on rebalancing gains (short/long/state rates, average-cost basis) |
 | **Forecasting & Planning** | Parametric and bootstrap Monte Carlo (fan charts, probability of loss); retirement/withdrawal plan with contributions, withdrawals, inflation, goal funding, and safe-withdrawal-rate search |
@@ -103,6 +106,7 @@ Every result is paired with a plain-English explanation, so the app is usable by
 | **Market Context** | Per-holding news (yfinance baseline, no key; Alpha Vantage sentiment when keyed), FRED Treasury curve + key rates, on-demand Refresh and auto-refresh each run |
 | **Live Market Watch** | Always-on ticker strip (View → Ticker Scroller source), a free-form snap-to-grid cockpit (quotes, candlestick chart, per-symbol news, heatmap/treemap, Top Movers, Day P&L Contributors, live Allocation, Upcoming Events, Active Alerts) across Portfolio + drag-reorderable Watchlist, market-session clock + bell, price-flash, portfolio day P&L + unrealized P&L vs. cost basis (with cash), price alerts; yfinance-delayed (15s) by default, real-time via Finnhub / Polygon / Alpaca key |
 | **Reports** | Automated interpretation engine, standalone HTML report, PDF report (reportlab), client-facing PowerPoint deck (python-pptx + kaleido), each with disclosures |
+| **Data Quality** | Per-ticker checks for late inception, stale last price, in-span gaps, unadjusted split-like jumps and flat runs; offline fallback to cached prices; 30-day sector-metadata cache; validated inputs (duplicate tickers, non-finite or unshortable negative weights, blended-benchmark weights, minimum window) |
 | **Data Export** | ~22 CSV files + `summary.json` + a `README.txt` manifest, individually or as a ZIP |
 | **UI/UX** | 11-tab native app, always-on ticker strip, 30+ Plotly chart types, 9 themes (incl. light + high-contrast), collapsible animated sections, collapsible config sidebar (app brand in it), adjustable scale, hover explanations, Beginner mode |
 
@@ -188,7 +192,7 @@ Benchmark-relative performance measurement built on the backtest engine.
 
 ### 3. Risk
 
-![Risk tab: portfolio drawdowns, daily-return distribution with VaR/CVaR, correlation matrix, and correlation regime detection](docs/screenshots/03-risk.png)
+![Risk tab: drawdowns, return distribution and correlation, followed by VaR by method, the VaR backtest, the largest-drawdowns table and stress tests](docs/screenshots/03-risk.png)
 
 Comprehensive risk decomposition and tail analysis.
 
@@ -196,8 +200,11 @@ Comprehensive risk decomposition and tail analysis.
 - **Return Distribution & VaR / Correlation Heatmap** — the daily-return histogram with 95% VaR/CVaR markers, alongside the pairwise correlation matrix.
 - **Correlation Regime Detection** — 63-day rolling average pairwise correlation against its long-run band; a leading indicator of stress regimes where diversification fails.
 - **Rolling Volatility and Sharpe** — 12-month rolling risk and risk-adjusted return per asset.
-- **Tail Risk Metrics** — Sortino, Calmar, skewness, excess kurtosis, worst/best day, gain-to-pain, and max drawdown.
-- **Extended Risk Statistics** and **Stress Testing** across 8 named historical crises (COVID Crash, 2022 Bear, SVB Crisis, Aug 2024 Unwind, GFC, Taper Tantrum, China Devaluation, VIX-mageddon).
+- **Value at Risk by method** — 1-day VaR and Expected Shortfall at 95%/99% under historical, normal, Cornish-Fisher and Student-t Monte Carlo models.
+- **VaR backtest** — each day's 99% VaR forecast from the prior 250 days, breaches plotted against realized returns, with the Kupiec proportion-of-failures test per method.
+- **Largest drawdowns** — the five deepest episodes with peak, trough and recovery dates and their lengths in trading days.
+- **Tail risk and return shape** — VaR/ES and max drawdown per portfolio, plus Sortino, Calmar, gain-to-pain, skewness, excess kurtosis and best/worst day.
+- **Stress testing** — 9 named crises (COVID Crash, 2022 Rates Shock, SVB, Aug 2024 Unwind, 2008 GFC, Lehman Week, Taper Tantrum, China Devaluation, VIX-mageddon). Scenarios before the analysis window are replayed with today's weights and labelled as such, and a beta table translates market moves into portfolio P&L.
 
 ### 4. Attribution
 
@@ -205,9 +212,10 @@ Comprehensive risk decomposition and tail analysis.
 
 Decomposes performance into its sources.
 
-- **Brinson-Fachler Attribution** — allocation, selection, and interaction effects, by asset and by sector.
+- **Sector Attribution** — monthly Brinson-Fachler allocation, selection and interaction against the benchmark fund's own sector weights, with Select Sector SPDR ETFs as sector benchmarks and bonds/gold as off-benchmark sleeves; linked with Carino so the effects add up to the active return.
 - **Sector & Factor Exposure** — GICS sector allocation (with an Effective-N-Sectors diversification measure) and return-based factor tilts (beta, size, momentum, quality).
-- **CAPM Regression** — per-asset alpha, beta, t-statistics, and R-squared, with individual excess-return scatter plots and any available multi-factor (e.g. FF3) loadings.
+- **CAPM Regression** — per-asset alpha, beta, t-statistics, and R-squared, with individual excess-return scatter plots.
+- **Fama-French loadings** — FF3, Carhart and FF5 regressions on Ken French daily factors, each coefficient shown with its t-statistic.
 
 ### 5. Income
 
@@ -275,7 +283,7 @@ When macro data loads, the latest short-term Treasury yield (3-month bill) is fe
 Raw data access, report generation, and export. Opens with an executive-summary interpretation card.
 
 - **Reports** — three on-demand outputs:
-  - **HTML Report** — standalone, print-ready file with a dark cover, table of contents, embedded charts (via kaleido), data tables, plain-English commentary, and disclosures.
+  - **HTML Report** — standalone, print-ready Graphite file (white page, hairline tables) with a table of contents, embedded charts (via kaleido), data tables, plain-English commentary, and disclosures.
   - **PDF Report** — reportlab document with cover, TOC, styled tables, interpretation text, embedded charts, and disclosures.
   - **PowerPoint** — a client-facing dark 16:9 deck (title, executive summary, growth, performance, risk, optimization, attribution, income, forecast, retirement, tax, disclosures), generated on a background thread.
 - **Holdings** — each position's ticker, target/realized weight, shares, purchase price, and amount invested.
@@ -420,11 +428,28 @@ Two independent features live here:
 
 ## Testing
 
-The suite covers every analytics, data, and desktop-support module — 237 tests:
+The suite covers every analytics, data, report and desktop-support module (316 tests):
 
 ```bash
+pip install -r requirements-dev.txt   # app + pytest, ruff, empyrical-reloaded
 python -m pytest -q
 ```
+
+`tests/conftest.py` provides an `offline_results` fixture that runs the whole pipeline on synthetic prices with every network source stubbed, so page-rendering and report tests exercise real results without internet access. Metric tests are pinned to reference values from empyrical-reloaded, quantstats and statsmodels; with empyrical installed (it is in `requirements-dev.txt`) the live cross-checks run too.
+
+**Analytics correctness, robustness and rendering**
+
+| Test file | Tests | Coverage |
+|-----------|-------|----------|
+| `test_metrics_reference.py` | 11 | Sharpe, Sortino, Calmar, CAPM, rolling and ex-ante metrics vs empyrical/statsmodels reference values |
+| `test_tail_risk.py` | 11 | VaR/ES methods (parametric pinned to quantstats), Kupiec test, breach backtest (fast path = loop), drawdown table, stress replay, beta shocks |
+| `test_sector_attribution.py` | 4 | Single-period equality with Brinson-Fachler, Carino linking, unheld and off-benchmark sectors |
+| `test_config_validation.py` | 9 | Ticker dedupe, weight and blend validation, date-window rules |
+| `test_data_quality.py` | 2 | Inception, stale, gap, split and flat-run detection |
+| `test_fetcher_offline.py` | 2 | Cached fallback when the network is down; clear error without a cache |
+| `test_view_rendering.py` | 7 | Risk, Attribution, Performance, Optimization and Data pages rendered from an offline run |
+| `test_report_sections.py` | 5 | HTML/PDF/PowerPoint carry the analytics sections in Graphite style |
+| `test_summary_tables.py`, `test_html_table.py`, `test_app_shell.py`, `test_phase3_views.py`, `test_risk_free.py` | 26 | Overview tables, Graphite table widget, app shell, optimizer turnover/cost, T-bill risk-free rate |
 
 **Analytics & backtest**
 
@@ -432,13 +457,13 @@ python -m pytest -q
 |-----------|-------|----------|
 | `test_portfolio.py` | 55 | Config, transforms, optimization, CAPM, risk, simulation, attribution, concentration, correlation regime, HRP, rebalance, exposure, income |
 | `test_backtest.py` | 7 | Inception handling (rescale vs cash), weight sums, transaction costs, coverage/effective-start |
-| `test_performance.py` | 6 | Capture, batting average, tracking error, information ratio |
+| `test_performance.py` | 7 | Capture (vs empyrical), batting average, tracking error, information ratio |
 | `test_rebalance_trades.py` | 6 | Target/ORP rebalancing trade recommendations |
 | `test_planning.py` | 5 | Cashflow simulation, safe-withdrawal-rate search, plan outcomes |
 | `test_comparison.py` | 5 | Multi-portfolio comparison metrics |
 | `test_ts_attribution.py` | 4 | Time-series contribution to active return |
 | `test_scenario.py` | 4 | Scenario / factor-shock estimates |
-| `test_factor_models.py` | 4 | FF3 / Carhart / FF5 factor regressions |
+| `test_factor_models.py` | 5 | FF3 / Carhart / FF5 factor regressions and t-statistics |
 | `test_black_litterman.py` | 4 | Black-Litterman view blending |
 | `test_blended_benchmark.py` | 3 | Fixed-weight blended benchmark |
 | `test_tax.py` | 3 | Unrealized gains, harvest candidates, realized tax from rebalancing |
@@ -474,7 +499,7 @@ Tests that would call yfinance / SMTP use `unittest.mock.patch` to avoid network
 
 ### Continuous Integration
 
-`.github/workflows/ci.yml` runs on every push and pull request to `main`, on **Ubuntu and Windows** (Python 3.13): a critical-error lint (ruff), a compile check, and the full test suite (headless via `QT_QPA_PLATFORM=offscreen`).
+`.github/workflows/ci.yml` runs on every push and pull request to `main`, on **Ubuntu and Windows** (Python 3.13): a critical-error lint (ruff), a compile check, and the full test suite (headless via `QT_QPA_PLATFORM=offscreen`). It installs `requirements-dev.txt`, so the empyrical reference checks run rather than skip.
 
 ---
 
@@ -529,7 +554,7 @@ The spec bundles the app assets, `plotly` (for the offline chart JS), `kaleido` 
 - **Dividend and sector data depend on yfinance accuracy.** Some tickers (ETFs, indices, crypto) may have incomplete dividend histories or missing sector metadata.
 - **Style factor tilts are return-based proxies**; the Attribution tab also shows true Fama-French factor loadings (FF3 / Carhart 4 / FF5) regressed against the Ken French daily factors when reachable.
 - **Monte Carlo assumes i.i.d. (parametric) or stationary (bootstrap) returns**, neither of which captures regime changes or structural breaks. Retirement projections recenter the mean to an expected-return assumption to reduce look-ahead bias, but remain illustrative.
-- **Reports require kaleido for embedded chart images.** It is included in `requirements-desktop.txt`; without it, reports still generate with all text and tables (the PowerPoint's charts, however, depend on it).
+- **Reports require kaleido 1.x and a Chrome install for embedded chart images.** kaleido is in `requirements-desktop.txt`; if no Chrome is found, run `plotly_get_chrome` once. Without it, reports still generate with all text and tables (the PowerPoint's charts, however, depend on it).
 
 ---
 

@@ -89,9 +89,14 @@ class DataTab(BaseTab):
                              explain="data_quality")
             for msg in rep.issues[:8]:
                 self.add_interpretation(msg)
-            dq = rep.table.copy()
+            t = rep.table
             fmt_d = lambda v: "—" if v is None or v != v else f"{v:%d %b %Y}"  # noqa: E731
-            self.add_table(dq, formatters={"First": fmt_d, "Last": fmt_d})
+            import pandas as pd
+
+            self.add_table(pd.DataFrame({
+                "Ticker": t["Ticker"], "First price": t["First"].map(fmt_d),
+                "Last price": t["Last"].map(fmt_d), "Gaps (3d+)": t["Gaps"].astype(str),
+                "Split-like jumps": t["Splits"].astype(str), "Status": t["Status"]}))
 
         # ── Holdings ──
         h = results.holdings

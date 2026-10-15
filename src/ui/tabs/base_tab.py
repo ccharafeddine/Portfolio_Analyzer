@@ -283,6 +283,9 @@ class BaseTab(QScrollArea):
         model = PandasTableModel(frame, formatters=formatters)
         view.setModel(model)
         view.setAlternatingRowColors(True)
+        # Rows are sized before the view has its final width; with wrapping on,
+        # any cell containing a space ("02 Jan 2020") wraps and the row triples.
+        view.setWordWrap(False)
         view.verticalHeader().setVisible(False)
         view.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         view.setEditTriggers(QTableView.NoEditTriggers)
