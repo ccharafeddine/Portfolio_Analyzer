@@ -11,6 +11,7 @@ and is inserted/removed dynamically based on the tab's ``availabilityChanged`` s
 
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QTabWidget
 
 from .tabs.attribution_tab import AttributionTab
@@ -27,9 +28,15 @@ from .tabs.risk_tab import RiskTab
 
 
 class ResultsView(QTabWidget):
+    """Pages are driven by the grouped ``NavPanel``; the tab bar itself is hidden
+    (the QTabWidget API — count/tabText/setCurrentIndex — is kept for callers)."""
+
+    macroAvailabilityChanged = Signal(bool)
+
     def __init__(self) -> None:
         super().__init__()
         self.setDocumentMode(True)
+        self.tabBar().hide()
 
         self._news_tab = NewsTab()
         self._tabs = [
@@ -74,6 +81,16 @@ class ResultsView(QTabWidget):
         self._news_tab.refresh()
         self._macro_tab.refresh()
 
+    def page_keys(self) -> list[str]:
+        return [self.tabText(i) for i in range(self.count())]
+
+    def select_page(self, key: str) -> bool:
+        for i in range(self.count()):
+            if self.tabText(i) == key:
+                self.setCurrentIndex(i)
+                return True
+        return False
+
     def _sync_macro_tab(self, available: bool) -> None:
         if available and not self._macro_visible:
             index = self.indexOf(self._news_tab) + 1
@@ -82,6 +99,7 @@ class ResultsView(QTabWidget):
         elif not available and self._macro_visible:
             self.removeTab(self.indexOf(self._macro_tab))
             self._macro_visible = False
+        self.macroAvailabilityChanged.emit(self._macro_visible)
 
     def retheme(self) -> None:
         """Rebuild tabs under the active theme; repaint the visible one now."""

@@ -90,6 +90,9 @@ class Sidebar(QFrame):
     def toggle(self) -> None:
         self.set_collapsed(not self._collapsed)
 
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
     def set_collapsed(self, collapsed: bool) -> None:
         if collapsed == self._collapsed:
             return

@@ -35,8 +35,26 @@ from .formatting import delta_str, fmt_pct
 from .results_view import ResultsView
 from .settings import APP_NAME, ORG_NAME
 from .ticker_strip import TickerStrip
-from .widgets.metric_card import MetricStrip
+from .widgets.app_shell import DataStatus, KpiStrip, NavPanel, TopBar
 from .worker import AnalysisWorker, QuotesWorker
+
+
+def _apply_tabular_font() -> None:
+    """App-wide tabular (fixed-width) numerals so columns of numbers line up."""
+    from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    f = QFont(app.font())
+    f.setFamilies(["Inter", "Segoe UI", "Helvetica", "Arial"])
+    if hasattr(f, "setFeature"):
+        try:
+            f.setFeature(QFont.Tag("tnum"), 1)
+        except Exception:
+            pass
+    app.setFont(f)
 
 
 class MainWindow(QMainWindow):
@@ -49,6 +67,13 @@ class MainWindow(QMainWindow):
 
         # Restore the saved theme + text scale before building any styled widgets.
         self._settings = QSettings(ORG_NAME, APP_NAME)
+        # One-time move to the redesigned default look (Graphite at 100%). Users
+        # can still pick any other theme / text size from the View menu afterwards.
+        if self._settings.value("ui_design_version", 1, type=int) < 2:
+            self._settings.setValue("theme", theme.DEFAULT_THEME)
+            self._settings.setValue("ui_scale", theme.DEFAULT_SCALE)
+            self._settings.setValue("ui_design_version", 2)
+        _apply_tabular_font()
         saved = self._settings.value("theme")
         if saved in theme.THEMES:
             theme.set_active(saved)
@@ -235,37 +260,52 @@ class MainWindow(QMainWindow):
         self.config_panel.configChanged.connect(self._on_portfolio_changed)
         # The app brand (logo + name) lives at the top of the config sidebar so the
         # analysis workspace stays clean; it folds away when the sidebar collapses.
-        self.sidebar = Sidebar(
-            self.config_panel, title="Configuration", brand=self._build_header()
-        )
+        self._build_header()  # logo/title widgets kept for About + theming
+        self.sidebar = Sidebar(self.config_panel, title="Configuration")
         # Menu "Run Analysis" triggers the same path as the panel button.
         self.act_run.triggered.connect(self.config_panel._on_run)
 
+        # Pinned context bar (portfolio · benchmark · period · Rf · actions).
+        self.top_bar = TopBar(__app_name__)
+        self.top_bar.runClicked.connect(self.config_panel._on_run)
+        self.top_bar.configureClicked.connect(lambda: self.sidebar.toggle())
+        self.top_bar.exportClicked.connect(self._on_export_report)
+        self.config_panel.configChanged.connect(self._refresh_context)
+
+        # Grouped navigation replaces the old row of tabs.
+        self.nav = NavPanel()
+
         main = QWidget()
         main_layout = QVBoxLayout(main)
-        main_layout.setContentsMargins(16, 14, 16, 8)
-        main_layout.setSpacing(14)
-        # Metric strip + a Live Market Watch shortcut on the far right (next to Beta).
-        self.metric_strip = MetricStrip()
-        metric_row = QHBoxLayout()
-        metric_row.setSpacing(12)
-        metric_row.addWidget(self.metric_strip, 1)
-        self.btn_live = QPushButton("Live Market Watch")
-        self.btn_live.setCursor(Qt.PointingHandCursor)
-        self.btn_live.setToolTip("Open Live Market Watch for this portfolio")
-        self.btn_live.clicked.connect(self._show_live_mode)
-        metric_row.addWidget(self.btn_live, 0, Qt.AlignVCenter)
-        main_layout.addLayout(metric_row)
+        main_layout.setContentsMargins(16, 12, 16, 8)
+        main_layout.setSpacing(10)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(12)
+        self.page_title = QLabel("Overview")
+        self.page_title.setObjectName("pageTitle")
+        self.page_sub = QLabel("")
+        self.page_sub.setObjectName("pageSub")
+        title_row.addWidget(self.page_title)
+        title_row.addWidget(self.page_sub, 0, Qt.AlignBottom)
+        title_row.addStretch(1)
+        main_layout.addLayout(title_row)
+        self.metric_strip = KpiStrip()
+        main_layout.addWidget(self.metric_strip)
         self.results_view = ResultsView()
         main_layout.addWidget(self.results_view, stretch=1)
         # When FRED macro loads, track the live short-term yield as the risk-free
         # rate for the next run.
         self.results_view._macro_tab.riskFreeRateReady.connect(self._on_risk_free_rate)
+        self.results_view.macroAvailabilityChanged.connect(
+            lambda ok: self.nav.set_available("Macro", ok))
+        self.nav.pageSelected.connect(self.select_page)
+        self.nav.actionTriggered.connect(self._on_nav_action)
 
         analyze = QWidget()
         row = QHBoxLayout(analyze)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
+        row.addWidget(self.nav)
         row.addWidget(self.sidebar)
         row.addWidget(main, stretch=1)
 
@@ -293,7 +333,64 @@ class MainWindow(QMainWindow):
         self.live_watch_view.alertsRequested.connect(self._show_alerts)
         self.live_watch_view.costBasisEditRequested.connect(self._edit_cost_basis)
         self._stack.addWidget(self.live_watch_view)    # page 2: Live Market Watch
-        self.setCentralWidget(self._stack)
+        shell = QWidget()
+        shell_layout = QVBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self.top_bar)
+        shell_layout.addWidget(self._stack, 1)
+        self.setCentralWidget(shell)
+        self._refresh_context()
+
+    # ── Navigation / context ──
+    _PAGE_SUBTITLES = {
+        "Overview": "Growth, period returns, risk and holdings",
+        "Performance": "Calendar, rolling and benchmark-relative",
+        "Risk": "Drawdowns, tail risk, correlation and stress",
+        "Attribution": "Where the excess return came from",
+        "Income": "Dividends and yield",
+        "Optimization": "Efficient frontier, ORP, HRP and rebalancing",
+        "Forecast": "Monte Carlo and retirement planning",
+        "Fundamentals": "Valuation and financial statements",
+        "News": "Headlines for your holdings",
+        "Macro": "Rates and macro indicators (FRED)",
+        "Data": "Reports, CSV data pack and raw tables",
+    }
+
+    def select_page(self, key: str) -> None:
+        """Show a result page by key (the ResultsView tab label)."""
+        self._show_analyze_mode()
+        if self.results_view.select_page(key):
+            self.nav.select(key)
+            self.page_title.setText("Data & exports" if key == "Data" else key)
+            self.page_sub.setText(self._PAGE_SUBTITLES.get(key, ""))
+            # The KPI strip is context for the analysis pages, not research/data.
+            self.metric_strip.setVisible(key not in ("News", "Macro", "Fundamentals", "Data"))
+
+    def _on_nav_action(self, action: str) -> None:
+        if action == "live":
+            self._show_live_mode()
+        elif action == "compare":
+            self._show_compare_mode()
+
+    def _refresh_context(self) -> None:
+        """Mirror the current configuration into the top bar chips."""
+        try:
+            cfg = self.config_panel.build_config()
+        except Exception:
+            return  # incomplete config while the user is typing
+        from pathlib import Path as _P
+
+        name = _P(self._current_portfolio_path).stem if self._current_portfolio_path else \
+            f"{len(cfg.tickers)}-asset portfolio"
+        rf = getattr(self._last_results, "risk_free", None)
+        if rf is not None:
+            rf_text = f"Rf {rf.rate:.2%} · {rf.source}"
+        elif getattr(cfg, "risk_free_source", "manual") == "tbill":
+            rf_text = "Rf: T-bill average (^IRX)"
+        else:
+            rf_text = f"Rf {cfg.risk_free_rate:.2%} · manual"
+        self.top_bar.set_context(name, cfg.benchmark, cfg.start_date, cfg.end_date, rf_text)
 
     def _build_header(self) -> QWidget:
         header = QWidget()
@@ -331,6 +428,8 @@ class MainWindow(QMainWindow):
         # is no permanent indicator eating into the strip.
         # The ticker strip's source (portfolio / watchlist / both) is chosen from
         # the View → Ticker Scroller menu; ``_strip_source`` is set there.
+        self.data_status = DataStatus()
+        sb.addWidget(self.data_status, 0)
         self.ticker_strip = TickerStrip()
         self.ticker_strip.symbolClicked.connect(self._on_ticker_clicked)
         sb.addWidget(self.ticker_strip, 1)
@@ -386,6 +485,7 @@ class MainWindow(QMainWindow):
         self._retheme_header()
         self.config_panel.retheme()
         self.metric_strip.retheme()
+        self.nav.retheme()
         if self._last_results is not None:
             self._update_metrics(self._last_results)
         self.results_view.retheme()
@@ -1142,31 +1242,52 @@ class MainWindow(QMainWindow):
         self.results_view.display(results)
 
     def _update_metrics(self, results) -> None:
+        """KPI strip: portfolio numbers with the benchmark (or context) underneath.
+        Alpha/beta/TE come from the portfolio-level regression in the performance
+        summary (not an average of per-asset CAPM fits)."""
         strip = self.metric_strip
-        active = results.active
-        passive = results.passive
+        active, passive = results.active, results.passive
+        self.data_status.update_from(results)
+        self._refresh_context()
 
-        active_ret = active.ann_return if active else None
-        passive_ret = passive.ann_return if passive else None
-        excess = (
-            active_ret - passive_ret
-            if (active_ret is not None and passive_ret is not None)
-            else None
-        )
-        strip.set_metric("Total Return", fmt_pct(active_ret), delta_str(excess))
-        strip.set_metric(
-            "Sharpe Ratio",
-            f"{active.sharpe:.2f}" if active and not np.isnan(active.sharpe) else "—",
-        )
-        strip.set_metric("Max Drawdown", fmt_pct(active.max_dd if active else None))
-        strip.set_metric("Volatility", fmt_pct(active.ann_vol if active else None))
+        def pct(v):
+            return fmt_pct(v) if v is not None and not np.isnan(v) else "—"
 
-        alpha_val = beta_val = None
-        if results.capm_results:
-            alpha_val = float(np.mean([r.alpha for r in results.capm_results]))
-            beta_val = float(np.mean([r.beta for r in results.capm_results]))
-        strip.set_metric("Alpha", f"{alpha_val * 12:.2%}" if alpha_val is not None else "—")
-        strip.set_metric("Beta", f"{beta_val:.2f}" if beta_val is not None else "—")
+        def num(v):
+            return f"{v:.2f}" if v is not None and not np.isnan(v) else "—"
+
+        summ = {}
+        ps = results.performance_summary
+        if ps is not None and not ps.empty:
+            summ = dict(zip(ps["Metric"], ps["Full History"]))
+        if active is None:
+            strip.clear()
+            return
+        nav_val = float(active.values.iloc[-1])
+        day = float(active.values.iloc[-1] - active.values.iloc[-2]) if len(active.values) > 1 else 0.0
+        strip.set_metric("NAV", f"${nav_val:,.0f}", f"{day:+,.0f} last day".replace("+-", "-"),
+                         None)
+        strip.cell("NAV").sub.setStyleSheet(
+            f"color: {theme.ACTIVE.green if day >= 0 else theme.ACTIVE.red};")
+        b_ret = passive.ann_return if passive else None
+        strip.set_metric("CAGR", pct(active.ann_return), f"Bench {pct(b_ret)}")
+        excess = active.ann_return - b_ret if b_ret is not None else None
+        alpha = summ.get("Alpha (ann.)")
+        t_a = summ.get("Alpha t-stat")
+        sub = f"Alpha {pct(alpha)}" + (f" (t {t_a:.1f})" if t_a is not None and not np.isnan(t_a) else "")
+        strip.set_metric("Excess / yr", delta_str(excess) if excess is not None else "—", sub,
+                         None if excess is None else ("pos" if excess >= 0 else "neg"))
+        strip.set_metric("Volatility", pct(active.ann_vol),
+                         f"Bench {pct(passive.ann_vol if passive else None)}")
+        tr = results.tail_risk or {}
+        strip.set_metric("Sharpe", num(active.sharpe), f"Sortino {num(tr.get('Sortino', np.nan))}")
+        strip.set_metric("Max drawdown", pct(active.max_dd),
+                         f"Bench {pct(passive.max_dd if passive else None)}", "neg")
+        beta, beta_se = summ.get("Beta"), summ.get("Beta SE")
+        strip.set_metric("Beta", num(beta),
+                         f"SE {num(beta_se)}" if beta_se is not None else "")
+        strip.set_metric("Tracking error", pct(summ.get("Tracking Error")),
+                         f"IR {num(summ.get('Information Ratio'))}")
 
     # ── Analysis run (threaded) ──
     def _on_run_requested(self, config) -> None:
@@ -1206,6 +1327,8 @@ class MainWindow(QMainWindow):
         self.progress.setFormat("   Analysis complete   %p%")
         self.display_results(results)
         self._set_running(False)
+        if not self.sidebar.is_collapsed():
+            self.sidebar.set_collapsed(True)
         rf = getattr(results, "risk_free", None)
         rf_note = f" · Rf {rf.rate:.2%} ({rf.source})" if rf is not None else ""
         warnings = list(getattr(results, "warnings", []) or [])
@@ -1254,6 +1377,7 @@ class MainWindow(QMainWindow):
 
     def _set_running(self, running: bool) -> None:
         self.config_panel.set_enabled_for_run(not running)
+        self.top_bar.set_running(running)
         self.act_run.setEnabled(not running)
         # During a run the full-width progress bar (with its Cancel button) replaces
         # the idle status label + ticker strip; the strip returns when the run ends.
